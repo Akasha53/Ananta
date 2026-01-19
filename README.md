@@ -156,11 +156,6 @@ stop_all.bat
 ├── web/                 # Frontend (HTML/CSS/JS)
 └── text-generation-webui/  # LLM (submodule)
 ```
-
-## License
-
-MIT
-
 ## Disclaimer
 
 This tool is designed for authorized security testing and OSINT research only. Users are responsible for ensuring they have proper authorization before scanning any targets. Unauthorized scanning may be illegal in your jurisdiction.
