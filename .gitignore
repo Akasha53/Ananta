@@ -68,7 +68,12 @@ temp/
 credentials.json
 secrets.json
 *_key.json
+
+# Project-specific
+CLAUDE.md
+.claude/
 nul
 tmpclaude-*
 text-generation-webui_BACKUP/
 *.zip
+celerybeat-schedule.*
