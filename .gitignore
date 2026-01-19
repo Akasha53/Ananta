@@ -69,3 +69,6 @@ credentials.json
 secrets.json
 *_key.json
 nul
+tmpclaude-*
+text-generation-webui_BACKUP/
+*.zip
