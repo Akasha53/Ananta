@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html lang="fr" class="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover" />
+  <title>ANANTA // HORS LIGNE</title>
+
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    :root {
+      --bg-primary: #020617;
+      --bg-secondary: #0f172a;
+      --accent: #22d3ee;
+      --text-primary: #f8fafc;
+      --text-secondary: #94a3b8;
+    }
+
+    body {
+      font-family: 'JetBrains Mono', monospace;
+      background: var(--bg-primary);
+      color: var(--text-primary);
+      min-height: 100vh;
+      min-height: 100dvh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+      text-align: center;
+    }
+
+    .offline-icon {
+      width: 120px;
+      height: 120px;
+      background: linear-gradient(135deg, var(--bg-secondary) 0%, var(--bg-primary) 100%);
+      border-radius: 24px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin-bottom: 32px;
+      border: 2px solid var(--accent);
+      opacity: 0.5;
+    }
+
+    .offline-icon svg {
+      width: 64px;
+      height: 64px;
+      stroke: var(--accent);
+      fill: none;
+      stroke-width: 2;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+
+    h1 {
+      font-size: 24px;
+      font-weight: 700;
+      letter-spacing: 4px;
+      margin-bottom: 16px;
+      color: var(--accent);
+    }
+
+    p {
+      font-size: 14px;
+      color: var(--text-secondary);
+      line-height: 1.6;
+      max-width: 320px;
+      margin-bottom: 32px;
+    }
+
+    .retry-btn {
+      background: var(--accent);
+      color: var(--bg-primary);
+      border: none;
+      padding: 16px 32px;
+      border-radius: 12px;
+      font-family: inherit;
+      font-size: 14px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 2px;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+
+    .retry-btn:hover {
+      transform: scale(1.05);
+      box-shadow: 0 0 30px rgba(34, 211, 238, 0.4);
+    }
+
+    .retry-btn:active {
+      transform: scale(0.98);
+    }
+
+    .status-bar {
+      position: fixed;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      padding: 16px;
+      background: var(--bg-secondary);
+      border-top: 1px solid #334155;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      font-size: 12px;
+      color: var(--text-secondary);
+    }
+
+    .status-dot {
+      width: 8px;
+      height: 8px;
+      background: #f43f5e;
+      border-radius: 50%;
+      animation: pulse 2s infinite;
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.5; }
+    }
+
+    .cached-info {
+      margin-top: 32px;
+      padding: 16px;
+      background: var(--bg-secondary);
+      border-radius: 12px;
+      border: 1px solid #334155;
+      font-size: 12px;
+      color: var(--text-secondary);
+    }
+
+    .cached-info strong {
+      color: var(--accent);
+    }
+  </style>
+</head>
+<body>
+  <div class="offline-icon">
+    <svg viewBox="0 0 24 24">
+      <line x1="1" y1="1" x2="23" y2="23"></line>
+      <path d="M16.72 11.06A10.94 10.94 0 0 1 19 12.55"></path>
+      <path d="M5 12.55a10.94 10.94 0 0 1 5.17-2.39"></path>
+      <path d="M10.71 5.05A16 16 0 0 1 22.58 9"></path>
+      <path d="M1.42 9a15.91 15.91 0 0 1 4.7-2.88"></path>
+      <path d="M8.53 16.11a6 6 0 0 1 6.95 0"></path>
+      <line x1="12" y1="20" x2="12.01" y2="20"></line>
+    </svg>
+  </div>
+
+  <h1>HORS LIGNE</h1>
+
+  <p>
+    La connexion au serveur ANANTA est actuellement indisponible.
+    Vérifiez votre connexion réseau et réessayez.
+  </p>
+
+  <button class="retry-btn" onclick="window.location.reload()">
+    Réessayer
+  </button>
+
+  <div class="cached-info">
+    <strong>Mode hors ligne</strong><br>
+    Certaines fonctionnalités sont indisponibles sans connexion au serveur backend.
+  </div>
+
+  <div class="status-bar">
+    <span class="status-dot"></span>
+    <span>SERVEUR DÉCONNECTÉ</span>
+  </div>
+
+  <script>
+    // Vérifie la connexion périodiquement
+    setInterval(() => {
+      fetch('/health', { method: 'HEAD' })
+        .then(() => {
+          // Connexion rétablie, recharger
+          window.location.reload();
+        })
+        .catch(() => {
+          // Toujours hors ligne
+        });
+    }, 5000);
+  </script>
+</body>
+</html>

@@ -1,0 +1,97 @@
+{
+  "name": "ANANTA OSINT Console",
+  "short_name": "ANANTA",
+  "description": "Next-Gen OSINT Intelligence Console - Analyse de domaines, IPs et menaces",
+  "start_url": "/web/html/index.html",
+  "scope": "/web/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#020617",
+  "theme_color": "#22d3ee",
+  "categories": ["security", "utilities", "productivity"],
+  "lang": "fr",
+  "icons": [
+    {
+      "src": "/web/icons/icon-72.png",
+      "sizes": "72x72",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/web/icons/icon-96.png",
+      "sizes": "96x96",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/web/icons/icon-128.png",
+      "sizes": "128x128",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/web/icons/icon-144.png",
+      "sizes": "144x144",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/web/icons/icon-152.png",
+      "sizes": "152x152",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/web/icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/web/icons/icon-384.png",
+      "sizes": "384x384",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/web/icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Nouvelle Analyse",
+      "short_name": "Analyse",
+      "description": "Lancer une nouvelle analyse OSINT",
+      "url": "/web/html/index.html?action=new",
+      "icons": [{ "src": "/web/icons/icon-96.png", "sizes": "96x96" }]
+    },
+    {
+      "name": "Base de Données",
+      "short_name": "Archives",
+      "description": "Consulter les rapports archivés",
+      "url": "/web/html/database.html",
+      "icons": [{ "src": "/web/icons/icon-96.png", "sizes": "96x96" }]
+    }
+  ],
+  "screenshots": [
+    {
+      "src": "/web/screenshots/console-mobile.png",
+      "sizes": "390x844",
+      "type": "image/png",
+      "form_factor": "narrow",
+      "label": "Console OSINT Mobile"
+    },
+    {
+      "src": "/web/screenshots/console-desktop.png",
+      "sizes": "1920x1080",
+      "type": "image/png",
+      "form_factor": "wide",
+      "label": "Console OSINT Desktop"
+    }
+  ],
+  "related_applications": [],
+  "prefer_related_applications": false
+}

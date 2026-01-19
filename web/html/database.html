@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="fr" class="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover, maximum-scale=1" />
+  <title>ANANTA // ARCHIVES DATABASE</title>
+
+  <!-- PWA Meta Tags -->
+  <meta name="description" content="ANANTA - Archives des rapports OSINT" />
+  <meta name="theme-color" content="#020617" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+
+  <!-- PWA Manifest & Icons -->
+  <link rel="manifest" href="../manifest.json" />
+  <link rel="icon" type="image/svg+xml" href="../icons/icon.svg" />
+  <link rel="apple-touch-icon" href="../icons/icon-192.png" />
+
+  <!-- Frameworks & Fonts -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" />
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="../css/style.css" />
+  <link rel="stylesheet" href="../css/mobile.css" />
+
+  <!-- Mobile-specific styles for database page -->
+  <style>
+    @media (max-width: 767px) {
+      /* Compact header */
+      header.h-16 {
+        padding: 0 16px;
+        height: 56px;
+      }
+
+      header h1 {
+        font-size: 12px;
+        letter-spacing: 2px;
+      }
+
+      /* Stack stats vertically */
+      .grid.grid-cols-1.md\\:grid-cols-3 {
+        gap: 12px;
+      }
+
+      /* Responsive table */
+      table { display: block; overflow-x: auto; }
+      thead { display: none; }
+      tbody { display: block; }
+      tbody tr {
+        display: flex;
+        flex-direction: column;
+        padding: 16px;
+        border-bottom: 1px solid #1e293b;
+      }
+      tbody td {
+        padding: 4px 0;
+        width: 100% !important;
+        text-align: left !important;
+      }
+      tbody td:first-child {
+        font-size: 10px;
+        color: #64748b;
+      }
+      tbody td:nth-child(3) {
+        font-weight: bold;
+        color: #22d3ee;
+        margin: 8px 0;
+      }
+      tbody td:last-child {
+        display: flex;
+        gap: 8px;
+        margin-top: 8px;
+      }
+      tbody td:last-child button {
+        flex: 1;
+      }
+
+      /* Modal fullscreen on mobile */
+      #preview-modal > div {
+        width: 100%;
+        height: 100%;
+        max-width: 100%;
+        border-radius: 0;
+      }
+    }
+  </style>
+</head>
+<body class="bg-[#020617] text-slate-300 font-mono h-screen flex flex-col overflow-hidden">
+
+  <!-- Header -->
+  <header class="h-16 glass-panel flex items-center justify-between px-8 border-b border-slate-800 z-10">
+    <div class="flex items-center gap-4">
+      <a href="index.html" class="text-slate-500 hover:text-cyan-400 transition-colors">
+        <i class="fas fa-arrow-left"></i> Retour Console
+      </a>
+      <div class="h-6 w-[1px] bg-slate-800"></div>
+      <h1 class="text-lg font-bold text-cyan-400 tracking-widest uppercase">Base de Données OSINT</h1>
+    </div>
+    <div class="text-xs text-slate-500 font-bold" id="db-status">Connecté</div>
+  </header>
+
+  <!-- Content -->
+  <main class="flex-1 overflow-y-auto p-8">
+    <div class="max-w-7xl mx-auto">
+      
+      <!-- Stats -->
+      <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+        <div class="p-4 rounded-xl bg-slate-900/50 border border-slate-800">
+          <div class="text-xs text-slate-500 uppercase font-bold mb-1">Rapports Stockés</div>
+          <div class="text-2xl font-bold text-cyan-400" id="stat-count">0</div>
+        </div>
+        <div class="p-4 rounded-xl bg-slate-900/50 border border-slate-800">
+          <div class="text-xs text-slate-500 uppercase font-bold mb-1">Dernier Scan</div>
+          <div class="text-xl font-bold text-emerald-400 truncate" id="stat-last">--</div>
+        </div>
+        <div class="p-4 rounded-xl bg-slate-900/50 border border-slate-800 flex items-center justify-center">
+            <button onclick="loadDatabase()" class="px-4 py-2 bg-slate-800 hover:bg-slate-700 rounded text-xs font-bold uppercase transition-colors">
+                <i class="fas fa-sync-alt mr-2"></i> Actualiser
+            </button>
+        </div>
+      </div>
+
+      <!-- Search Bar -->
+      <div class="mb-6">
+        <div class="relative">
+          <i class="fas fa-search absolute left-4 top-1/2 -translate-y-1/2 text-slate-500"></i>
+          <input
+            type="text"
+            id="search-input"
+            placeholder="Rechercher par cible, type ou date..."
+            class="w-full pl-12 pr-4 py-3 bg-slate-900/50 border border-slate-700 rounded-xl text-sm text-slate-300 placeholder-slate-600 focus:outline-none focus:border-cyan-500/50 focus:ring-1 focus:ring-cyan-500/20 transition-all"
+            oninput="filterTable()"
+          />
+          <button
+            onclick="clearSearch()"
+            class="absolute right-4 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300 transition-colors hidden"
+            id="clear-search-btn"
+          >
+            <i class="fas fa-times"></i>
+          </button>
+        </div>
+      </div>
+
+      <!-- Table -->
+      <div class="glass-panel rounded-xl overflow-hidden border border-slate-800">
+        <table class="w-full text-left text-sm">
+          <thead class="bg-slate-900/80 text-slate-500 uppercase text-xs font-bold border-b border-slate-800">
+            <tr>
+              <th class="p-4 w-48">Date / Heure</th>
+              <th class="p-4 w-32">Type</th>
+              <th class="p-4">Cible (Target)</th>
+              <th class="p-4 w-48 text-right">Actions</th>
+            </tr>
+          </thead>
+          <tbody id="db-body" class="divide-y divide-slate-800/50">
+            <tr>
+              <td colspan="4" class="p-8 text-center text-slate-600 italic">Chargement des archives...</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+    </div>
+  </main>
+
+  <!-- Modal Aperçu (Caché par défaut) -->
+  <div id="preview-modal" class="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 hidden flex items-center justify-center p-4">
+    <div class="bg-[#0f172a] border border-slate-700 w-full max-w-4xl h-[80vh] rounded-xl flex flex-col shadow-2xl">
+        <div class="flex justify-between items-center p-4 border-b border-slate-800 bg-slate-900/50">
+            <h3 class="text-cyan-400 font-bold uppercase tracking-wider" id="modal-title">Aperçu Rapport</h3>
+            <button onclick="closeModal()" class="text-slate-500 hover:text-white"><i class="fas fa-times text-xl"></i></button>
+        </div>
+        <div class="flex-1 overflow-y-auto p-6 text-sm leading-relaxed text-slate-300 font-sans whitespace-pre-wrap" id="modal-content"></div>
+        <div class="p-4 border-t border-slate-800 flex justify-end gap-3 bg-slate-900/50">
+            <button onclick="closeModal()" class="px-4 py-2 rounded border border-slate-700 hover:bg-slate-800 text-slate-300 text-xs font-bold uppercase">Fermer</button>
+            <button id="modal-pdf-btn" class="px-4 py-2 rounded bg-cyan-600 hover:bg-cyan-500 text-slate-900 text-xs font-bold uppercase">
+                <i class="fas fa-download mr-2"></i> Télécharger PDF
+            </button>
+        </div>
+    </div>
+  </div>
+
+  <!-- Theme Management -->
+  <script src="../javascript/theme.js"></script>
+  <script src="../javascript/database.js"></script>
+</body>
+</html>

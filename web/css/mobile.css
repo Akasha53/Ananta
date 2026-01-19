@@ -1,0 +1,459 @@
+/**
+ * ANANTA PWA - Mobile Styles
+ * Version 2.0 - Refonte complete
+ */
+
+/* ============================================
+   CSS VARIABLES
+   ============================================ */
+
+:root {
+  --safe-area-top: env(safe-area-inset-top, 0px);
+  --safe-area-bottom: env(safe-area-inset-bottom, 0px);
+  --mobile-header-height: 52px;
+  --mobile-nav-height: 60px;
+  --mobile-input-height: 64px;
+}
+
+/* ============================================
+   MOBILE LAYOUT (<768px)
+   ============================================ */
+
+@media (max-width: 767px) {
+
+  /* ----- RESET LAYOUT ----- */
+  body {
+    min-height: 100dvh;
+    overflow-x: hidden;
+  }
+
+  .flex.h-screen {
+    flex-direction: column !important;
+    height: 100dvh !important;
+  }
+
+  /* ----- HIDE DESKTOP ELEMENTS ----- */
+
+  /* Hide right sidebar completely */
+  .w-80.glass-panel,
+  aside.hidden.lg\:flex,
+  .lg\:flex.flex-col.p-6 {
+    display: none !important;
+  }
+
+  /* Hide scanline effect on mobile */
+  .scanline {
+    display: none !important;
+  }
+
+  /* ----- LEFT SIDEBAR → BOTTOM NAV ----- */
+
+  body > div > aside:first-of-type,
+  .flex.h-screen > aside:first-child {
+    position: fixed !important;
+    bottom: 0 !important;
+    left: 0 !important;
+    right: 0 !important;
+    top: auto !important;
+    width: 100% !important;
+    height: var(--mobile-nav-height) !important;
+    padding: 0 !important;
+    padding-bottom: var(--safe-area-bottom) !important;
+    flex-direction: row !important;
+    align-items: stretch !important;
+    justify-content: center !important;
+    gap: 0 !important;
+    z-index: 1000 !important;
+    border-top: 1px solid rgba(34, 211, 238, 0.3) !important;
+    border-right: none !important;
+    background: rgba(2, 6, 23, 0.95) !important;
+    backdrop-filter: blur(20px) !important;
+  }
+
+  /* Hide logo section */
+  body > div > aside:first-of-type > .flex.items-center.gap-3,
+  .flex.h-screen > aside:first-child > .flex.items-center.gap-3 {
+    display: none !important;
+  }
+
+  /* Hide user section */
+  body > div > aside:first-of-type > .w-full.px-3.pt-6,
+  .flex.h-screen > aside:first-child > .w-full.px-3.pt-6 {
+    display: none !important;
+  }
+
+  /* Nav container */
+  body > div > aside:first-of-type nav,
+  .flex.h-screen > aside:first-child nav {
+    display: flex !important;
+    flex-direction: row !important;
+    width: 100% !important;
+    height: 100% !important;
+    justify-content: space-around !important;
+    align-items: center !important;
+    padding: 0 8px !important;
+    margin: 0 !important;
+  }
+
+  /* Hide "Modules" label */
+  body > div > aside:first-of-type nav > div:first-child,
+  .flex.h-screen > aside:first-child nav > div:first-child {
+    display: none !important;
+  }
+
+  /* Nav buttons */
+  body > div > aside:first-of-type nav button,
+  body > div > aside:first-of-type nav a,
+  .flex.h-screen > aside:first-child nav button,
+  .flex.h-screen > aside:first-child nav a {
+    display: flex !important;
+    flex-direction: column !important;
+    align-items: center !important;
+    justify-content: center !important;
+    gap: 4px !important;
+    padding: 8px 16px !important;
+    min-width: 70px !important;
+    height: calc(var(--mobile-nav-height) - var(--safe-area-bottom)) !important;
+    border: none !important;
+    background: transparent !important;
+    border-radius: 0 !important;
+  }
+
+  /* Nav icons */
+  body > div > aside:first-of-type nav button i,
+  body > div > aside:first-of-type nav a i,
+  .flex.h-screen > aside:first-child nav button i,
+  .flex.h-screen > aside:first-child nav a i {
+    font-size: 20px !important;
+  }
+
+  /* Nav labels */
+  body > div > aside:first-of-type nav button span,
+  body > div > aside:first-of-type nav a span,
+  .flex.h-screen > aside:first-child nav button span,
+  .flex.h-screen > aside:first-child nav a span {
+    display: block !important;
+    font-size: 9px !important;
+    text-transform: uppercase !important;
+    letter-spacing: 0.5px !important;
+    white-space: nowrap !important;
+  }
+
+  /* Active nav item */
+  body > div > aside:first-of-type nav button.bg-cyan-500\/10,
+  .flex.h-screen > aside:first-child nav button.bg-cyan-500\/10 {
+    background: rgba(34, 211, 238, 0.15) !important;
+    border-top: 2px solid #22d3ee !important;
+  }
+
+  /* ----- MAIN CONTENT ----- */
+
+  main.flex-1 {
+    order: 1 !important;
+    flex: 1 !important;
+    padding-bottom: calc(var(--mobile-nav-height) + var(--mobile-input-height) + 8px) !important;
+    overflow-y: auto !important;
+    overflow-x: hidden !important;
+  }
+
+  /* ----- HEADER ----- */
+
+  header.h-16 {
+    height: var(--mobile-header-height) !important;
+    padding: 0 12px !important;
+    padding-top: var(--safe-area-top) !important;
+  }
+
+  /* Hide session info divider */
+  header .h-4.w-\[1px\] {
+    display: none !important;
+  }
+
+  /* Hide uptime on mobile */
+  header .flex.items-center.gap-2:nth-child(2) {
+    display: none !important;
+  }
+
+  header span.text-xs {
+    font-size: 9px !important;
+  }
+
+  /* Simplify API status pill */
+  header .px-3.py-1.rounded-full {
+    padding: 4px 8px !important;
+  }
+
+  header .px-3.py-1.rounded-full span {
+    display: none !important;
+  }
+
+  /* ----- CHAT ZONE ----- */
+
+  #chat-zone {
+    padding: 12px !important;
+    padding-bottom: 8px !important;
+  }
+
+  #chat-inner {
+    max-width: 100% !important;
+  }
+
+  /* Message cards */
+  #chat-inner > div {
+    padding: 12px !important;
+    gap: 10px !important;
+    border-radius: 12px !important;
+  }
+
+  /* Message icon */
+  #chat-inner > div .w-10.h-10 {
+    width: 32px !important;
+    height: 32px !important;
+    min-width: 32px !important;
+    flex-shrink: 0 !important;
+  }
+
+  #chat-inner > div .w-10.h-10 i {
+    font-size: 14px !important;
+  }
+
+  /* Message title */
+  #chat-inner > div h3 {
+    font-size: 11px !important;
+  }
+
+  /* Message text */
+  #chat-inner > div p {
+    font-size: 13px !important;
+    line-height: 1.5 !important;
+  }
+
+  /* ----- INPUT ZONE ----- */
+
+  .p-6.glass-panel.border-t,
+  div.p-6.glass-panel.border-t.sticky {
+    position: fixed !important;
+    bottom: var(--mobile-nav-height) !important;
+    left: 0 !important;
+    right: 0 !important;
+    padding: 8px 12px !important;
+    padding-bottom: calc(8px + var(--safe-area-bottom)) !important;
+    z-index: 500 !important;
+    background: rgba(2, 6, 23, 0.95) !important;
+    backdrop-filter: blur(20px) !important;
+  }
+
+  /* Input field */
+  #query-input {
+    padding: 12px 60px 12px 36px !important;
+    font-size: 16px !important; /* Prevents iOS zoom */
+    border-radius: 12px !important;
+    height: 48px !important;
+  }
+
+  /* Input chevron icon */
+  .fa-chevron-right {
+    font-size: 12px !important;
+  }
+
+  /* Send button */
+  #send-btn {
+    padding: 0 14px !important;
+    border-radius: 10px !important;
+    right: 4px !important;
+    top: 4px !important;
+    bottom: 4px !important;
+  }
+
+  #send-btn span {
+    display: none !important;
+  }
+
+  #send-btn i {
+    font-size: 16px !important;
+  }
+
+  /* ----- PROGRESS BAR ----- */
+
+  .progress-container {
+    margin: 6px 0 !important;
+  }
+
+  .progress-bar-fill {
+    height: 4px !important;
+  }
+
+  /* ----- LANDSCAPE WARNING ----- */
+
+  .landscape-warning {
+    display: none;
+  }
+}
+
+/* ============================================
+   LANDSCAPE MODE WARNING (phones only)
+   ============================================ */
+
+@media (max-width: 900px) and (max-height: 500px) and (orientation: landscape) {
+  .landscape-warning {
+    display: flex !important;
+    position: fixed;
+    inset: 0;
+    background: rgba(2, 6, 23, 0.98);
+    z-index: 9999;
+    align-items: center;
+    justify-content: center;
+    flex-direction: column;
+    gap: 16px;
+    color: #22d3ee;
+    text-align: center;
+    padding: 24px;
+  }
+
+  .landscape-warning i {
+    font-size: 40px;
+  }
+
+  .landscape-warning p {
+    font-size: 14px;
+    color: #94a3b8;
+  }
+}
+
+/* ============================================
+   TABLET LAYOUT (768px - 1023px)
+   ============================================ */
+
+@media (min-width: 768px) and (max-width: 1023px) {
+  /* Hide right sidebar */
+  .w-80.glass-panel,
+  aside.hidden.lg\:flex {
+    display: none !important;
+  }
+
+  /* Compact left sidebar */
+  body > div > aside:first-of-type,
+  .flex.h-screen > aside:first-child {
+    width: 72px !important;
+  }
+
+  /* Hide nav labels */
+  body > div > aside:first-of-type nav span,
+  .flex.h-screen > aside:first-child nav span {
+    display: none !important;
+  }
+}
+
+/* ============================================
+   TOUCH OPTIMIZATIONS
+   ============================================ */
+
+@media (pointer: coarse) {
+  /* Larger touch targets */
+  button, a, input, select, textarea {
+    min-height: 44px;
+  }
+
+  /* Better tap feedback */
+  button:active, a:active {
+    opacity: 0.8;
+    transform: scale(0.98);
+  }
+}
+
+/* ============================================
+   PWA INSTALL BANNER
+   ============================================ */
+
+.pwa-install-banner {
+  position: fixed;
+  bottom: calc(var(--mobile-nav-height, 60px) + var(--mobile-input-height, 64px) + 16px);
+  left: 12px;
+  right: 12px;
+  background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
+  border: 1px solid #22d3ee;
+  border-radius: 12px;
+  padding: 12px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  z-index: 600;
+  box-shadow: 0 4px 20px rgba(34, 211, 238, 0.3);
+}
+
+.pwa-install-banner .icon {
+  width: 40px;
+  height: 40px;
+  background: #22d3ee;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.pwa-install-banner .icon i {
+  font-size: 20px;
+  color: #0f172a;
+}
+
+.pwa-install-banner .content {
+  flex: 1;
+  min-width: 0;
+}
+
+.pwa-install-banner .content h4 {
+  font-size: 13px;
+  font-weight: 700;
+  color: #f8fafc;
+  margin-bottom: 2px;
+}
+
+.pwa-install-banner .content p {
+  font-size: 11px;
+  color: #94a3b8;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.pwa-install-banner .actions {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.pwa-install-banner button {
+  padding: 8px 12px;
+  border-radius: 6px;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  border: none;
+  cursor: pointer;
+  min-height: 32px;
+}
+
+.pwa-install-banner .install-btn {
+  background: #22d3ee;
+  color: #0f172a;
+}
+
+.pwa-install-banner .dismiss-btn {
+  background: transparent;
+  color: #64748b;
+  padding: 4px 8px;
+  min-height: auto;
+}
+
+/* ============================================
+   REDUCED MOTION
+   ============================================ */
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+  .scanline { display: none; }
+}

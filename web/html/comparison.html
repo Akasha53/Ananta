@@ -1,0 +1,260 @@
+<!DOCTYPE html>
+<html lang="fr" class="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ANANTA // SCAN COMPARISON</title>
+
+  <!-- PWA Meta Tags -->
+  <meta name="description" content="ANANTA - Comparaison de scans OSINT" />
+  <meta name="theme-color" content="#020617" />
+
+  <!-- PWA Manifest & Icons -->
+  <link rel="manifest" href="../manifest.json" />
+  <link rel="icon" type="image/svg+xml" href="../icons/icon.svg" />
+
+  <!-- Frameworks & Fonts -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" />
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="../css/style.css" />
+</head>
+<body class="bg-[#020617] text-slate-300 font-mono h-screen flex flex-col overflow-hidden">
+
+  <!-- Header -->
+  <header class="h-16 glass-panel flex items-center justify-between px-8 border-b border-slate-800 z-10">
+    <div class="flex items-center gap-4">
+      <a href="index.html" class="text-slate-500 hover:text-cyan-400 transition-colors">
+        <i class="fas fa-arrow-left"></i> Retour Console
+      </a>
+      <div class="h-6 w-[1px] bg-slate-800"></div>
+      <h1 class="text-lg font-bold text-cyan-400 tracking-widest uppercase">
+        <i class="fas fa-code-compare mr-2"></i>Comparaison de Scans
+      </h1>
+    </div>
+  </header>
+
+  <!-- Main Content -->
+  <main class="flex-1 overflow-y-auto p-8">
+
+    <!-- Selection Form -->
+    <section class="max-w-4xl mx-auto mb-8">
+      <div class="glass-panel p-6">
+        <h2 class="text-sm font-bold uppercase tracking-widest text-slate-500 mb-4">
+          Sélectionner les rapports à comparer
+        </h2>
+
+        <div class="space-y-4">
+          <div>
+            <label class="block text-xs text-slate-400 mb-2">Cible</label>
+            <input type="text" id="input-target" placeholder="Entrez la cible (domaine ou IP)"
+              class="w-full bg-slate-900 border border-slate-700 rounded px-4 py-2 text-sm" />
+          </div>
+
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <label class="block text-xs text-slate-400 mb-2">Premier rapport (ID)</label>
+              <input type="number" id="input-report1" placeholder="ID du rapport 1"
+                class="w-full bg-slate-900 border border-slate-700 rounded px-4 py-2 text-sm" />
+            </div>
+            <div>
+              <label class="block text-xs text-slate-400 mb-2">Second rapport (ID)</label>
+              <input type="number" id="input-report2" placeholder="ID du rapport 2"
+                class="w-full bg-slate-900 border border-slate-700 rounded px-4 py-2 text-sm" />
+            </div>
+          </div>
+
+          <button id="btn-compare" class="w-full px-6 py-3 bg-cyan-500 text-slate-900 font-bold rounded-lg hover:bg-cyan-400 transition-all">
+            <i class="fas fa-code-compare mr-2"></i>COMPARER LES SCANS
+          </button>
+        </div>
+      </div>
+    </section>
+
+    <!-- Results Section -->
+    <section id="results-section" class="max-w-6xl mx-auto hidden">
+      <!-- Summary Cards -->
+      <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
+        <div class="glass-panel p-6 border-l-4 border-emerald-500">
+          <div class="text-[10px] uppercase tracking-widest text-slate-500 mb-2">Outils Ajoutés</div>
+          <div class="text-3xl font-bold text-emerald-400" id="stat-tools-added">0</div>
+        </div>
+
+        <div class="glass-panel p-6 border-l-4 border-rose-500">
+          <div class="text-[10px] uppercase tracking-widest text-slate-500 mb-2">Outils Supprimés</div>
+          <div class="text-3xl font-bold text-rose-400" id="stat-tools-removed">0</div>
+        </div>
+
+        <div class="glass-panel p-6 border-l-4 border-amber-500">
+          <div class="text-[10px] uppercase tracking-widest text-slate-500 mb-2">Changements Détectés</div>
+          <div class="text-3xl font-bold text-amber-400" id="stat-changes">0</div>
+        </div>
+      </div>
+
+      <!-- Changes List -->
+      <div class="glass-panel p-6">
+        <h2 class="text-sm font-bold uppercase tracking-widest text-slate-500 mb-4">
+          <i class="fas fa-list mr-2"></i>Liste des Changements
+        </h2>
+        <div id="changes-list" class="space-y-4">
+          <!-- Changes will be populated here -->
+        </div>
+      </div>
+    </section>
+
+    <!-- Error Section -->
+    <section id="error-section" class="max-w-4xl mx-auto hidden">
+      <div class="glass-panel p-6 border-l-4 border-rose-500">
+        <div class="flex items-center gap-3 mb-2">
+          <i class="fas fa-exclamation-triangle text-rose-400 text-xl"></i>
+          <h3 class="text-sm font-bold uppercase text-rose-400">Erreur</h3>
+        </div>
+        <p id="error-message" class="text-sm text-slate-300"></p>
+      </div>
+    </section>
+
+  </main>
+
+  <script>
+    const API_BASE = (() => {
+      try {
+        const host = window.location.hostname;
+        const port = window.location.port;
+        const isBackendHosted = (host === "127.0.0.1" || host === "localhost") && String(port) === "8010";
+        return isBackendHosted ? "" : "http://127.0.0.1:8010";
+      } catch {
+        return "http://127.0.0.1:8010";
+      }
+    })();
+
+    function escapeHtml(str) {
+      return String(str)
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#039;");
+    }
+
+    function getSeverityBadge(severity) {
+      const badges = {
+        'high': '<span class="px-2 py-1 bg-rose-500/10 text-rose-400 rounded text-[10px] font-bold">HIGH</span>',
+        'medium': '<span class="px-2 py-1 bg-amber-500/10 text-amber-400 rounded text-[10px] font-bold">MEDIUM</span>',
+        'low': '<span class="px-2 py-1 bg-cyan-500/10 text-cyan-400 rounded text-[10px] font-bold">LOW</span>'
+      };
+      return badges[severity] || '<span class="text-slate-500">N/A</span>';
+    }
+
+    async function compareScans() {
+      const target = document.getElementById('input-target').value.trim();
+      const report1 = document.getElementById('input-report1').value;
+      const report2 = document.getElementById('input-report2').value;
+
+      if (!target || !report1 || !report2) {
+        showError('Veuillez remplir tous les champs');
+        return;
+      }
+
+      // Hide sections
+      document.getElementById('results-section').classList.add('hidden');
+      document.getElementById('error-section').classList.add('hidden');
+
+      // Show loading
+      document.getElementById('btn-compare').innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i>Comparaison en cours...';
+      document.getElementById('btn-compare').disabled = true;
+
+      try {
+        const params = new URLSearchParams({ target, report_id_1: report1, report_id_2: report2 });
+        const res = await fetch(`${API_BASE}/osint/compare?${params}`);
+
+        if (!res.ok) {
+          const error = await res.json().catch(() => ({ detail: 'Erreur serveur' }));
+          throw new Error(error.detail || 'Erreur lors de la comparaison');
+        }
+
+        const data = await res.json();
+        displayResults(data);
+
+      } catch (error) {
+        showError(error.message);
+      } finally {
+        document.getElementById('btn-compare').innerHTML = '<i class="fas fa-code-compare mr-2"></i>COMPARER LES SCANS';
+        document.getElementById('btn-compare').disabled = false;
+      }
+    }
+
+    function displayResults(data) {
+      document.getElementById('results-section').classList.remove('hidden');
+
+      // Update stats
+      document.getElementById('stat-tools-added').textContent = data.summary.tools_added;
+      document.getElementById('stat-tools-removed').textContent = data.summary.tools_removed;
+      document.getElementById('stat-changes').textContent = data.summary.changes_detected;
+
+      // Display changes
+      const changesList = document.getElementById('changes-list');
+
+      if (data.details.changes.length === 0 &&
+          data.details.tools_added.length === 0 &&
+          data.details.tools_removed.length === 0) {
+        changesList.innerHTML = '<p class="text-slate-500 italic text-center py-8">Aucun changement détecté entre les deux scans</p>';
+        return;
+      }
+
+      let html = '';
+
+      // Tools added
+      if (data.details.tools_added.length > 0) {
+        html += '<div class="glass-panel p-4 border-l-4 border-emerald-500">';
+        html += '<h3 class="text-xs font-bold text-emerald-400 mb-2">Outils Ajoutés</h3>';
+        html += '<ul class="list-disc list-inside text-sm text-slate-300 space-y-1">';
+        data.details.tools_added.forEach(tool => {
+          html += `<li>${escapeHtml(tool)}</li>`;
+        });
+        html += '</ul></div>';
+      }
+
+      // Tools removed
+      if (data.details.tools_removed.length > 0) {
+        html += '<div class="glass-panel p-4 border-l-4 border-rose-500">';
+        html += '<h3 class="text-xs font-bold text-rose-400 mb-2">Outils Supprimés</h3>';
+        html += '<ul class="list-disc list-inside text-sm text-slate-300 space-y-1">';
+        data.details.tools_removed.forEach(tool => {
+          html += `<li>${escapeHtml(tool)}</li>`;
+        });
+        html += '</ul></div>';
+      }
+
+      // Changes
+      data.details.changes.forEach(change => {
+        html += '<div class="glass-panel p-4">';
+        html += `<div class="flex items-center justify-between mb-2">`;
+        html += `<span class="text-xs font-bold text-cyan-400">${escapeHtml(change.tool)}</span>`;
+        html += getSeverityBadge(change.severity);
+        html += '</div>';
+        html += `<p class="text-sm text-slate-300 mb-2">${change.description || change.type}</p>`;
+        if (change.old_value || change.new_value) {
+          html += '<div class="grid grid-cols-2 gap-4 text-xs">';
+          html += `<div><span class="text-slate-500">Ancien:</span> <span class="text-rose-400">${escapeHtml(change.old_value || 'N/A')}</span></div>`;
+          html += `<div><span class="text-slate-500">Nouveau:</span> <span class="text-emerald-400">${escapeHtml(change.new_value || 'N/A')}</span></div>`;
+          html += '</div>';
+        }
+        html += '</div>';
+      });
+
+      changesList.innerHTML = html;
+    }
+
+    function showError(message) {
+      document.getElementById('error-section').classList.remove('hidden');
+      document.getElementById('error-message').textContent = message;
+    }
+
+    // Event listeners
+    document.getElementById('btn-compare').addEventListener('click', compareScans);
+  </script>
+
+  <!-- Theme Management -->
+  <script src="../javascript/theme.js"></script>
+</body>
+</html>

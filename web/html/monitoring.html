@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="fr" class="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ANANTA // MONITORING & AUDIT</title>
+
+  <!-- PWA Meta Tags -->
+  <meta name="description" content="ANANTA - Monitoring et Audit Trail" />
+  <meta name="theme-color" content="#020617" />
+
+  <!-- PWA Manifest & Icons -->
+  <link rel="manifest" href="../manifest.json" />
+  <link rel="icon" type="image/svg+xml" href="../icons/icon.svg" />
+
+  <!-- Frameworks & Fonts -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" />
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="../css/style.css" />
+</head>
+<body class="bg-[#020617] text-slate-300 font-mono h-screen flex flex-col overflow-hidden">
+
+  <!-- Header -->
+  <header class="h-16 glass-panel flex items-center justify-between px-8 border-b border-slate-800 z-10">
+    <div class="flex items-center gap-4">
+      <a href="index.html" class="text-slate-500 hover:text-cyan-400 transition-colors">
+        <i class="fas fa-arrow-left"></i> Retour Console
+      </a>
+      <div class="h-6 w-[1px] bg-slate-800"></div>
+      <h1 class="text-lg font-bold text-cyan-400 tracking-widest uppercase">
+        <i class="fas fa-chart-line mr-2"></i>Monitoring & Audit Trail
+      </h1>
+    </div>
+    <button id="btn-refresh" class="px-4 py-2 bg-cyan-500/10 border border-cyan-500/30 text-cyan-400 rounded hover:bg-cyan-500/20 transition-all text-xs font-bold">
+      <i class="fas fa-sync mr-2"></i>ACTUALISER
+    </button>
+  </header>
+
+  <!-- Main Content -->
+  <main class="flex-1 overflow-y-auto p-8">
+    <!-- Statistics Grid -->
+    <section class="mb-8">
+      <h2 class="text-sm font-bold uppercase tracking-widest text-slate-500 mb-4">
+        <i class="fas fa-chart-bar mr-2"></i>Statistiques Globales
+      </h2>
+      <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
+        <!-- Total Scans -->
+        <div class="glass-panel p-6 border-l-4 border-cyan-500">
+          <div class="text-[10px] uppercase tracking-widest text-slate-500 mb-2">Total Scans</div>
+          <div class="text-3xl font-bold text-cyan-400" id="stat-total-scans">--</div>
+        </div>
+
+        <!-- Success Rate -->
+        <div class="glass-panel p-6 border-l-4 border-emerald-500">
+          <div class="text-[10px] uppercase tracking-widest text-slate-500 mb-2">Taux de Succès</div>
+          <div class="text-3xl font-bold text-emerald-400" id="stat-success-rate">--%</div>
+        </div>
+
+        <!-- Failed Scans -->
+        <div class="glass-panel p-6 border-l-4 border-rose-500">
+          <div class="text-[10px] uppercase tracking-widest text-slate-500 mb-2">Échecs</div>
+          <div class="text-3xl font-bold text-rose-400" id="stat-failed-scans">--</div>
+        </div>
+
+        <!-- Avg Duration -->
+        <div class="glass-panel p-6 border-l-4 border-amber-500">
+          <div class="text-[10px] uppercase tracking-widest text-slate-500 mb-2">Durée Moyenne</div>
+          <div class="text-3xl font-bold text-amber-400" id="stat-avg-duration">--s</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Filters -->
+    <section class="mb-6 glass-panel p-4">
+      <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
+        <div>
+          <label class="block text-[10px] uppercase tracking-widest text-slate-500 mb-2">Outil</label>
+          <select id="filter-tool" class="w-full bg-slate-900 border border-slate-700 rounded px-3 py-2 text-sm">
+            <option value="">Tous les outils</option>
+          </select>
+        </div>
+        <div>
+          <label class="block text-[10px] uppercase tracking-widest text-slate-500 mb-2">Statut</label>
+          <select id="filter-status" class="w-full bg-slate-900 border border-slate-700 rounded px-3 py-2 text-sm">
+            <option value="">Tous les statuts</option>
+            <option value="ok">Succès</option>
+            <option value="error">Erreur</option>
+            <option value="denied">Refusé</option>
+            <option value="skipped">Ignoré</option>
+          </select>
+        </div>
+        <div>
+          <label class="block text-[10px] uppercase tracking-widest text-slate-500 mb-2">Période</label>
+          <select id="filter-period" class="w-full bg-slate-900 border border-slate-700 rounded px-3 py-2 text-sm">
+            <option value="24h">Dernières 24h</option>
+            <option value="7d">7 derniers jours</option>
+            <option value="30d">30 derniers jours</option>
+            <option value="all">Tous</option>
+          </select>
+        </div>
+        <div class="flex items-end">
+          <button id="btn-apply-filters" class="w-full px-4 py-2 bg-cyan-500 text-slate-900 rounded font-bold hover:bg-cyan-400 transition-all">
+            <i class="fas fa-filter mr-2"></i>APPLIQUER
+          </button>
+        </div>
+      </div>
+    </section>
+
+    <!-- Audit Logs Table -->
+    <section>
+      <h2 class="text-sm font-bold uppercase tracking-widest text-slate-500 mb-4">
+        <i class="fas fa-list mr-2"></i>Logs d'Exécution
+      </h2>
+      <div class="glass-panel overflow-hidden">
+        <div class="overflow-x-auto">
+          <table class="w-full text-xs">
+            <thead class="bg-slate-900/50 border-b border-slate-800">
+              <tr>
+                <th class="px-4 py-3 text-left text-[10px] uppercase tracking-wider text-slate-500">Timestamp</th>
+                <th class="px-4 py-3 text-left text-[10px] uppercase tracking-wider text-slate-500">Run ID</th>
+                <th class="px-4 py-3 text-left text-[10px] uppercase tracking-wider text-slate-500">Outil</th>
+                <th class="px-4 py-3 text-left text-[10px] uppercase tracking-wider text-slate-500">Cible</th>
+                <th class="px-4 py-3 text-left text-[10px] uppercase tracking-wider text-slate-500">Statut</th>
+                <th class="px-4 py-3 text-left text-[10px] uppercase tracking-wider text-slate-500">Durée</th>
+                <th class="px-4 py-3 text-left text-[10px] uppercase tracking-wider text-slate-500">Risque</th>
+                <th class="px-4 py-3 text-center text-[10px] uppercase tracking-wider text-slate-500">Actions</th>
+              </tr>
+            </thead>
+            <tbody id="logs-table-body" class="divide-y divide-slate-800">
+              <tr>
+                <td colspan="8" class="px-4 py-8 text-center text-slate-600">
+                  <i class="fas fa-spinner fa-spin text-2xl mb-2"></i>
+                  <p>Chargement des logs...</p>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Pagination -->
+      <div class="flex items-center justify-between mt-4">
+        <div class="text-xs text-slate-500" id="pagination-info">Affichage de 0 résultats</div>
+        <div class="flex gap-2">
+          <button id="btn-prev-page" class="px-3 py-1 bg-slate-800 border border-slate-700 rounded text-xs hover:bg-slate-700 disabled:opacity-50" disabled>
+            <i class="fas fa-chevron-left"></i>
+          </button>
+          <span class="px-3 py-1 text-xs text-slate-400" id="page-number">Page 1</span>
+          <button id="btn-next-page" class="px-3 py-1 bg-slate-800 border border-slate-700 rounded text-xs hover:bg-slate-700 disabled:opacity-50" disabled>
+            <i class="fas fa-chevron-right"></i>
+          </button>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <!-- Log Detail Modal -->
+  <div id="log-detail-modal" class="fixed inset-0 z-50 hidden">
+    <div class="absolute inset-0 bg-black/70 backdrop-blur-sm" onclick="closeLogDetail()"></div>
+    <div class="absolute inset-0 flex items-center justify-center p-4">
+      <div class="glass-panel w-full max-w-3xl max-h-[80vh] overflow-y-auto p-6 rounded-xl">
+        <div class="flex items-center justify-between mb-4">
+          <h3 class="text-lg font-bold text-cyan-400 uppercase tracking-wider">
+            <i class="fas fa-info-circle mr-2"></i>Détails du Log
+          </h3>
+          <button onclick="closeLogDetail()" class="text-slate-500 hover:text-white">
+            <i class="fas fa-times text-xl"></i>
+          </button>
+        </div>
+        <div id="log-detail-content" class="space-y-4 text-sm">
+          <!-- Content will be populated dynamically -->
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Theme Management -->
+  <script src="../javascript/theme.js"></script>
+  <script src="../javascript/monitoring.js"></script>
+</body>
+</html>

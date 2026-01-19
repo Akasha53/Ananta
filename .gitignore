@@ -1,0 +1,71 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+.venv/
+ENV/
+.eggs/
+*.egg-info/
+*.egg
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Logs
+logs/
+*.log
+
+# Database
+*.db
+*.sqlite3
+
+# Environment
+.env
+.env.local
+*.env
+
+# Celery
+celerybeat-schedule
+celerybeat.pid
+
+# Cache
+.cache/
+*.cache
+
+# LLM / Models (trop gros)
+text-generation-webui/models/
+text-generation-webui/characters/
+text-generation-webui/loras/
+text-generation-webui/presets/
+text-generation-webui/prompts/
+text-generation-webui/training/
+text-generation-webui/extensions/
+text-generation-webui/repositories/
+text-generation-webui/installer_files/
+*.safetensors
+*.bin
+*.gguf
+*.ggml
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Temp
+tmp/
+temp/
+*.tmp
+
+# Secrets
+credentials.json
+secrets.json
+*_key.json
+nul

@@ -1,0 +1,65 @@
+"""
+Script de migration de la base de données Ananta v2.0
+
+Crée les nouvelles tables pour:
+- Tool execution logs (audit trail)
+- Entities (DB interne)
+- Findings (DB interne)
+- Sources (profils de fiabilité)
+- Scan sessions (state structuré)
+
+Usage:
+    python migrate_db.py
+"""
+
+import logging
+from database import init_db, engine, Base
+from tools.tool_registry import registry
+
+logging.basicConfig(level=logging.INFO, format='%(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
+
+
+def main():
+    logger.info("=== MIGRATION BASE DE DONNÉES ANANTA V2.0 ===\n")
+
+    # 1. Créer toutes les tables
+    logger.info("📦 Création des tables...")
+    try:
+        Base.metadata.create_all(bind=engine)
+        logger.info("✅ Tables créées/vérifiées avec succès\n")
+    except Exception as e:
+        logger.error(f"❌ Erreur lors de la création des tables: {e}")
+        return
+
+    # 2. Afficher les stats du tool registry
+    logger.info("🔧 TOOL REGISTRY - Statistiques")
+    stats = registry.get_stats()
+    for key, value in stats.items():
+        logger.info(f"  {key}: {value}")
+
+    logger.info("\n📋 COUCHE 1 - OUTILS FONDAMENTAUX (Passifs, Sûrs)")
+    from tools.tool_registry import ToolLayer
+    for tool in registry.get_tools_by_layer(ToolLayer.LAYER_1_FUNDAMENTAL):
+        logger.info(f"  ✓ {tool.name} - {tool.description[:60]}...")
+
+    logger.info("\n📋 COUCHE 2 - OUTILS SPÉCIALISÉS (Conditionnels)")
+    for tool in registry.get_tools_by_layer(ToolLayer.LAYER_2_SPECIALIZED):
+        logger.info(f"  ⚠ {tool.name} - {tool.description[:60]}...")
+
+    logger.info("\n📋 COUCHE 3 - OUTILS SENSIBLES (Approbation Obligatoire)")
+    for tool in registry.get_tools_by_layer(ToolLayer.LAYER_3_SENSITIVE):
+        logger.info(f"  🔒 {tool.name} - {tool.description[:60]}...")
+
+    if registry.get_stats()['layer_3_tools'] == 0:
+        logger.info("  (Aucun outil Couche 3 pour le moment)")
+
+    logger.info("\n✅ MIGRATION TERMINÉE")
+    logger.info("\n💡 Prochaines étapes:")
+    logger.info("  1. Redémarrer le backend : python main.py")
+    logger.info("  2. Tester un scan : analyze example.com")
+    logger.info("  3. Vérifier les logs d'exécution dans tool_execution_logs")
+
+
+if __name__ == "__main__":
+    main()
