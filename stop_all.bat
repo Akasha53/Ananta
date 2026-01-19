@@ -33,8 +33,8 @@ echo FastAPI arrete
 timeout /t 2 /nobreak > nul
 
 echo.
-echo [3/3] Arret du LLM (DeepSeek)...
-taskkill /FI "WINDOWTITLE eq DeepSeek LLM*" /T /F >nul 2>&1
+echo [3/3] Arret du LLM (Mistral)...
+taskkill /FI "WINDOWTITLE eq Mistral LLM*" /T /F >nul 2>&1
 REM Fallback: arrêter sur port 5000
 for /f "tokens=5" %%a in ('netstat -aon ^| findstr :5000 ^| findstr LISTENING') do (
     taskkill /F /PID %%a >nul 2>&1

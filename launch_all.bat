@@ -3,6 +3,7 @@ title ANANTA OSINT - Launcher
 
 set "WEBUI_DIR=C:\Users\guilh\Desktop\Dossier perso\nas-akasha\Projet\IA\code\text-generation-webui"
 set "FASTAPI_DIR=C:\Users\guilh\Desktop\Dossier perso\nas-akasha\Projet\IA\code"
+set "LLM_MODEL=mistralai_Mistral-7B-Instruct-v0.2"
 
 echo ========================================
 echo   ANANTA OSINT - DEMARRAGE
@@ -32,9 +33,9 @@ start "FastAPI" cmd /k "cd /d "%FASTAPI_DIR%" && python -m uvicorn main:app --ho
 timeout /t 3 /nobreak >nul
 
 echo.
-echo [4/5] Lancement LLM (DeepSeek)...
-start "DeepSeek LLM" cmd /k "cd /d "%WEBUI_DIR%" && python server.py --model-dir "%WEBUI_DIR%\models" --model deepseek-llm-7b-chat --api --nowebui --load-in-4bit"
-timeout /t 3 /nobreak >nul
+echo [4/5] Lancement LLM (Mistral 7B - 32k context)...
+start "Mistral LLM" cmd /k "cd /d "%WEBUI_DIR%" && python server.py --model-dir "%WEBUI_DIR%\models" --model %LLM_MODEL% --api --nowebui --load-in-4bit"
+timeout /t 5 /nobreak >nul
 
 echo.
 echo [5/5] Lancement Worker Celery...
@@ -54,8 +55,9 @@ echo.
 echo   FastAPI : http://localhost:8010
 echo   Web UI  : http://localhost:8010/web/html/index.html
 echo   LLM API : http://localhost:5000
+echo   Model   : %LLM_MODEL% (32k context)
 echo.
-echo   3 fenetres ouvertes (FastAPI, LLM, Worker)
+echo   3 fenetres ouvertes (FastAPI, Mistral, Worker)
 echo   Pour arreter: stop_all.bat
 echo ========================================
 echo.

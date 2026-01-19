@@ -46,7 +46,23 @@ import uuid
 # --- CONFIG ---
 logger = get_logger(__name__, context="tools")
 CENSYS_API_KEY = os.getenv("CENSYS_API_KEY")
-LLM_API_URL = "http://localhost:5000/v1/chat/completions"
+
+# ================== LLM CONFIGURATION ==================
+# Modèle: Mistral 7B Instruct (32k context) - remplace DeepSeek 7B (4k context)
+LLM_CONFIG = {
+    "api_url": "http://localhost:5000/v1/chat/completions",
+    "model_name": "mistral-7b-instruct",  # Nom utilisé dans l'API
+    "context_window": 32768,               # 32k tokens (vs 4k pour DeepSeek)
+    "timeout": 180,                        # Timeout en secondes
+    "temperature": 0.5,
+    # Plafonds de génération par phase (augmentés grâce au contexte 32k)
+    "hard_limits": {
+        "phase1": 1500,   # Extraction structurée (était 800)
+        "phase2": 4000,   # Rapport final (était 2000)
+        "default": 6000   # Général (était 3500)
+    }
+}
+LLM_API_URL = LLM_CONFIG["api_url"]
 
 # Modèle d'embedding
 embedding_model = SentenceTransformer("all-MiniLM-L6-v2")
@@ -938,7 +954,7 @@ def calculate_risk_score(raw_data_tools: Dict[str, Any]) -> Dict[str, Any]:
 
 def calculate_safe_max_tokens(
     prompt_text: str,
-    max_context_window: int = 4096,
+    max_context_window: int = None,
     hard_limit: int = 1200,
     safety_margin: int = 200
 ) -> int:
@@ -947,13 +963,17 @@ def calculate_safe_max_tokens(
 
     Args:
         prompt_text: Le prompt complet (system + user)
-        max_context_window: Limite du modèle (4096 pour DeepSeek 7B)
+        max_context_window: Limite du modèle (défaut: LLM_CONFIG["context_window"])
         hard_limit: Plafond absolu de tokens en output
         safety_margin: Marge de sécurité
 
     Returns:
         Budget tokens sûr pour max_tokens
     """
+    # Utiliser la config si non spécifié
+    if max_context_window is None:
+        max_context_window = LLM_CONFIG["context_window"]
+
     # Estimation : 1 token ≈ 4 caractères (approximation standard)
     estimated_input_tokens = len(prompt_text) // 4
 
@@ -1093,28 +1113,21 @@ Réponds en JSON."""
 
 def ask_llm(system_prompt: str, user_prompt: str, phase: str = "default") -> str:
     """
-    Interroge le LLM local (DeepSeek) avec budget tokens calculé dynamiquement.
+    Interroge le LLM local (Mistral 7B) avec budget tokens calculé dynamiquement.
     Inclut retry logic pour gérer les déconnexions du serveur.
 
     Args:
         system_prompt: Prompt système
         user_prompt: Prompt utilisateur
-        phase: "phase1" (max 800), "phase2" (max 2000), "default" (max 3500)
+        phase: "phase1", "phase2", ou "default" (voir LLM_CONFIG["hard_limits"])
 
     Returns:
         Réponse du LLM
     """
     import time
 
-    # Plafonds durs par phase (Fix #3)
-    # Note: phase2 augmenté de 1200→2000 pour éviter troncation des rapports OSINT complets
-    HARD_LIMITS = {
-        "phase1": 800,
-        "phase2": 2000,
-        "default": 3500
-    }
-
-    hard_limit = HARD_LIMITS.get(phase, 3500)
+    # Récupérer le hard limit depuis la config centralisée
+    hard_limit = LLM_CONFIG["hard_limits"].get(phase, LLM_CONFIG["hard_limits"]["default"])
 
     # Calculer budget dynamique
     full_prompt = system_prompt + "\n\n" + user_prompt
@@ -1124,16 +1137,16 @@ def ask_llm(system_prompt: str, user_prompt: str, phase: str = "default") -> str
     )
 
     payload = {
-        "model": "deepseek-llm-7b-chat",
+        "model": LLM_CONFIG["model_name"],
         "messages": [
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_prompt}
         ],
-        "temperature": 0.5,
+        "temperature": LLM_CONFIG["temperature"],
         "max_tokens": max_tokens
     }
 
-    logger.info(f"[LLM CALL] Phase: {phase}, max_tokens: {max_tokens}")
+    logger.info(f"[LLM CALL] Model: {LLM_CONFIG['model_name']}, Phase: {phase}, max_tokens: {max_tokens}")
 
     # Retry logic: 3 attempts with exponential backoff
     max_retries = 3
@@ -1141,7 +1154,7 @@ def ask_llm(system_prompt: str, user_prompt: str, phase: str = "default") -> str
 
     for attempt in range(max_retries):
         try:
-            response = requests.post(LLM_API_URL, json=payload, timeout=180)
+            response = requests.post(LLM_API_URL, json=payload, timeout=LLM_CONFIG["timeout"])
 
             if response.status_code == 200:
                 return response.json()["choices"][0]["message"]["content"]
