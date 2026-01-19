@@ -5,7 +5,7 @@ Ananta is a local OSINT (Open Source Intelligence) analysis platform that combin
 ## Features
 
 - **Multi-layer Tool System**: 3-tier security classification (passive, active, critical)
-- **Local LLM Integration**: Uses DeepSeek 7B via text-generation-webui for privacy-focused analysis
+- **Local LLM Integration**: Uses Mistral 7B (32k context) via text-generation-webui for privacy-focused analysis
 - **Async Processing**: Celery workers for background scanning
 - **Audit Trail**: Complete logging of all tool executions
 - **Web Interface**: Modern UI for scan management and report viewing
@@ -39,7 +39,7 @@ Ananta is a local OSINT (Open Source Intelligence) analysis platform that combin
 - Python 3.10+
 - PostgreSQL (or SQLite for dev)
 - Redis (Memurai on Windows)
-- CUDA GPU (recommended for LLM)
+- CUDA GPU with 8GB+ VRAM (required for LLM)
 
 ## Installation
 
@@ -56,15 +56,23 @@ cd Ananta
 pip install -r requirements.txt
 ```
 
-### 3. Setup text-generation-webui
+### 3. Setup text-generation-webui and LLM
 
 ```bash
 cd text-generation-webui
 pip install -r requirements.txt
 
-# Download DeepSeek model
-python download-model.py deepseek-ai/deepseek-llm-7b-chat
+# Download Mistral 7B Instruct model (~15GB)
+python download-model.py mistralai/Mistral-7B-Instruct-v0.2
 ```
+
+The model will be downloaded to `text-generation-webui/models/mistralai_Mistral-7B-Instruct-v0.2/`
+
+**Why Mistral 7B?**
+- 32k context window (vs 4k for other 7B models)
+- Excellent instruction following
+- Runs on 8GB VRAM with 4-bit quantization
+- Great performance in French and English
 
 ### 4. Configure environment
 
