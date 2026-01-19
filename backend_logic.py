@@ -1094,6 +1094,7 @@ Réponds en JSON."""
 def ask_llm(system_prompt: str, user_prompt: str, phase: str = "default") -> str:
     """
     Interroge le LLM local (DeepSeek) avec budget tokens calculé dynamiquement.
+    Inclut retry logic pour gérer les déconnexions du serveur.
 
     Args:
         system_prompt: Prompt système
@@ -1103,6 +1104,8 @@ def ask_llm(system_prompt: str, user_prompt: str, phase: str = "default") -> str
     Returns:
         Réponse du LLM
     """
+    import time
+
     # Plafonds durs par phase (Fix #3)
     # Note: phase2 augmenté de 1200→2000 pour éviter troncation des rapports OSINT complets
     HARD_LIMITS = {
@@ -1120,30 +1123,46 @@ def ask_llm(system_prompt: str, user_prompt: str, phase: str = "default") -> str
         hard_limit=hard_limit
     )
 
-    try:
-        payload = {
-            "model": "deepseek-llm-7b-chat",
-            "messages": [
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt}
-            ],
-            "temperature": 0.5,
-            "max_tokens": max_tokens  # ✅ Calculé dynamiquement !
-        }
+    payload = {
+        "model": "deepseek-llm-7b-chat",
+        "messages": [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt}
+        ],
+        "temperature": 0.5,
+        "max_tokens": max_tokens
+    }
 
-        logger.info(f"[LLM CALL] Phase: {phase}, max_tokens: {max_tokens}")
+    logger.info(f"[LLM CALL] Phase: {phase}, max_tokens: {max_tokens}")
 
-        response = requests.post(LLM_API_URL, json=payload, timeout=180)
+    # Retry logic: 3 attempts with exponential backoff
+    max_retries = 3
+    last_error = None
 
-        if response.status_code == 200:
-            return response.json()["choices"][0]["message"]["content"]
-        else:
-            logger.error(f"Erreur LLM {response.status_code}: {response.text}")
-            return f"Erreur API LLM ({response.status_code})."
+    for attempt in range(max_retries):
+        try:
+            response = requests.post(LLM_API_URL, json=payload, timeout=180)
 
-    except Exception as e:
-        logger.exception("Erreur inattendue LLM")
-        return f"Erreur interne IA : {str(e)}"
+            if response.status_code == 200:
+                return response.json()["choices"][0]["message"]["content"]
+            else:
+                logger.error(f"Erreur LLM {response.status_code}: {response.text}")
+                last_error = f"Erreur API LLM ({response.status_code})."
+
+        except (requests.exceptions.ConnectionError, requests.exceptions.Timeout) as e:
+            last_error = str(e)
+            if attempt < max_retries - 1:
+                wait_time = 2 ** attempt  # 1s, 2s, 4s
+                logger.warning(f"[LLM RETRY] Attempt {attempt + 1}/{max_retries} failed, retrying in {wait_time}s...")
+                time.sleep(wait_time)
+            else:
+                logger.exception("Erreur LLM après tous les essais")
+
+        except Exception as e:
+            logger.exception("Erreur inattendue LLM")
+            return f"Erreur interne IA : {str(e)}"
+
+    return f"Erreur LLM après {max_retries} tentatives: {last_error}"
 
 
 # ================== FIX #1 : LLM CONTEXT BUILDER ==================
@@ -3487,6 +3506,63 @@ def logic_get_history(limit: int, db: Session):
         })
     return data
 
+
+def parse_markdown_tables(text: str) -> list:
+    """
+    Parse markdown text and extract tables, returning a list of tuples:
+    [(is_table, content), ...]
+    where is_table=True means content is a list of rows (each row is a list of cells)
+    and is_table=False means content is plain text.
+    """
+    lines = text.split('\n')
+    result = []
+    current_text = []
+    current_table = []
+    in_table = False
+
+    for line in lines:
+        stripped = line.strip()
+
+        # Detect table row (starts and ends with |, or contains | delimiters)
+        is_table_row = stripped.startswith('|') and stripped.endswith('|')
+
+        # Also detect separator row (| --- | --- |)
+        is_separator = is_table_row and all(
+            cell.strip() in ('', '-', '--', '---', '----', ':---', '---:', ':---:')
+            for cell in stripped.strip('|').split('|')
+        )
+
+        if is_table_row:
+            if not in_table:
+                # Starting a new table - flush current text
+                if current_text:
+                    result.append((False, '\n'.join(current_text)))
+                    current_text = []
+                in_table = True
+
+            if not is_separator:
+                # Parse cells from this row
+                cells = [cell.strip() for cell in stripped.strip('|').split('|')]
+                current_table.append(cells)
+        else:
+            if in_table:
+                # End of table - flush it
+                if current_table:
+                    result.append((True, current_table))
+                    current_table = []
+                in_table = False
+
+            current_text.append(line)
+
+    # Flush remaining content
+    if in_table and current_table:
+        result.append((True, current_table))
+    elif current_text:
+        result.append((False, '\n'.join(current_text)))
+
+    return result
+
+
 def logic_generate_pdf(query: str, db: Session):
     """Génère un PDF détaillé avec word wrapping et détails techniques."""
     normalized_target = normalize_target(query)
@@ -3609,17 +3685,47 @@ def logic_generate_pdf(query: str, db: Session):
     # Remplacer les markdown heading par du texte simple
     clean_text = re.sub(r'^#{1,6}\s+', '', clean_text, flags=re.MULTILINE)
 
-    # Ajouter chaque paragraphe avec word wrapping automatique
-    for para in clean_text.split('\n'):
-        if para.strip():
-            # Détecter les lignes qui ressemblent à des titres (tout en majuscules ou commençant par des chiffres)
-            if para.strip().isupper() or re.match(r'^\d+\.', para.strip()):
+    # Parser le markdown (texte + tables)
+    parsed_content = parse_markdown_tables(clean_text)
+
+    for is_table, content in parsed_content:
+        if is_table:
+            # Rendre la table markdown en table ReportLab
+            if content and len(content) > 0:
+                # Calculer les largeurs de colonnes dynamiquement
+                num_cols = len(content[0]) if content else 3
+                col_width = 6.5 * inch / num_cols
+
+                pdf_table = Table(content, colWidths=[col_width] * num_cols)
+                pdf_table.setStyle(TableStyle([
+                    ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor("#2c5aa0")),
+                    ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+                    ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+                    ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+                    ('FONTSIZE', (0, 0), (-1, 0), 9),
+                    ('FONTSIZE', (0, 1), (-1, -1), 8),
+                    ('BOTTOMPADDING', (0, 0), (-1, 0), 8),
+                    ('TOPPADDING', (0, 0), (-1, -1), 4),
+                    ('BACKGROUND', (0, 1), (-1, -1), colors.HexColor("#f8f9fa")),
+                    ('GRID', (0, 0), (-1, -1), 0.5, colors.grey),
+                    ('VALIGN', (0, 0), (-1, -1), 'TOP'),
+                    ('WORDWRAP', (0, 0), (-1, -1), True)
+                ]))
                 story.append(Spacer(1, 0.1*inch))
-                story.append(Paragraph(f"<b>{para.strip()}</b>", normal_style))
-            else:
-                story.append(Paragraph(para.strip(), normal_style))
+                story.append(pdf_table)
+                story.append(Spacer(1, 0.1*inch))
         else:
-            story.append(Spacer(1, 0.05*inch))
+            # Rendre le texte normal
+            for para in content.split('\n'):
+                if para.strip():
+                    # Détecter les lignes qui ressemblent à des titres
+                    if para.strip().isupper() or re.match(r'^\d+\.', para.strip()):
+                        story.append(Spacer(1, 0.1*inch))
+                        story.append(Paragraph(f"<b>{para.strip()}</b>", normal_style))
+                    else:
+                        story.append(Paragraph(para.strip(), normal_style))
+                else:
+                    story.append(Spacer(1, 0.05*inch))
 
     story.append(Spacer(1, 0.3*inch))
 

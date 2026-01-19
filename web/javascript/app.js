@@ -744,8 +744,11 @@ async function pollAndDisplayResults(jobId) {
                 let aiContent = "";
 
                 if (result.report) {
-                    const safeAnswer = escapeHtml(result.report).replace(/\n/g, '<br>');
-                    aiContent += `<div class="mb-4">${safeAnswer}</div>`;
+                    // Parse markdown to HTML for proper rendering
+                    const renderedReport = typeof marked !== 'undefined'
+                        ? marked.parse(result.report)
+                        : escapeHtml(result.report).replace(/\n/g, '<br>');
+                    aiContent += `<div class="mb-4 prose prose-invert prose-sm max-w-none">${renderedReport}</div>`;
                 }
 
                 if (result.sources && result.sources.length > 0) {

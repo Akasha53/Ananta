@@ -156,6 +156,23 @@ stop_all.bat
 ├── web/                 # Frontend (HTML/CSS/JS)
 └── text-generation-webui/  # LLM (submodule)
 ```
+
+## License
+
+**Ananta Non-Commercial Source-Available License (ANCSAL) v1.0**
+
+This software is **source-available but NOT open-source**.
+
+| Use Case | Allowed |
+|----------|---------|
+| Personal use | ✅ |
+| Educational / Academic | ✅ |
+| Non-profit research | ✅ |
+| OSINT (non-commercial) | ✅ |
+| Commercial use | ❌ (requires written authorization) |
+
+See [LICENSE](LICENSE) for full terms.
+
 ## Disclaimer
 
 This tool is designed for authorized security testing and OSINT research only. Users are responsible for ensuring they have proper authorization before scanning any targets. Unauthorized scanning may be illegal in your jurisdiction.

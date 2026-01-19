@@ -644,3 +644,134 @@ body.compact-mode .settings-section {
 body.compact-mode #chat-inner {
   gap: 0.75rem;
 }
+
+/* ============================================
+   MARKDOWN REPORT STYLES
+   ============================================ */
+.prose {
+  color: #e2e8f0;
+  line-height: 1.6;
+}
+
+.prose h1 {
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: var(--accent-color);
+  margin: 1.5rem 0 0.75rem 0;
+  padding-bottom: 0.5rem;
+  border-bottom: 1px solid rgba(51, 65, 85, 0.5);
+}
+
+.prose h2 {
+  font-size: 1.25rem;
+  font-weight: 600;
+  color: var(--accent-color);
+  margin: 1.25rem 0 0.5rem 0;
+}
+
+.prose h3 {
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: #94a3b8;
+  margin: 1rem 0 0.5rem 0;
+}
+
+.prose h4, .prose h5, .prose h6 {
+  font-size: 1rem;
+  font-weight: 500;
+  color: #94a3b8;
+  margin: 0.75rem 0 0.25rem 0;
+}
+
+.prose p {
+  margin: 0.5rem 0;
+}
+
+.prose ul, .prose ol {
+  margin: 0.5rem 0;
+  padding-left: 1.5rem;
+}
+
+.prose li {
+  margin: 0.25rem 0;
+}
+
+.prose ul li {
+  list-style-type: disc;
+}
+
+.prose ol li {
+  list-style-type: decimal;
+}
+
+.prose code {
+  background: rgba(51, 65, 85, 0.5);
+  padding: 0.125rem 0.375rem;
+  border-radius: 0.25rem;
+  font-size: 0.875rem;
+  color: #f472b6;
+}
+
+.prose pre {
+  background: rgba(2, 6, 23, 0.8);
+  border: 1px solid rgba(51, 65, 85, 0.5);
+  border-radius: 0.5rem;
+  padding: 1rem;
+  overflow-x: auto;
+  margin: 0.75rem 0;
+}
+
+.prose pre code {
+  background: transparent;
+  padding: 0;
+  color: #e2e8f0;
+}
+
+.prose blockquote {
+  border-left: 3px solid var(--accent-color);
+  padding-left: 1rem;
+  margin: 0.75rem 0;
+  color: #94a3b8;
+  font-style: italic;
+}
+
+.prose table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 0.75rem 0;
+}
+
+.prose th, .prose td {
+  border: 1px solid rgba(51, 65, 85, 0.5);
+  padding: 0.5rem;
+  text-align: left;
+}
+
+.prose th {
+  background: rgba(51, 65, 85, 0.3);
+  font-weight: 600;
+}
+
+.prose a {
+  color: var(--accent-color);
+  text-decoration: underline;
+}
+
+.prose a:hover {
+  opacity: 0.8;
+}
+
+.prose hr {
+  border: none;
+  border-top: 1px solid rgba(51, 65, 85, 0.5);
+  margin: 1rem 0;
+}
+
+.prose strong {
+  font-weight: 600;
+  color: #f1f5f9;
+}
+
+.prose em {
+  font-style: italic;
+}
