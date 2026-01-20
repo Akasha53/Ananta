@@ -653,34 +653,42 @@ body.compact-mode #chat-inner {
   line-height: 1.6;
 }
 
-.prose h1 {
-  font-size: 1.5rem;
-  font-weight: 700;
-  color: var(--accent-color);
-  margin: 1.5rem 0 0.75rem 0;
-  padding-bottom: 0.5rem;
-  border-bottom: 1px solid rgba(51, 65, 85, 0.5);
+.prose h1,
+.prose-invert h1,
+.prose-sm h1 {
+  font-size: 1.5rem !important;
+  font-weight: 700 !important;
+  color: var(--accent-color) !important;
+  margin: 1.5rem 0 0.75rem 0 !important;
+  padding-bottom: 0.5rem !important;
+  border-bottom: 1px solid rgba(51, 65, 85, 0.5) !important;
 }
 
-.prose h2 {
-  font-size: 1.25rem;
-  font-weight: 600;
-  color: var(--accent-color);
-  margin: 1.25rem 0 0.5rem 0;
+.prose h2,
+.prose-invert h2,
+.prose-sm h2 {
+  font-size: 1.25rem !important;
+  font-weight: 600 !important;
+  color: var(--accent-color) !important;
+  margin: 1.25rem 0 0.5rem 0 !important;
 }
 
-.prose h3 {
-  font-size: 1.1rem;
-  font-weight: 600;
-  color: #94a3b8;
-  margin: 1rem 0 0.5rem 0;
+.prose h3,
+.prose-invert h3,
+.prose-sm h3 {
+  font-size: 1.1rem !important;
+  font-weight: 600 !important;
+  color: #94a3b8 !important;
+  margin: 1rem 0 0.5rem 0 !important;
 }
 
-.prose h4, .prose h5, .prose h6 {
-  font-size: 1rem;
-  font-weight: 500;
-  color: #94a3b8;
-  margin: 0.75rem 0 0.25rem 0;
+.prose h4, .prose h5, .prose h6,
+.prose-invert h4, .prose-invert h5, .prose-invert h6,
+.prose-sm h4, .prose-sm h5, .prose-sm h6 {
+  font-size: 1rem !important;
+  font-weight: 500 !important;
+  color: #94a3b8 !important;
+  margin: 0.75rem 0 0.25rem 0 !important;
 }
 
 .prose p {

@@ -3663,6 +3663,32 @@ def logic_generate_pdf(query: str, db: Session):
         spaceAfter=4
     )
 
+    # Style pour les indicateurs positifs (vert)
+    positive_style = ParagraphStyle(
+        'PositiveIndicator',
+        parent=styles['Normal'],
+        fontSize=9,
+        leading=12,
+        fontName='Helvetica',
+        textColor=colors.HexColor("#1d7a3e"),
+        leftIndent=15,
+        spaceAfter=4,
+        bulletIndent=0
+    )
+
+    # Style pour les indicateurs négatifs (rouge)
+    negative_style = ParagraphStyle(
+        'NegativeIndicator',
+        parent=styles['Normal'],
+        fontSize=9,
+        leading=12,
+        fontName='Helvetica',
+        textColor=colors.HexColor("#c0392b"),
+        leftIndent=15,
+        spaceAfter=4,
+        bulletIndent=0
+    )
+
     # Construire le contenu
     story = []
 
@@ -3807,16 +3833,25 @@ def logic_generate_pdf(query: str, db: Session):
                 story.append(Paragraph("<b>Vulnerabilites et Risques Detectes</b>",
                     ParagraphStyle('SubSection', parent=section_style, fontSize=12, textColor=colors.HexColor("#d9534f"))))
 
+                # Style pour cellules de priorité
+                priority_high_style = ParagraphStyle('PriorityHigh', fontSize=8, textColor=colors.HexColor("#c0392b"), fontName='Helvetica-Bold')
+                priority_med_style = ParagraphStyle('PriorityMed', fontSize=8, textColor=colors.HexColor("#e67e22"), fontName='Helvetica-Bold')
+                finding_cell_style = ParagraphStyle('FindingCell', fontSize=8, leading=10, wordWrap='CJK')
+
                 finding_table_data = [["Priorite", "Finding", "Impact"]]
 
                 for idx, finding in enumerate(negative_indicators[:5], 1):  # Top 5
                     # Déterminer la priorité (HIGH pour les 2 premiers, MEDIUM pour les suivants)
-                    priority = "HIGH" if idx <= 2 else "MEDIUM"
+                    is_high = idx <= 2
+                    priority_para = Paragraph(
+                        f"<b>{'HIGH' if is_high else 'MEDIUM'}</b>",
+                        priority_high_style if is_high else priority_med_style
+                    )
                     impact = "Securite compromise" if "ssl" in finding.lower() or "expired" in finding.lower() or "weak" in finding.lower() else "Configuration inadequate"
 
                     finding_table_data.append([
-                        priority,
-                        finding[:80],  # Limiter la longueur
+                        priority_para,
+                        Paragraph(finding[:80], finding_cell_style),  # Limiter la longueur
                         impact
                     ])
 
@@ -3842,7 +3877,7 @@ def logic_generate_pdf(query: str, db: Session):
                     ParagraphStyle('SubSection', parent=section_style, fontSize=12, textColor=colors.HexColor("#5cb85c"))))
 
                 for finding in positive_indicators[:3]:  # Top 3
-                    story.append(Paragraph(f"  [+] {finding}", code_style))
+                    story.append(Paragraph(f"<font color='#1d7a3e'><b>[+]</b></font> {finding}", positive_style))
                 story.append(Spacer(1, 0.2*inch))
 
             story.append(Spacer(1, 0.1*inch))
@@ -3900,17 +3935,17 @@ def logic_generate_pdf(query: str, db: Session):
             # Indicateurs positifs
             positive_indicators = risk_analysis.get("indicators", {}).get("positive", [])
             if positive_indicators:
-                story.append(Paragraph("<b>Points Positifs de Securite:</b>", code_style))
+                story.append(Paragraph("<b>Points Positifs de Securite:</b>", normal_style))
                 for indicator in positive_indicators[:5]:  # Limiter à 5
-                    story.append(Paragraph(f"  [+] {indicator}", code_style))
-                story.append(Spacer(1, 0.05*inch))
+                    story.append(Paragraph(f"<font color='#1d7a3e'><b>[+]</b></font> {indicator}", positive_style))
+                story.append(Spacer(1, 0.1*inch))
 
             # Indicateurs négatifs (vulnérabilités)
             negative_indicators = risk_analysis.get("indicators", {}).get("negative", [])
             if negative_indicators:
-                story.append(Paragraph("<b>Vulnerabilites Detectees:</b>", code_style))
+                story.append(Paragraph("<b>Vulnerabilites Detectees:</b>", normal_style))
                 for indicator in negative_indicators[:8]:  # Limiter à 8
-                    story.append(Paragraph(f"  [-] {indicator}", code_style))
+                    story.append(Paragraph(f"<font color='#c0392b'><b>[-]</b></font> {indicator}", negative_style))
 
             story.append(Spacer(1, 0.2*inch))
 
