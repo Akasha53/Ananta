@@ -3595,8 +3595,23 @@ def parse_markdown_tables(text: str) -> list:
     return result
 
 
+def _pdf_footer(canvas, doc):
+    """Ajoute numéro de page et footer à chaque page du PDF."""
+    canvas.saveState()
+    canvas.setStrokeColor(colors.HexColor("#cccccc"))
+    canvas.line(50, 45, letter[0] - 50, 45)
+    canvas.setFont('Helvetica', 8)
+    canvas.setFillColor(colors.HexColor("#888888"))
+    canvas.drawString(50, 30, "ANANTA OSINT - Confidentiel")
+    canvas.drawRightString(letter[0] - 50, 30, f"Page {doc.page}")
+    canvas.restoreState()
+
+
 def logic_generate_pdf(query: str, db: Session):
-    """Génère un PDF détaillé avec word wrapping et détails techniques."""
+    """
+    Génère un rapport PDF professionnel et lisible.
+    Structure: Résumé Exécutif → Actions → Analyse → Annexes → Légal
+    """
     normalized_target = normalize_target(query)
     report_entry = db.query(EntityReport).filter(EntityReport.target.ilike(f"%{normalized_target}%")).first()
 
@@ -3606,137 +3621,154 @@ def logic_generate_pdf(query: str, db: Session):
     fd, path = tempfile.mkstemp(suffix=".pdf")
     os.close(fd)
 
-    # Créer le document avec marges appropriées
     doc = SimpleDocTemplate(
-        path,
-        pagesize=letter,
-        rightMargin=50,
-        leftMargin=50,
-        topMargin=50,
-        bottomMargin=50
+        path, pagesize=letter,
+        rightMargin=50, leftMargin=50, topMargin=50, bottomMargin=65
     )
 
-    # Définir les styles
     styles = getSampleStyleSheet()
 
-    # Style pour le titre principal
-    title_style = ParagraphStyle(
-        'CustomTitle',
-        parent=styles['Heading1'],
-        fontSize=18,
-        textColor=colors.HexColor("#1a1a1a"),
-        spaceAfter=20,
-        alignment=TA_CENTER,
-        fontName='Helvetica-Bold'
-    )
+    # === STYLES ===
+    title_style = ParagraphStyle('Title', parent=styles['Heading1'], fontSize=22,
+        textColor=colors.HexColor("#1a1a1a"), spaceAfter=5, alignment=TA_CENTER, fontName='Helvetica-Bold')
 
-    # Style pour les sections
-    section_style = ParagraphStyle(
-        'SectionTitle',
-        parent=styles['Heading2'],
-        fontSize=14,
-        textColor=colors.HexColor("#2c5aa0"),
-        spaceAfter=12,
-        spaceBefore=12,
-        fontName='Helvetica-Bold'
-    )
+    subtitle_style = ParagraphStyle('Subtitle', parent=styles['Normal'], fontSize=11,
+        textColor=colors.HexColor("#666666"), spaceAfter=20, alignment=TA_CENTER)
 
-    # Style pour le texte normal avec justification
-    normal_style = ParagraphStyle(
-        'CustomNormal',
-        parent=styles['Normal'],
-        fontSize=10,
-        leading=14,
-        alignment=TA_JUSTIFY,
-        spaceAfter=6
-    )
+    section_style = ParagraphStyle('Section', parent=styles['Heading2'], fontSize=13,
+        textColor=colors.HexColor("#2c5aa0"), spaceAfter=10, spaceBefore=15, fontName='Helvetica-Bold')
 
-    # Style pour le code/données techniques
-    code_style = ParagraphStyle(
-        'CodeStyle',
-        parent=styles['Code'],
-        fontSize=8,
-        leading=10,
-        fontName='Courier',
-        textColor=colors.HexColor("#333333"),
-        leftIndent=10,
-        spaceAfter=4
-    )
+    subsection_style = ParagraphStyle('SubSection', fontSize=11, textColor=colors.HexColor("#444444"),
+        spaceAfter=8, spaceBefore=12, fontName='Helvetica-Bold')
 
-    # Style pour les indicateurs positifs (vert)
-    positive_style = ParagraphStyle(
-        'PositiveIndicator',
-        parent=styles['Normal'],
-        fontSize=9,
-        leading=12,
-        fontName='Helvetica',
-        textColor=colors.HexColor("#1d7a3e"),
-        leftIndent=15,
-        spaceAfter=4,
-        bulletIndent=0
-    )
+    normal_style = ParagraphStyle('Normal', parent=styles['Normal'], fontSize=10,
+        leading=14, alignment=TA_JUSTIFY, spaceAfter=6)
 
-    # Style pour les indicateurs négatifs (rouge)
-    negative_style = ParagraphStyle(
-        'NegativeIndicator',
-        parent=styles['Normal'],
-        fontSize=9,
-        leading=12,
-        fontName='Helvetica',
-        textColor=colors.HexColor("#c0392b"),
-        leftIndent=15,
-        spaceAfter=4,
-        bulletIndent=0
-    )
+    code_style = ParagraphStyle('Code', parent=styles['Code'], fontSize=8, leading=10,
+        fontName='Courier', textColor=colors.HexColor("#333333"), leftIndent=10, spaceAfter=4)
 
-    # Construire le contenu
+    positive_style = ParagraphStyle('Positive', parent=styles['Normal'], fontSize=9,
+        leading=13, textColor=colors.HexColor("#1d7a3e"), leftIndent=20, spaceAfter=5)
+
+    negative_style = ParagraphStyle('Negative', parent=styles['Normal'], fontSize=9,
+        leading=13, textColor=colors.HexColor("#c0392b"), leftIndent=20, spaceAfter=5)
+
+    legal_style = ParagraphStyle('Legal', parent=styles['Normal'], fontSize=8,
+        leading=10, textColor=colors.HexColor("#777777"), alignment=TA_JUSTIFY)
+
     story = []
 
-    # Titre principal
-    story.append(Paragraph(f"RAPPORT D'ANALYSE OSINT", title_style))
-    story.append(Paragraph(f"<b>Cible:</b> {query.upper()}", normal_style))
-    story.append(Spacer(1, 0.2*inch))
+    # =========================================================================
+    # HEADER
+    # =========================================================================
+    story.append(Paragraph("RAPPORT D'ANALYSE OSINT", title_style))
 
     if not report_entry:
-        story.append(Paragraph("Aucun rapport trouvé. Veuillez lancer une analyse.", normal_style))
-        doc.build(story)
+        story.append(Paragraph(f"Cible: {query.upper()}", subtitle_style))
+        story.append(Spacer(1, 0.5*inch))
+        story.append(Paragraph("Aucun rapport trouvé pour cette cible.", normal_style))
+        doc.build(story, onFirstPage=_pdf_footer, onLaterPages=_pdf_footer)
         return path
 
-    # Date du rapport
-    ref_date = report_entry.updated_at if report_entry.updated_at else report_entry.created_at
-    date_str = ref_date.strftime("%Y-%m-%d %H:%M") if ref_date else "N/A"
-    story.append(Paragraph(f"<b>Date du rapport:</b> {date_str}", normal_style))
-    story.append(Paragraph(f"<b>Type de cible:</b> {report_entry.target_type}", normal_style))
-    story.append(Spacer(1, 0.3*inch))
+    ref_date = report_entry.updated_at or report_entry.created_at
+    date_str = ref_date.strftime("%d/%m/%Y %H:%M") if ref_date else "N/A"
+    story.append(Paragraph(f"Cible: <b>{query.upper()}</b>  |  {date_str}  |  {report_entry.target_type}", subtitle_style))
 
-    # === SECTION 0 : PÉRIMÈTRE LÉGAL ET AVERTISSEMENTS ===
-    story.append(Paragraph("PÉRIMÈTRE LÉGAL ET AVERTISSEMENTS", section_style))
+    # =========================================================================
+    # SECTION 1: RÉSUMÉ EXÉCUTIF (Score visuel)
+    # =========================================================================
+    try:
+        raw_data = json.loads(report_entry.raw_data)
+        risk_analysis = raw_data.get("risk_analysis", {})
+        risk_score = risk_analysis.get("score", 0)
+        risk_level = risk_analysis.get("level", "INCONNU")
+        negative_indicators = risk_analysis.get("indicators", {}).get("negative", [])
+        positive_indicators = risk_analysis.get("indicators", {}).get("positive", [])
 
-    legal_text = """
-    <b>Contexte d'Utilisation:</b> Ce rapport a été généré dans le cadre d'une analyse OSINT (Open Source Intelligence) passive par Ananta.
-    Les données collectées proviennent exclusivement de sources publiques et accessibles légalement.
+        # Couleurs par niveau
+        risk_colors = {
+            "FAIBLE": ("#27ae60", "#e8f8f0"), "MOYEN": ("#f39c12", "#fef9e7"),
+            "ÉLEVÉ": ("#e67e22", "#fdf2e9"), "CRITIQUE": ("#c0392b", "#fdedec")
+        }
+        main_color, bg_color = risk_colors.get(risk_level, ("#7f8c8d", "#f4f4f4"))
 
-    <b>Responsabilité:</b> L'utilisateur de ce rapport est seul responsable de l'usage qui en est fait.
-    Ce document ne constitue pas une autorisation pour conduire des tests d'intrusion ou des activités
-    non autorisées sur les systèmes identifiés.
+        story.append(Paragraph("RÉSUMÉ EXÉCUTIF", section_style))
 
-    <b>Limites:</b> Ce rapport reflète l'état des informations publiques au moment de l'analyse.
-    Les findings peuvent devenir obsolètes rapidement. Une nouvelle analyse est recommandée pour
-    des décisions critiques.
+        # Grand bloc de score
+        score_box = Table([[
+            Paragraph(f"<font size='32' color='{main_color}'><b>{risk_score}</b></font>"
+                      f"<font size='14' color='#999999'>/100</font><br/>"
+                      f"<font size='16' color='{main_color}'><b>RISQUE {risk_level}</b></font>",
+                ParagraphStyle('Score', alignment=TA_CENTER, leading=40)),
+            Paragraph(f"<font size='11'><b>{len(negative_indicators)}</b> vulnérabilité(s)</font><br/>"
+                      f"<font size='11'><b>{len(positive_indicators)}</b> point(s) positif(s)</font>",
+                ParagraphStyle('Stats', alignment=TA_CENTER, leading=16, textColor=colors.HexColor("#555555")))
+        ]], colWidths=[4*inch, 2.5*inch])
 
-    <b>Conformité:</b> Cette analyse respecte les standards OSINT et les réglementations applicables
-    (RGPD, directives CNIL). Aucune donnée personnelle n'a été collectée sans base légale.
-    """
+        score_box.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (-1, -1), colors.HexColor(bg_color)),
+            ('BOX', (0, 0), (-1, -1), 2, colors.HexColor(main_color)),
+            ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+            ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+            ('TOPPADDING', (0, 0), (-1, -1), 20),
+            ('BOTTOMPADDING', (0, 0), (-1, -1), 20),
+        ]))
+        story.append(score_box)
+        story.append(Spacer(1, 0.25*inch))
 
-    for para in legal_text.strip().split('\n\n'):
-        if para.strip():
-            story.append(Paragraph(para.strip(), ParagraphStyle('Legal', parent=normal_style, fontSize=9, textColor=colors.HexColor("#555555"))))
-            story.append(Spacer(1, 0.08*inch))
+        # =====================================================================
+        # SECTION 2: ACTIONS PRIORITAIRES
+        # =====================================================================
+        if negative_indicators or positive_indicators:
+            story.append(Paragraph("ACTIONS PRIORITAIRES", section_style))
 
-    story.append(Spacer(1, 0.2*inch))
+            if negative_indicators:
+                story.append(Paragraph("<b>Vulnérabilités à Corriger</b>", subsection_style))
+                rows = []
+                for idx, finding in enumerate(negative_indicators[:6], 1):
+                    is_high = idx <= 2
+                    prio = "HIGH" if is_high else "MEDIUM"
+                    prio_color = "#c0392b" if is_high else "#e67e22"
+                    row_bg = "#fff5f5" if is_high else "#fffaf5"
+                    rows.append([
+                        Paragraph(f"<b><font color='white'>{prio}</font></b>",
+                            ParagraphStyle('P', fontSize=8, alignment=TA_CENTER, fontName='Helvetica-Bold')),
+                        Paragraph(finding, ParagraphStyle('F', fontSize=9, leading=11))
+                    ])
 
-    # === SECTION 1 : RAPPORT SYNTHÉTISÉ ===
-    story.append(Paragraph("RAPPORT D'ANALYSE", section_style))
+                if rows:
+                    tbl = Table(rows, colWidths=[0.7*inch, 5.8*inch])
+                    tbl_style = [
+                        ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+                        ('TOPPADDING', (0, 0), (-1, -1), 7),
+                        ('BOTTOMPADDING', (0, 0), (-1, -1), 7),
+                        ('LEFTPADDING', (1, 0), (-1, -1), 10),
+                        ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor("#e0e0e0")),
+                    ]
+                    for i in range(len(rows)):
+                        is_high = i < 2
+                        tbl_style.append(('BACKGROUND', (0, i), (0, i), colors.HexColor("#c0392b" if is_high else "#e67e22")))
+                        tbl_style.append(('BACKGROUND', (1, i), (1, i), colors.HexColor("#fff5f5" if is_high else "#fffaf5")))
+                    tbl.setStyle(TableStyle(tbl_style))
+                    story.append(tbl)
+                story.append(Spacer(1, 0.15*inch))
+
+            if positive_indicators:
+                story.append(Paragraph("<b>Points Positifs</b>", subsection_style))
+                for p in positive_indicators[:5]:
+                    story.append(Paragraph(f"<font color='#27ae60'><b>[+]</b></font>  {p}", positive_style))
+
+        story.append(Spacer(1, 0.2*inch))
+
+    except Exception as e:
+        logger.error(f"Erreur résumé exécutif PDF: {e}")
+
+    story.append(PageBreak())
+
+    # =========================================================================
+    # SECTION 3: ANALYSE DÉTAILLÉE (Rapport LLM)
+    # =========================================================================
+    story.append(Paragraph("ANALYSE DÉTAILLÉE", section_style))
 
     # Nettoyer et formatter le rapport
     clean_text = report_entry.final_report
@@ -3813,216 +3845,105 @@ def logic_generate_pdf(query: str, db: Session):
                 else:
                     story.append(Spacer(1, 0.05*inch))
 
-    story.append(Spacer(1, 0.3*inch))
-
-    # === SECTION 1.5 : TOP FINDINGS PRIORITAIRES ===
-    try:
-        raw_data = json.loads(report_entry.raw_data)
-        risk_analysis = raw_data.get("risk_analysis", {})
-
-        # Extraire les findings critiques
-        negative_indicators = risk_analysis.get("indicators", {}).get("negative", [])
-        positive_indicators = risk_analysis.get("indicators", {}).get("positive", [])
-
-        if negative_indicators or positive_indicators:
-            story.append(Spacer(1, 0.2*inch))
-            story.append(Paragraph("TOP FINDINGS PRIORITAIRES", section_style))
-
-            # Findings critiques (négatifs)
-            if negative_indicators:
-                story.append(Paragraph("<b>Vulnerabilites et Risques Detectes</b>",
-                    ParagraphStyle('SubSection', parent=section_style, fontSize=12, textColor=colors.HexColor("#d9534f"))))
-
-                # Style pour cellules de priorité
-                priority_high_style = ParagraphStyle('PriorityHigh', fontSize=8, textColor=colors.HexColor("#c0392b"), fontName='Helvetica-Bold')
-                priority_med_style = ParagraphStyle('PriorityMed', fontSize=8, textColor=colors.HexColor("#e67e22"), fontName='Helvetica-Bold')
-                finding_cell_style = ParagraphStyle('FindingCell', fontSize=8, leading=10, wordWrap='CJK')
-
-                finding_table_data = [["Priorite", "Finding", "Impact"]]
-
-                for idx, finding in enumerate(negative_indicators[:5], 1):  # Top 5
-                    # Déterminer la priorité (HIGH pour les 2 premiers, MEDIUM pour les suivants)
-                    is_high = idx <= 2
-                    priority_para = Paragraph(
-                        f"<b>{'HIGH' if is_high else 'MEDIUM'}</b>",
-                        priority_high_style if is_high else priority_med_style
-                    )
-                    impact = "Securite compromise" if "ssl" in finding.lower() or "expired" in finding.lower() or "weak" in finding.lower() else "Configuration inadequate"
-
-                    finding_table_data.append([
-                        priority_para,
-                        Paragraph(finding[:80], finding_cell_style),  # Limiter la longueur
-                        impact
-                    ])
-
-                findings_table = Table(finding_table_data, colWidths=[1*inch, 3.5*inch, 1.5*inch])
-                findings_table.setStyle(TableStyle([
-                    ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor("#d9534f")),
-                    ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
-                    ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
-                    ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-                    ('FONTSIZE', (0, 0), (-1, 0), 9),
-                    ('FONTSIZE', (0, 1), (-1, -1), 8),
-                    ('BOTTOMPADDING', (0, 0), (-1, 0), 8),
-                    ('BACKGROUND', (0, 1), (-1, -1), colors.HexColor("#fff3f3")),
-                    ('GRID', (0, 0), (-1, -1), 0.5, colors.grey),
-                    ('VALIGN', (0, 0), (-1, -1), 'TOP')
-                ]))
-                story.append(findings_table)
-                story.append(Spacer(1, 0.2*inch))
-
-            # Points positifs
-            if positive_indicators:
-                story.append(Paragraph("<b>Points Positifs de Securite</b>",
-                    ParagraphStyle('SubSection', parent=section_style, fontSize=12, textColor=colors.HexColor("#5cb85c"))))
-
-                for finding in positive_indicators[:3]:  # Top 3
-                    story.append(Paragraph(f"<font color='#1d7a3e'><b>[+]</b></font> {finding}", positive_style))
-                story.append(Spacer(1, 0.2*inch))
-
-            story.append(Spacer(1, 0.1*inch))
-
-    except Exception as e:
-        logger.error(f"Erreur lors de la génération des top findings PDF: {e}")
-
     story.append(PageBreak())
 
-    # === SECTION 2 : DÉTAILS TECHNIQUES ===
-    story.append(Paragraph("DÉTAILS TECHNIQUES", section_style))
-    story.append(Spacer(1, 0.1*inch))
+    # =========================================================================
+    # SECTION 4: ANNEXES TECHNIQUES
+    # =========================================================================
+    story.append(Paragraph("ANNEXES TECHNIQUES", section_style))
 
     try:
         raw_data = json.loads(report_entry.raw_data)
 
-        # Informations générales du scan
-        story.append(Paragraph("<b>Métadonnées du Scan</b>", ParagraphStyle('SubSection', parent=section_style, fontSize=12, textColor=colors.HexColor("#555555"))))
-
+        # Métadonnées du scan
+        story.append(Paragraph("<b>Métadonnées du Scan</b>", subsection_style))
         scan_meta = raw_data.get("scan_metadata", {})
-        story.append(Paragraph(f"<b>Version:</b> {raw_data.get('version', 'N/A')}", code_style))
-        story.append(Paragraph(f"<b>Date du scan:</b> {raw_data.get('scanned_at', 'N/A')}", code_style))
-        story.append(Paragraph(f"<b>Durée totale:</b> {scan_meta.get('actual_duration', 'N/A')} secondes", code_style))
-        story.append(Paragraph(f"<b>Timeout limite:</b> {scan_meta.get('timeout_limit', 'N/A')} secondes", code_style))
-        story.append(Paragraph(f"<b>Rapport partiel:</b> {'Oui' if scan_meta.get('partial_result') else 'Non'}", code_style))
-        story.append(Spacer(1, 0.2*inch))
-
-        # === SCORE DE RISQUE (NOUVEAU) ===
-        risk_analysis = raw_data.get("risk_analysis", {})
-        if risk_analysis:
-            story.append(Paragraph("<b>Analyse de Risque Automatisée</b>", ParagraphStyle('SubSection', parent=section_style, fontSize=12, textColor=colors.HexColor("#555555"))))
-
-            # Déterminer la couleur selon le niveau
-            risk_level = risk_analysis.get("level", "INCONNU")
-            risk_score = risk_analysis.get("score", 0)
-            risk_color_map = {
-                "FAIBLE": colors.green,
-                "MOYEN": colors.HexColor("#ff9800"),  # Orange foncé (lisible sur blanc)
-                "ÉLEVÉ": colors.HexColor("#e65100"),  # Orange foncé
-                "CRITIQUE": colors.red
-            }
-            risk_color = risk_color_map.get(risk_level, colors.grey)
-
-            # Score et niveau
-            story.append(Paragraph(
-                f"<b>Score de Risque:</b> <font color='{risk_color.hexval()}'>{risk_score}/100</font>",
-                code_style
-            ))
-            story.append(Paragraph(
-                f"<b>Niveau:</b> <font color='{risk_color.hexval()}'>{risk_level}</font>",
-                code_style
-            ))
-            story.append(Spacer(1, 0.1*inch))
-
-            # Indicateurs positifs
-            positive_indicators = risk_analysis.get("indicators", {}).get("positive", [])
-            if positive_indicators:
-                story.append(Paragraph("<b>Points Positifs de Securite:</b>", normal_style))
-                for indicator in positive_indicators[:5]:  # Limiter à 5
-                    story.append(Paragraph(f"<font color='#1d7a3e'><b>[+]</b></font> {indicator}", positive_style))
-                story.append(Spacer(1, 0.1*inch))
-
-            # Indicateurs négatifs (vulnérabilités)
-            negative_indicators = risk_analysis.get("indicators", {}).get("negative", [])
-            if negative_indicators:
-                story.append(Paragraph("<b>Vulnerabilites Detectees:</b>", normal_style))
-                for indicator in negative_indicators[:8]:  # Limiter à 8
-                    story.append(Paragraph(f"<font color='#c0392b'><b>[-]</b></font> {indicator}", negative_style))
-
-            story.append(Spacer(1, 0.2*inch))
+        meta_info = [
+            f"<b>Version:</b> {raw_data.get('version', 'N/A')}",
+            f"<b>Date:</b> {raw_data.get('scanned_at', 'N/A')}",
+            f"<b>Durée:</b> {scan_meta.get('actual_duration', 'N/A')}s",
+            f"<b>Partiel:</b> {'Oui' if scan_meta.get('partial_result') else 'Non'}"
+        ]
+        for info in meta_info:
+            story.append(Paragraph(info, code_style))
+        story.append(Spacer(1, 0.15*inch))
 
         # Statuts des outils
-        story.append(Paragraph("<b>Statuts des Outils Exécutés</b>", ParagraphStyle('SubSection', parent=section_style, fontSize=12, textColor=colors.HexColor("#555555"))))
-
+        story.append(Paragraph("<b>Outils Exécutés</b>", subsection_style))
         tools = raw_data.get("tools", {})
         if tools:
-            # Créer un tableau pour les statuts
-            tool_data = [["Outil", "Statut", "Durée (s)", "Détails"]]
+            tool_rows = [["Outil", "Statut", "Durée", "Détails"]]
             for tool_name, tool_info in tools.items():
-                status = tool_info.get("status", "unknown")
-                duration = tool_info.get("duration", "-")
-                if isinstance(duration, (int, float)):
-                    duration = f"{duration:.2f}"
-
+                status = tool_info.get("status", "?")
+                dur = tool_info.get("duration", "-")
+                dur_str = f"{dur:.1f}s" if isinstance(dur, (int, float)) else "-"
                 details = ""
                 if status == "error":
-                    details = tool_info.get("error", "")[:50]
+                    details = tool_info.get("error", "")[:40]
                 elif status == "skipped":
-                    details = tool_info.get("reason", "")[:50]
+                    details = tool_info.get("reason", "")[:40]
+                tool_rows.append([tool_name.upper(), status.upper(), dur_str, details])
 
-                tool_data.append([
-                    tool_name.upper(),
-                    status.upper(),
-                    duration,
-                    details
-                ])
-
-            table = Table(tool_data, colWidths=[1.5*inch, 1*inch, 0.8*inch, 2.5*inch])
-            table.setStyle(TableStyle([
-                ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor("#2c5aa0")),
-                ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
-                ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+            tool_tbl = Table(tool_rows, colWidths=[1.3*inch, 0.8*inch, 0.7*inch, 3.5*inch])
+            tool_tbl.setStyle(TableStyle([
+                ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor("#34495e")),
+                ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
                 ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-                ('FONTSIZE', (0, 0), (-1, 0), 9),
-                ('FONTSIZE', (0, 1), (-1, -1), 8),
-                ('BOTTOMPADDING', (0, 0), (-1, 0), 8),
-                ('BACKGROUND', (0, 1), (-1, -1), colors.HexColor("#f0f0f0")),
-                ('GRID', (0, 0), (-1, -1), 0.5, colors.grey)
+                ('FONTSIZE', (0, 0), (-1, -1), 8),
+                ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+                ('BACKGROUND', (0, 1), (-1, -1), colors.HexColor("#f9f9f9")),
+                ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor("#dddddd")),
+                ('TOPPADDING', (0, 0), (-1, -1), 5),
+                ('BOTTOMPADDING', (0, 0), (-1, -1), 5),
             ]))
-            story.append(table)
-            story.append(Spacer(1, 0.2*inch))
+            story.append(tool_tbl)
+        story.append(Spacer(1, 0.15*inch))
 
-        # Données brutes par outil (extraits)
-        story.append(Paragraph("<b>Extraits de Données Brutes</b>", ParagraphStyle('SubSection', parent=section_style, fontSize=12, textColor=colors.HexColor("#555555"))))
-
+        # Extraits de données brutes (compact)
+        story.append(Paragraph("<b>Extraits de Données</b>", subsection_style))
         for tool_name, tool_info in tools.items():
             if tool_info.get("status") == "ok" and "data" in tool_info:
                 story.append(Paragraph(f"<b>{tool_name.upper()}</b>", code_style))
-
                 data = tool_info.get("data")
-
-                # Formatter selon le type de données
                 if isinstance(data, dict):
-                    # Afficher les clés principales pour les dicts
-                    for key, value in list(data.items())[:8]:  # Limiter à 8 entrées
-                        value_str = str(value)[:100]  # Limiter la longueur
-                        story.append(Paragraph(f"  • {key}: {value_str}", code_style))
-                elif isinstance(data, str):
-                    # Afficher les strings courtes
-                    story.append(Paragraph(f"  {data[:200]}", code_style))
+                    for key, val in list(data.items())[:6]:
+                        story.append(Paragraph(f"  {key}: {str(val)[:80]}", code_style))
                 elif isinstance(data, list):
-                    # Afficher les premiers éléments des listes
-                    for item in data[:5]:
-                        story.append(Paragraph(f"  • {str(item)[:100]}", code_style))
+                    for item in data[:4]:
+                        story.append(Paragraph(f"  - {str(item)[:80]}", code_style))
+                elif isinstance(data, str):
+                    story.append(Paragraph(f"  {data[:150]}", code_style))
+                story.append(Spacer(1, 0.08*inch))
 
-                story.append(Spacer(1, 0.1*inch))
-
-    except json.JSONDecodeError:
-        story.append(Paragraph("Erreur lors du parsing des données brutes.", normal_style))
     except Exception as e:
-        logger.error(f"Erreur lors de la génération des détails techniques PDF: {e}")
-        story.append(Paragraph(f"Erreur: {str(e)}", normal_style))
+        logger.error(f"Erreur annexes PDF: {e}")
+        story.append(Paragraph(f"Erreur: {str(e)}", code_style))
 
-    # Générer le PDF
-    doc.build(story)
+    # =========================================================================
+    # SECTION 5: AVERTISSEMENT LÉGAL (à la fin)
+    # =========================================================================
+    story.append(Spacer(1, 0.3*inch))
+    story.append(Paragraph("AVERTISSEMENT LÉGAL", section_style))
+
+    legal_text = """
+    <b>Contexte:</b> Ce rapport a été généré par Ananta dans le cadre d'une analyse OSINT passive.
+    Les données proviennent exclusivement de sources publiques.
+
+    <b>Responsabilité:</b> L'utilisateur est seul responsable de l'usage de ce rapport.
+    Ce document ne constitue pas une autorisation pour conduire des tests d'intrusion.
+
+    <b>Limites:</b> Ce rapport reflète l'état des informations au moment de l'analyse.
+    Une nouvelle analyse est recommandée pour des décisions critiques.
+
+    <b>Conformité:</b> Cette analyse respecte les standards OSINT et réglementations applicables (RGPD, CNIL).
+    """
+    for para in legal_text.strip().split('\n\n'):
+        if para.strip():
+            story.append(Paragraph(para.strip(), legal_style))
+            story.append(Spacer(1, 0.05*inch))
+
+    # Générer le PDF avec footer
+    doc.build(story, onFirstPage=_pdf_footer, onLaterPages=_pdf_footer)
     return path
 
 async def purge_old_osint_results_task():
