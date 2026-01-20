@@ -44,7 +44,7 @@ app.conf.update(CELERY_CONFIG)
 # Ces imports sont faits au niveau module APRÈS le setup du path
 # pour éviter les erreurs "No module named 'database'" dans les workers
 import json
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from database import SessionLocal, EntityReport, ScanJob
 from backend_logic import logic_run_report, logic_port_scan, logic_vuln_scan
 
@@ -152,7 +152,7 @@ def cleanup_old_jobs_task(self, days: int = 7):
     db = SessionLocal()
 
     try:
-        cutoff_date = datetime.utcnow() - timedelta(days=days)
+        cutoff_date = datetime.now(timezone.utc) - timedelta(days=days)
 
         deleted = db.query(ScanJob).filter(
             ScanJob.status.in_(["COMPLETED", "FAILED"]),
@@ -480,7 +480,7 @@ def cleanup_cache_task(self, days: int = 10):
     db = SessionLocal()
 
     try:
-        cutoff_date = datetime.utcnow() - timedelta(days=days)
+        cutoff_date = datetime.now(timezone.utc) - timedelta(days=days)
 
         deleted = db.query(EntityReport).filter(
             EntityReport.created_at < cutoff_date
@@ -647,7 +647,7 @@ def scan_parallel_task(self, query: str):
         logger.error(f"[PARALLEL SCAN] Cible non reconnue: {query}")
         return {"error": "Cible non reconnue", "query": query}
 
-    run_id = f"parallel_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}_{uuid_module.uuid4().hex[:8]}"
+    run_id = f"parallel_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}_{uuid_module.uuid4().hex[:8]}"
     job_id = self.request.id
 
     logger.info(f"[PARALLEL SCAN] Target: {target} ({target_type}) | run_id: {run_id}")

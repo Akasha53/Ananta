@@ -3520,6 +3520,25 @@ def logic_get_history(limit: int, db: Session):
     return data
 
 
+def markdown_to_reportlab(text: str) -> str:
+    """
+    Convert markdown formatting to ReportLab HTML tags.
+    - **bold** → <b>bold</b>
+    - *italic* → <i>italic</i>
+    - `code` → <font name="Courier">code</font>
+    """
+    import re
+    # Bold: **text** or __text__
+    text = re.sub(r'\*\*(.+?)\*\*', r'<b>\1</b>', text)
+    text = re.sub(r'__(.+?)__', r'<b>\1</b>', text)
+    # Italic: *text* or _text_ (but not inside bold)
+    text = re.sub(r'(?<!\*)\*(?!\*)(.+?)(?<!\*)\*(?!\*)', r'<i>\1</i>', text)
+    text = re.sub(r'(?<!_)_(?!_)(.+?)(?<!_)_(?!_)', r'<i>\1</i>', text)
+    # Inline code: `code`
+    text = re.sub(r'`(.+?)`', r'<font name="Courier" size="8">\1</font>', text)
+    return text
+
+
 def parse_markdown_tables(text: str) -> list:
     """
     Parse markdown text and extract tables, returning a list of tuples:
@@ -3701,42 +3720,70 @@ def logic_generate_pdf(query: str, db: Session):
     # Parser le markdown (texte + tables)
     parsed_content = parse_markdown_tables(clean_text)
 
+    # Style pour les cellules de table
+    table_cell_style = ParagraphStyle(
+        'TableCell',
+        parent=normal_style,
+        fontSize=8,
+        leading=10,
+        wordWrap='CJK'
+    )
+
     for is_table, content in parsed_content:
         if is_table:
             # Rendre la table markdown en table ReportLab
             if content and len(content) > 0:
-                # Calculer les largeurs de colonnes dynamiquement
                 num_cols = len(content[0]) if content else 3
-                col_width = 6.5 * inch / num_cols
 
-                pdf_table = Table(content, colWidths=[col_width] * num_cols)
+                # Largeurs de colonnes adaptatives
+                if num_cols == 2:
+                    col_widths = [2*inch, 4.5*inch]
+                elif num_cols == 3:
+                    col_widths = [1.5*inch, 2.5*inch, 2.5*inch]
+                elif num_cols == 4:
+                    col_widths = [1.2*inch, 1.8*inch, 1.8*inch, 1.7*inch]
+                else:
+                    col_widths = [6.5*inch / num_cols] * num_cols
+
+                # Convertir les cellules en Paragraphs pour word wrap
+                table_data = []
+                for row_idx, row in enumerate(content):
+                    new_row = []
+                    for cell in row:
+                        cell_text = markdown_to_reportlab(cell)
+                        if row_idx == 0:  # Header row
+                            new_row.append(Paragraph(f"<b>{cell_text}</b>", table_cell_style))
+                        else:
+                            new_row.append(Paragraph(cell_text, table_cell_style))
+                    table_data.append(new_row)
+
+                pdf_table = Table(table_data, colWidths=col_widths)
                 pdf_table.setStyle(TableStyle([
                     ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor("#2c5aa0")),
                     ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
                     ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
                     ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-                    ('FONTSIZE', (0, 0), (-1, 0), 9),
-                    ('FONTSIZE', (0, 1), (-1, -1), 8),
                     ('BOTTOMPADDING', (0, 0), (-1, 0), 8),
-                    ('TOPPADDING', (0, 0), (-1, -1), 4),
+                    ('TOPPADDING', (0, 0), (-1, -1), 6),
+                    ('BOTTOMPADDING', (0, 1), (-1, -1), 6),
                     ('BACKGROUND', (0, 1), (-1, -1), colors.HexColor("#f8f9fa")),
                     ('GRID', (0, 0), (-1, -1), 0.5, colors.grey),
-                    ('VALIGN', (0, 0), (-1, -1), 'TOP'),
-                    ('WORDWRAP', (0, 0), (-1, -1), True)
+                    ('VALIGN', (0, 0), (-1, -1), 'TOP')
                 ]))
                 story.append(Spacer(1, 0.1*inch))
                 story.append(pdf_table)
                 story.append(Spacer(1, 0.1*inch))
         else:
-            # Rendre le texte normal
+            # Rendre le texte normal avec conversion markdown
             for para in content.split('\n'):
                 if para.strip():
+                    converted_para = markdown_to_reportlab(para.strip())
                     # Détecter les lignes qui ressemblent à des titres
                     if para.strip().isupper() or re.match(r'^\d+\.', para.strip()):
                         story.append(Spacer(1, 0.1*inch))
-                        story.append(Paragraph(f"<b>{para.strip()}</b>", normal_style))
+                        story.append(Paragraph(f"<b>{converted_para}</b>", normal_style))
                     else:
-                        story.append(Paragraph(para.strip(), normal_style))
+                        story.append(Paragraph(converted_para, normal_style))
                 else:
                     story.append(Spacer(1, 0.05*inch))
 
@@ -3752,19 +3799,20 @@ def logic_generate_pdf(query: str, db: Session):
         positive_indicators = risk_analysis.get("indicators", {}).get("positive", [])
 
         if negative_indicators or positive_indicators:
-            story.append(Paragraph("🔍 TOP FINDINGS PRIORITAIRES", section_style))
+            story.append(Spacer(1, 0.2*inch))
+            story.append(Paragraph("TOP FINDINGS PRIORITAIRES", section_style))
 
             # Findings critiques (négatifs)
             if negative_indicators:
-                story.append(Paragraph("<b>Vulnérabilités et Risques Détectés</b>",
+                story.append(Paragraph("<b>Vulnerabilites et Risques Detectes</b>",
                     ParagraphStyle('SubSection', parent=section_style, fontSize=12, textColor=colors.HexColor("#d9534f"))))
 
-                finding_table_data = [["Priorité", "Finding", "Impact"]]
+                finding_table_data = [["Priorite", "Finding", "Impact"]]
 
                 for idx, finding in enumerate(negative_indicators[:5], 1):  # Top 5
                     # Déterminer la priorité (HIGH pour les 2 premiers, MEDIUM pour les suivants)
-                    priority = "🔴 HIGH" if idx <= 2 else "🟠 MEDIUM"
-                    impact = "Sécurité compromise" if "ssl" in finding.lower() or "expired" in finding.lower() or "weak" in finding.lower() else "Configuration inadéquate"
+                    priority = "HIGH" if idx <= 2 else "MEDIUM"
+                    impact = "Securite compromise" if "ssl" in finding.lower() or "expired" in finding.lower() or "weak" in finding.lower() else "Configuration inadequate"
 
                     finding_table_data.append([
                         priority,
@@ -3790,11 +3838,11 @@ def logic_generate_pdf(query: str, db: Session):
 
             # Points positifs
             if positive_indicators:
-                story.append(Paragraph("<b>Points Positifs de Sécurité</b>",
+                story.append(Paragraph("<b>Points Positifs de Securite</b>",
                     ParagraphStyle('SubSection', parent=section_style, fontSize=12, textColor=colors.HexColor("#5cb85c"))))
 
                 for finding in positive_indicators[:3]:  # Top 3
-                    story.append(Paragraph(f"  ✓ {finding}", code_style))
+                    story.append(Paragraph(f"  [+] {finding}", code_style))
                 story.append(Spacer(1, 0.2*inch))
 
             story.append(Spacer(1, 0.1*inch))
@@ -3832,8 +3880,8 @@ def logic_generate_pdf(query: str, db: Session):
             risk_score = risk_analysis.get("score", 0)
             risk_color_map = {
                 "FAIBLE": colors.green,
-                "MOYEN": colors.yellow,
-                "ÉLEVÉ": colors.orange,
+                "MOYEN": colors.HexColor("#ff9800"),  # Orange foncé (lisible sur blanc)
+                "ÉLEVÉ": colors.HexColor("#e65100"),  # Orange foncé
                 "CRITIQUE": colors.red
             }
             risk_color = risk_color_map.get(risk_level, colors.grey)
@@ -3852,17 +3900,17 @@ def logic_generate_pdf(query: str, db: Session):
             # Indicateurs positifs
             positive_indicators = risk_analysis.get("indicators", {}).get("positive", [])
             if positive_indicators:
-                story.append(Paragraph("<b>Points Positifs de Sécurité:</b>", code_style))
+                story.append(Paragraph("<b>Points Positifs de Securite:</b>", code_style))
                 for indicator in positive_indicators[:5]:  # Limiter à 5
-                    story.append(Paragraph(f"  ✓ {indicator}", code_style))
+                    story.append(Paragraph(f"  [+] {indicator}", code_style))
                 story.append(Spacer(1, 0.05*inch))
 
             # Indicateurs négatifs (vulnérabilités)
             negative_indicators = risk_analysis.get("indicators", {}).get("negative", [])
             if negative_indicators:
-                story.append(Paragraph("<b>Vulnérabilités Détectées:</b>", code_style))
+                story.append(Paragraph("<b>Vulnerabilites Detectees:</b>", code_style))
                 for indicator in negative_indicators[:8]:  # Limiter à 8
-                    story.append(Paragraph(f"  ⚠ {indicator}", code_style))
+                    story.append(Paragraph(f"  [-] {indicator}", code_style))
 
             story.append(Spacer(1, 0.2*inch))
 

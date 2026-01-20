@@ -28,7 +28,6 @@ const TRANSLATIONS = {
 
         // Sidebar
         'central_console': 'Console Centrale',
-        'vuln_scan': 'Vuln-Scan',
         'database': 'Base de données',
         'user': 'Utilisateur',
         'root_access': 'Accès Root',
@@ -103,7 +102,6 @@ const TRANSLATIONS = {
 
         // Sidebar
         'central_console': 'Central Console',
-        'vuln_scan': 'Vuln-Scan',
         'database': 'Database',
         'user': 'User',
         'root_access': 'Root Access',
@@ -816,20 +814,6 @@ async function handleExportPDF() {
     window.open(`${API_BASE}${endpoint}`, '_blank');
 }
 
-function handleVulnScan() {
-    const input = document.getElementById("query-input");
-    // Suggérer un scan sur la dernière cible
-    if (lastTarget && (lastTarget.match(/\d+\.\d+\.\d+\.\d+/) || lastTarget.includes("."))) {
-        input.value = `censys ${lastTarget}`;
-        addChatMessage({ author: "SYSTEM", content: `Module Vuln-Scan prêt pour : ${escapeHtml(lastTarget)}.` });
-    } else {
-        input.value = "censys ";
-        addChatMessage({ author: "SYSTEM", content: "Module Vuln-Scan activé. Entrez une IP ou un Domaine." });
-    }
-    input.focus();
-}
-
-
 // --- INIT ---
 document.addEventListener("DOMContentLoaded", () => {
     console.log('[Init] DOM Content Loaded');
@@ -866,7 +850,6 @@ document.addEventListener("DOMContentLoaded", () => {
 
     // Sidebar Buttons
     document.getElementById("btn-export-pdf")?.addEventListener("click", handleExportPDF);
-    document.getElementById("btn-vuln-scan")?.addEventListener("click", handleVulnScan);
 
     // Settings Button
     document.getElementById("btn-settings")?.addEventListener("click", openSettings);
