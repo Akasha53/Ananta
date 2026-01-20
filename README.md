@@ -1,6 +1,14 @@
 # Ananta - OSINT Analysis Platform
 
-[![CI](https://github.com/Akasha53/Ananta/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/Akasha53/Ananta/actions/workflows/ci.yml)
+<div align="center" >
+  <a href="https://github.com/Akasha53/Ananta/actions/workflows/ci.yml">
+    <img src="https://github.com/Akasha53/Ananta/actions/workflows/ci.yml/badge.svg?branch=main" alt="CI Status" />
+  </a>
+
+  <a href="https://discord.com/users/105914437889295164">
+    <img src="https://img.shields.io/badge/Discord-Contact-5865F2?style=flat&logo=discord&logoColor=white" alt="Discord Contact" />
+  </a>
+</div>
 
 Ananta is a local OSINT (Open Source Intelligence) analysis platform that combines automated security scanning tools with a local LLM for intelligent report generation.
 
