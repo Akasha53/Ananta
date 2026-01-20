@@ -1645,6 +1645,197 @@ def logic_virustotal(target: str):
         return {"error": str(e)}
 
 
+def logic_shodan(target: str):
+    """
+    Recherche d'informations sur un hôte/IP via Shodan API.
+
+    Args:
+        target: IP ou domaine à analyser
+
+    Returns:
+        Dict avec les données Shodan ou erreur
+    """
+    api_key = os.getenv("SHODAN_API_KEY")
+    if not api_key:
+        return {"error": "SHODAN_API_KEY not configured"}
+
+    try:
+        import re
+        ip_pattern = re.compile(r"^(?:\d{1,3}\.){3}\d{1,3}$")
+
+        # Si c'est un domaine, résoudre en IP d'abord
+        if not ip_pattern.match(target):
+            try:
+                import socket
+                target_ip = socket.gethostbyname(target)
+                logger.info(f"[SHODAN] Resolved {target} to {target_ip}")
+            except socket.gaierror:
+                return {"error": f"Cannot resolve domain '{target}' to IP"}
+        else:
+            target_ip = target
+
+        # Appel API Shodan
+        endpoint = f"https://api.shodan.io/shodan/host/{target_ip}?key={api_key}"
+        r = requests.get(endpoint, timeout=10)
+
+        if r.status_code == 401:
+            return {"error": "Invalid Shodan API key"}
+        elif r.status_code == 404:
+            return {"error": f"No Shodan data found for {target_ip}"}
+        elif r.status_code == 429:
+            return {"error": "Shodan rate limit exceeded"}
+        elif r.status_code != 200:
+            return {"error": f"Shodan API error: HTTP {r.status_code}"}
+
+        data = r.json()
+
+        # Extraire les informations pertinentes
+        summary = {
+            "ip": data.get("ip_str"),
+            "original_target": target,
+            "organization": data.get("org"),
+            "asn": data.get("asn"),
+            "isp": data.get("isp"),
+            "country": data.get("country_name"),
+            "city": data.get("city"),
+            "latitude": data.get("latitude"),
+            "longitude": data.get("longitude"),
+            "hostnames": data.get("hostnames", []),
+            "domains": data.get("domains", []),
+            "open_ports": data.get("ports", []),
+            "vulns": list(data.get("vulns", {}).keys()) if data.get("vulns") else [],
+            "tags": data.get("tags", []),
+            "last_update": data.get("last_update"),
+        }
+
+        # Extraire les services/bannières (limité aux 10 premiers)
+        services = []
+        for item in data.get("data", [])[:10]:
+            service = {
+                "port": item.get("port"),
+                "transport": item.get("transport"),
+                "product": item.get("product"),
+                "version": item.get("version"),
+                "banner": item.get("data", "")[:200],  # Truncate banner
+            }
+            if item.get("ssl"):
+                service["ssl_cert_issuer"] = item.get("ssl", {}).get("cert", {}).get("issuer", {}).get("CN")
+            services.append(service)
+
+        summary["services"] = services
+        summary["total_services"] = len(data.get("data", []))
+
+        # Évaluer le niveau de risque
+        vuln_count = len(summary["vulns"])
+        if vuln_count > 5:
+            summary["risk_level"] = "CRITICAL"
+        elif vuln_count > 0:
+            summary["risk_level"] = "HIGH"
+        elif len(summary["open_ports"]) > 20:
+            summary["risk_level"] = "MEDIUM"
+        else:
+            summary["risk_level"] = "LOW"
+
+        return {"raw": summary}
+
+    except requests.exceptions.Timeout:
+        return {"error": "Shodan request timeout (>10s)"}
+    except Exception as e:
+        logger.error(f"[SHODAN] Error analyzing {target}: {e}")
+        return {"error": str(e)}
+
+
+def logic_securitytrails(target: str):
+    """
+    Historique DNS et découverte de sous-domaines via SecurityTrails API.
+
+    Args:
+        target: Domaine à analyser
+
+    Returns:
+        Dict avec les données SecurityTrails ou erreur
+    """
+    api_key = os.getenv("SECURITYTRAILS_API_KEY")
+    if not api_key:
+        return {"error": "SECURITYTRAILS_API_KEY not configured"}
+
+    try:
+        headers = {
+            "APIKEY": api_key,
+            "Accept": "application/json"
+        }
+
+        # Nettoyer le domaine
+        domain = target.lower().strip()
+        if domain.startswith("http://") or domain.startswith("https://"):
+            from urllib.parse import urlparse
+            domain = urlparse(domain).netloc
+
+        results = {
+            "domain": domain,
+            "subdomains": [],
+            "dns_history": {},
+            "associated_domains": [],
+        }
+
+        # 1. Récupérer les sous-domaines
+        subdomains_url = f"https://api.securitytrails.com/v1/domain/{domain}/subdomains"
+        r = requests.get(subdomains_url, headers=headers, timeout=10)
+
+        if r.status_code == 200:
+            data = r.json()
+            subdomains = data.get("subdomains", [])
+            results["subdomains"] = [f"{sub}.{domain}" for sub in subdomains[:50]]  # Limit 50
+            results["subdomain_count"] = data.get("subdomain_count", len(subdomains))
+        elif r.status_code == 429:
+            return {"error": "SecurityTrails rate limit exceeded (50 req/month free tier)"}
+        elif r.status_code == 401:
+            return {"error": "Invalid SecurityTrails API key"}
+
+        # 2. Récupérer l'historique DNS (A records)
+        history_url = f"https://api.securitytrails.com/v1/history/{domain}/dns/a"
+        r = requests.get(history_url, headers=headers, timeout=10)
+
+        if r.status_code == 200:
+            data = r.json()
+            records = data.get("records", [])[:20]  # Limit 20
+            results["dns_history"]["a_records"] = [
+                {
+                    "ip": rec.get("values", [{}])[0].get("ip") if rec.get("values") else None,
+                    "first_seen": rec.get("first_seen"),
+                    "last_seen": rec.get("last_seen"),
+                    "organizations": rec.get("organizations", [])
+                }
+                for rec in records
+            ]
+
+        # 3. Récupérer les informations générales du domaine
+        domain_url = f"https://api.securitytrails.com/v1/domain/{domain}"
+        r = requests.get(domain_url, headers=headers, timeout=10)
+
+        if r.status_code == 200:
+            data = r.json()
+            results["current_dns"] = data.get("current_dns", {})
+            results["alexa_rank"] = data.get("alexa_rank")
+            results["hostname"] = data.get("hostname")
+
+        # Évaluer le niveau de risque basé sur les changements récents
+        a_history = results.get("dns_history", {}).get("a_records", [])
+        if len(a_history) > 10:
+            results["risk_level"] = "MEDIUM"  # Beaucoup de changements DNS
+            results["risk_note"] = "Nombreux changements DNS détectés"
+        else:
+            results["risk_level"] = "LOW"
+
+        return {"raw": results}
+
+    except requests.exceptions.Timeout:
+        return {"error": "SecurityTrails request timeout (>10s)"}
+    except Exception as e:
+        logger.error(f"[SECURITYTRAILS] Error analyzing {target}: {e}")
+        return {"error": str(e)}
+
+
 def logic_web_enrichment(query: str):
     """Fait une recherche web LIVE et résume les résultats (sans BDD)."""
     try:

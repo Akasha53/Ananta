@@ -443,6 +443,58 @@ TOOL_REGISTRY: Dict[str, ToolSpec] = {
         hypothesis_validated="La cible X est associée à des activités malveillantes"
     ),
 
+    "shodan": ToolSpec(
+        name="shodan",
+        layer=ToolLayer.LAYER_2_SPECIALIZED,
+        description="Recherche d'informations sur les hôtes/IPs via Shodan API",
+        capabilities=["infrastructure_scan", "open_ports", "banners", "vulnerabilities", "geolocation"],
+        legal_risk_level=LegalRiskLevel.MEDIUM,
+        requires_explicit_approval=False,
+        allowed_contexts=[
+            "OSINT passif",
+            "threat intelligence",
+            "security audit",
+            "asset discovery"
+        ],
+        rate_limits={
+            "requests_per_second": 1,  # Free tier: 1 req/s
+            "requests_per_month": 100,  # Free tier limité
+            "hardcoded": True
+        },
+        jurisdiction_notes="Shodan indexe des données publiquement accessibles. "
+                          "L'utilisation est légale mais respecter les ToS.",
+        function_name="logic_shodan",
+        dependencies=["requests"],
+        typical_duration_seconds=2.0,
+        evidence_type="Infrastructure: ports, services, bannières, vulnérabilités",
+        hypothesis_validated="L'hôte X expose des services vulnérables"
+    ),
+
+    "securitytrails": ToolSpec(
+        name="securitytrails",
+        layer=ToolLayer.LAYER_2_SPECIALIZED,
+        description="Historique DNS et découverte de sous-domaines via SecurityTrails API",
+        capabilities=["dns_history", "subdomain_enumeration", "whois_history", "associated_domains"],
+        legal_risk_level=LegalRiskLevel.LOW,
+        requires_explicit_approval=False,
+        allowed_contexts=[
+            "OSINT passif",
+            "threat intelligence",
+            "domain research",
+            "security audit"
+        ],
+        rate_limits={
+            "requests_per_month": 50,  # Free tier très limité
+            "hardcoded": True
+        },
+        jurisdiction_notes="API de recherche de données DNS historiques. Données publiques.",
+        function_name="logic_securitytrails",
+        dependencies=["requests"],
+        typical_duration_seconds=3.0,
+        evidence_type="Historique DNS, sous-domaines, domaines associés",
+        hypothesis_validated="Le domaine X a changé d'infrastructure récemment"
+    ),
+
     # ========================================================================
     # COUCHE 3 - OUTILS SENSIBLES (Approbation Utilisateur Obligatoire)
     # ========================================================================

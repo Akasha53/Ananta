@@ -1,46 +1,46 @@
 # ANANTA - Liste des Tâches (TODOS)
 
 > **Dernière mise à jour**: 20 janvier 2026
-> **Version**: Ananta v2.1 - Mistral 7B (32k context)
+> **Version**: Ananta v2.2 - Mistral 7B (32k context)
 
 ---
 
 ## Priorité CRITIQUE (Bloquant / Sécurité)
 
 ### Sécurité
-- [x] **Implémenter CORS correctement** - Configuration sécurisée par environnement (middleware.py)
-- [x] **Content Security Policy (CSP)** - Headers CSP complets (SecurityHeadersMiddleware)
-- [ ] **Validation des entrées** - Renforcer la validation des cibles (domaines, IPs) contre les injections
-- [x] **Rate limiting global** - Protège `/agent/ask` (10/min), `/osint/*` (30/min) (RateLimitMiddleware)
+- [x] **Implémenter CORS correctement** - Configuration sécurisée par environnement (`middleware.py`)
+- [x] **Content Security Policy (CSP)** - Headers CSP complets (`SecurityHeadersMiddleware`)
+- [x] **Validation des entrées** - Modèles Pydantic stricts (`models.py`) avec protection injection
+- [x] **Rate limiting global** - Protège `/agent/ask` (10/min), `/osint/*` (30/min) (`RateLimitMiddleware`)
 - [ ] **Secrets management** - Migrer les clés API vers un vault (HashiCorp, AWS Secrets Manager)
-- [ ] **Audit de sécurité complet** - Scanner avec Bandit, Safety, OWASP ZAP
+- [x] **Audit de sécurité** - Bandit + Safety intégrés dans CI/CD pipeline
 
 ### Infrastructure
 - [x] **Health check amélioré** - Vérifie Redis, LLM, et database avec latences détaillées
 - [ ] **Gestion des erreurs critiques** - Fallback si LLM down, Redis unreachable
-- [x] **Logging structuré** - Request ID unique (X-Request-ID) + durée (X-Response-Time)
+- [x] **Logging structuré** - Request ID unique (`X-Request-ID`) + durée (`X-Response-Time`)
 
 ---
 
 ## Priorité HAUTE (Important)
 
 ### API & Backend
-- [ ] **Pydantic models complets** - Valider toutes les requêtes POST/PUT avec des modèles stricts
+- [x] **Pydantic models complets** - `models.py` avec validateurs pour toutes les entrées
 - [ ] **Pagination standardisée** - Implémenter sur tous les endpoints de liste
 - [ ] **Cache ETag/Last-Modified** - Headers HTTP pour caching côté client
 - [ ] **Codes d'erreur standardisés** - Format uniforme pour toutes les erreurs API
 - [ ] **OpenAPI documentation** - Compléter les descriptions Swagger/ReDoc
 
 ### Tests
-- [ ] **Tests unitaires** - Couvrir `backend_logic.py`, `auth.py`, `tasks.py`
+- [x] **Tests unitaires** - Structure créée (`tests/`), tests pour `models.py`, `api`
 - [ ] **Tests d'intégration** - Tester les workflows complets (scan → rapport → export)
 - [ ] **Tests de charge** - Benchmark avec Locust ou k6
-- [ ] **CI/CD pipeline** - GitHub Actions pour tests automatiques + déploiement
+- [x] **CI/CD pipeline** - GitHub Actions (`.github/workflows/ci.yml`) avec lint, tests, security
 
 ### Outils OSINT (Layer 1-3)
-- [x] **Intégration VirusTotal** - Scanner les IPs/domaines pour malware (Layer 2) - `logic_virustotal()`
-- [ ] **Intégration Shodan** - Enrichir les scans avec données Shodan (Layer 2)
-- [ ] **Intégration SecurityTrails** - Historique DNS et sous-domaines (Layer 2)
+- [x] **Intégration VirusTotal** - `logic_virustotal()` - réputation, détections malware (Layer 2)
+- [x] **Intégration Shodan** - `logic_shodan()` - ports, services, vulnérabilités (Layer 2)
+- [x] **Intégration SecurityTrails** - `logic_securitytrails()` - historique DNS, sous-domaines (Layer 2)
 - [ ] **Améliorer vuln_scan** - Détection de CVE plus complète (Layer 3)
 - [ ] **Subdomain enumeration** - Outil de découverte de sous-domaines (Layer 2)
 
@@ -149,8 +149,18 @@
 
 ## Tâches complétées (Historique)
 
-- [x] **Supprimer `text-generation-webui_BACKUP`** - Dossier inutile (~20GB+)
-- [x] **Supprimer anciens modèles LLM** - `deepseek-llm-7b-chat`, `TheBloke_Mistral-7B-Instruct-v0.2-GGUF`
+### Session du 20 janvier 2026 (aujourd'hui)
+- [x] **Security Middlewares** - `middleware.py` avec RequestID, RateLimit, CSP, CORS
+- [x] **Health Check amélioré** - Vérifie Redis, LLM, Database avec latences
+- [x] **Validation Pydantic** - `models.py` avec tous les modèles de validation
+- [x] **Intégration VirusTotal** - `logic_virustotal()` pour réputation de menaces
+- [x] **Intégration Shodan** - `logic_shodan()` pour infrastructure et vulnérabilités
+- [x] **Intégration SecurityTrails** - `logic_securitytrails()` pour historique DNS
+- [x] **Structure de tests** - `tests/` avec conftest, test_models, test_api
+- [x] **CI/CD Pipeline** - `.github/workflows/ci.yml` avec lint, tests, security scan
+- [x] **requirements.txt** - Dépendances documentées
+
+### Sessions précédentes
 - [x] ~~**LLM Context Window Limitation**~~ - Résolu avec migration vers Mistral 7B (32k)
 - [x] ~~**Architecture multi-workers**~~ - Simplifié avec 1 worker unique
 - [x] ~~**Global Theme System**~~ - `theme.js` appliqué à toutes les pages
@@ -166,6 +176,26 @@
 ---
 
 ## Notes
+
+### Variables d'environnement requises
+```env
+# Base de données
+DATABASE_URL=postgresql://user:password@host/database
+
+# Redis (Celery)
+REDIS_URL=redis://localhost:6379/0
+
+# APIs OSINT (optionnelles)
+CENSYS_API_KEY=your_key
+VIRUSTOTAL_API_KEY=your_key
+SHODAN_API_KEY=your_key
+SECURITYTRAILS_API_KEY=your_key
+
+# Configuration
+ENVIRONMENT=development  # ou production
+CORS_ORIGINS=https://example.com  # pour prod
+RATE_LIMIT_ENABLED=true
+```
 
 ### Priorités
 - **CRITIQUE**: Doit être fait immédiatement (sécurité, bugs bloquants)
