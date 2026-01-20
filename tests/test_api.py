@@ -109,7 +109,7 @@ class TestDatabaseEndpoint:
     """Tests for database-related endpoints."""
 
     def test_reports_list(self, client: TestClient):
-        response = client.get("/osint/reports/")
+        response = client.get("/osint/history/")
         assert response.status_code == 200
         data = response.json()
         assert isinstance(data, list)
@@ -122,7 +122,7 @@ class TestMonitoringEndpoints:
         response = client.get("/monitoring/stats")
         assert response.status_code == 200
         data = response.json()
-        assert "total_executions" in data or "error" in data
+        assert "total_scans" in data or "error" in data
 
     def test_monitoring_logs(self, client: TestClient):
         response = client.get("/monitoring/logs")
