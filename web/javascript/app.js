@@ -648,14 +648,14 @@ async function handleExecution() {
     try {
         if (useAsync) {
             // MODE ASYNCHRONE avec polling
-            addChatMessage({
-                author: "SYSTEM",
-                content: `<div class="text-amber-400"><i class="fas fa-hourglass-half"></i> ${t('scan_launched')}</div>`
-            });
-
             const asyncData = await askBackendAsync(q);
 
             if (asyncData.type === "async" && asyncData.job_id) {
+                addChatMessage({
+                    author: "SYSTEM",
+                    content: `<div class="text-amber-400"><i class="fas fa-hourglass-half"></i> ${t('scan_launched')}</div>
+                              <div class="text-xs text-slate-500 mt-1">Job ID: <code class="text-cyan-400">${asyncData.job_id}</code></div>`
+                });
                 await pollAndDisplayResults(asyncData.job_id);
             } else {
                 throw new Error("Réponse async invalide");
