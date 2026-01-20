@@ -1,7 +1,7 @@
 # Ananta - OSINT Analysis Platform
 
 Ananta is a local OSINT (Open Source Intelligence) analysis platform that combines automated security scanning tools with a local LLM for intelligent report generation.
-
+![[Main_Page.png]]
 ## Features
 
 - **Multi-layer Tool System**: 3-tier security classification (passive, active, critical)
