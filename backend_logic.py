@@ -464,6 +464,74 @@ def run_layer2_tools(target: str, target_type: str, run_id: str, db_session: Ses
             "duration": security_result["duration"]
         }
 
+        # SecurityTrails (DNS history, subdomains) - requires API key
+        securitytrails_result = execute_tool_with_audit(
+            tool_name="securitytrails",
+            target=target,
+            tool_function=logic_securitytrails,
+            run_id=run_id,
+            context_declared="OSINT passif (parallel)",
+            db_session=db_session
+        )
+        results["tools"]["securitytrails"] = {
+            "status": securitytrails_result["status"],
+            "data": securitytrails_result.get("data", {}).get("raw") if securitytrails_result["status"] == "ok" else None,
+            "error": securitytrails_result.get("error"),
+            "duration": securitytrails_result["duration"]
+        }
+        if securitytrails_result["status"] == "ok":
+            results["collected_data"].append(f"=== DNS HISTORY (SecurityTrails) ===\n{str(securitytrails_result['data'].get('raw'))[:1500]}")
+
+    # VirusTotal (reputation) - works for both domain and IP
+    if target_type == "DOMAIN" or target_type == "IP":
+        vt_target = ip_target if target_type == "DOMAIN" and ip_target else target
+        virustotal_result = execute_tool_with_audit(
+            tool_name="virustotal",
+            target=vt_target,
+            tool_function=logic_virustotal,
+            run_id=run_id,
+            context_declared="OSINT passif (parallel)",
+            db_session=db_session
+        )
+        results["tools"]["virustotal"] = {
+            "status": virustotal_result["status"],
+            "data": virustotal_result.get("data", {}).get("raw") if virustotal_result["status"] == "ok" else None,
+            "error": virustotal_result.get("error"),
+            "duration": virustotal_result["duration"]
+        }
+        if virustotal_result["status"] == "ok":
+            vt_data = virustotal_result['data'].get('raw', {})
+            results["collected_data"].append(
+                f"=== REPUTATION (VirusTotal) ===\n"
+                f"Risk Level: {vt_data.get('risk_level', 'N/A')}\n"
+                f"Malicious detections: {vt_data.get('detection_stats', {}).get('malicious', 0)}\n"
+            )
+
+        # Shodan (infrastructure) - requires API key
+        shodan_target = ip_target if target_type == "DOMAIN" and ip_target else target
+        shodan_result = execute_tool_with_audit(
+            tool_name="shodan",
+            target=shodan_target,
+            tool_function=logic_shodan,
+            run_id=run_id,
+            context_declared="OSINT passif (parallel)",
+            db_session=db_session
+        )
+        results["tools"]["shodan"] = {
+            "status": shodan_result["status"],
+            "data": shodan_result.get("data", {}).get("raw") if shodan_result["status"] == "ok" else None,
+            "error": shodan_result.get("error"),
+            "duration": shodan_result["duration"]
+        }
+        if shodan_result["status"] == "ok":
+            shodan_data = shodan_result['data'].get('raw', {})
+            results["collected_data"].append(
+                f"=== INFRASTRUCTURE (Shodan) ===\n"
+                f"Open ports: {shodan_data.get('open_ports', [])}\n"
+                f"Vulnerabilities: {shodan_data.get('vulns', [])}\n"
+                f"Risk Level: {shodan_data.get('risk_level', 'N/A')}\n"
+            )
+
     logger.info(f"[LAYER 2 PARALLEL] Terminé pour {target} - {len(results['tools'])} outils exécutés")
     return results
 
@@ -697,10 +765,15 @@ def execute_tool_with_audit(
     try:
         result_data = tool_function(target)
 
-        # Vérifier si l'outil a retourné une erreur
-        if isinstance(result_data, dict) and "error" in result_data:
-            status = "error"
-            error_message = result_data["error"]
+        # Vérifier si l'outil a retourné une erreur ou a été skippé
+        if isinstance(result_data, dict):
+            if "skipped" in result_data and result_data["skipped"]:
+                status = "skipped"
+                error_message = result_data.get("reason", "Tool skipped (no API key)")
+                logger.info(f"[TOOL SKIPPED] {tool_name} - {error_message}")
+            elif "error" in result_data:
+                status = "error"
+                error_message = result_data["error"]
 
     except Exception as e:
         status = "error"
@@ -1506,7 +1579,8 @@ def logic_reverse_dns(ip: str):
 def logic_censys(target: str):
     """Interroge Censys Platform API v3 pour obtenir des infos sur un host/IP."""
     if not CENSYS_API_KEY:
-        return {"error": "No API Key"}
+        logger.info(f"[CENSYS] Skipped - CENSYS_API_KEY not configured")
+        return {"skipped": True, "reason": "CENSYS_API_KEY not configured"}
 
     try:
         # Censys Platform API v3 utilise Bearer token (Personal Access Token)
@@ -1548,11 +1622,12 @@ def logic_virustotal(target: str):
         target: Domaine, IP ou URL à analyser
 
     Returns:
-        Dict avec les données de réputation ou erreur
+        Dict avec les données de réputation ou erreur/skipped
     """
     api_key = os.getenv("VIRUSTOTAL_API_KEY")
     if not api_key:
-        return {"error": "VIRUSTOTAL_API_KEY not configured"}
+        logger.info(f"[VIRUSTOTAL] Skipped - VIRUSTOTAL_API_KEY not configured")
+        return {"skipped": True, "reason": "VIRUSTOTAL_API_KEY not configured"}
 
     try:
         headers = {
@@ -1653,11 +1728,12 @@ def logic_shodan(target: str):
         target: IP ou domaine à analyser
 
     Returns:
-        Dict avec les données Shodan ou erreur
+        Dict avec les données Shodan ou erreur/skipped
     """
     api_key = os.getenv("SHODAN_API_KEY")
     if not api_key:
-        return {"error": "SHODAN_API_KEY not configured"}
+        logger.info(f"[SHODAN] Skipped - SHODAN_API_KEY not configured")
+        return {"skipped": True, "reason": "SHODAN_API_KEY not configured"}
 
     try:
         import re
@@ -1753,11 +1829,12 @@ def logic_securitytrails(target: str):
         target: Domaine à analyser
 
     Returns:
-        Dict avec les données SecurityTrails ou erreur
+        Dict avec les données SecurityTrails ou erreur/skipped
     """
     api_key = os.getenv("SECURITYTRAILS_API_KEY")
     if not api_key:
-        return {"error": "SECURITYTRAILS_API_KEY not configured"}
+        logger.info(f"[SECURITYTRAILS] Skipped - SECURITYTRAILS_API_KEY not configured")
+        return {"skipped": True, "reason": "SECURITYTRAILS_API_KEY not configured"}
 
     try:
         headers = {
