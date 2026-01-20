@@ -138,8 +138,6 @@
 - [ ] **Error handling uniforme** - Créer des exceptions custom
 
 ### Nettoyage
-- [ ] **Supprimer `text-generation-webui_BACKUP`** - Dossier inutile (~20GB+)
-- [ ] **Supprimer anciens modèles LLM** - `deepseek-llm-7b-chat`, `TheBloke_Mistral-7B-Instruct-v0.2-GGUF`
 - [ ] **Nettoyer logs anciens** - Rotation automatique des fichiers logs
 - [ ] **Archiver jobs terminés** - Déplacer les vieux ScanJob vers une table archive
 
@@ -151,6 +149,8 @@
 
 ## Tâches complétées (Historique)
 
+- [x] **Supprimer `text-generation-webui_BACKUP`** - Dossier inutile (~20GB+)
+- [x] **Supprimer anciens modèles LLM** - `deepseek-llm-7b-chat`, `TheBloke_Mistral-7B-Instruct-v0.2-GGUF`
 - [x] ~~**LLM Context Window Limitation**~~ - Résolu avec migration vers Mistral 7B (32k)
 - [x] ~~**Architecture multi-workers**~~ - Simplifié avec 1 worker unique
 - [x] ~~**Global Theme System**~~ - `theme.js` appliqué à toutes les pages
