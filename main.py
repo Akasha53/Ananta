@@ -7,11 +7,20 @@ from pathlib import Path
 import asyncio
 import logging
 import traceback
+import os
 
 # Imports de nos modules divisés
 from database import init_db
 import backend_logic as logic
 from web_routes import router as api_router
+
+# Import des middlewares de sécurité
+from middleware import (
+    RequestIDMiddleware,
+    RateLimitMiddleware,
+    SecurityHeadersMiddleware,
+    get_cors_config,
+)
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -44,14 +53,29 @@ async def global_exception_handler(request: Request, exc: Exception):
         },
     )
 
-# --- CONFIG APP ---
+# --- MIDDLEWARES ---
+# Ordre important: le premier ajouté est le dernier exécuté
+
+# 1. CORS (doit être ajouté en dernier pour être exécuté en premier)
+cors_config = get_cors_config()
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_origins=cors_config["allow_origins"],
+    allow_credentials=cors_config["allow_credentials"],
+    allow_methods=cors_config["allow_methods"],
+    allow_headers=cors_config["allow_headers"],
+    expose_headers=cors_config["expose_headers"],
+    max_age=cors_config["max_age"],
 )
+
+# 2. Rate Limiting (protège les endpoints coûteux)
+app.add_middleware(RateLimitMiddleware, enabled=True)
+
+# 3. Security Headers (CSP, X-Frame-Options, etc.)
+app.add_middleware(SecurityHeadersMiddleware)
+
+# 4. Request ID Tracking (premier dans la chaîne, dernier ajouté)
+app.add_middleware(RequestIDMiddleware)
 
 # ✅ Montage du routeur API
 app.include_router(api_router)

@@ -8,17 +8,17 @@
 ## Priorité CRITIQUE (Bloquant / Sécurité)
 
 ### Sécurité
-- [ ] **Implémenter CORS correctement** - Actuellement permissif, restreindre aux origines autorisées
-- [ ] **Content Security Policy (CSP)** - Ajouter headers CSP pour protéger contre XSS
+- [x] **Implémenter CORS correctement** - Configuration sécurisée par environnement (middleware.py)
+- [x] **Content Security Policy (CSP)** - Headers CSP complets (SecurityHeadersMiddleware)
 - [ ] **Validation des entrées** - Renforcer la validation des cibles (domaines, IPs) contre les injections
-- [ ] **Rate limiting global** - Protéger contre les abus sur `/agent/ask`, `/osint/*`
+- [x] **Rate limiting global** - Protège `/agent/ask` (10/min), `/osint/*` (30/min) (RateLimitMiddleware)
 - [ ] **Secrets management** - Migrer les clés API vers un vault (HashiCorp, AWS Secrets Manager)
 - [ ] **Audit de sécurité complet** - Scanner avec Bandit, Safety, OWASP ZAP
 
 ### Infrastructure
-- [ ] **Health check amélioré** - Vérifier Redis, LLM, et database dans `/health`
+- [x] **Health check amélioré** - Vérifie Redis, LLM, et database avec latences détaillées
 - [ ] **Gestion des erreurs critiques** - Fallback si LLM down, Redis unreachable
-- [ ] **Logging structuré** - Ajouter request ID unique pour tracer les requêtes
+- [x] **Logging structuré** - Request ID unique (X-Request-ID) + durée (X-Response-Time)
 
 ---
 

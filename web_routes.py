@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 from sqlalchemy import text, func
@@ -14,6 +14,7 @@ logger = logging.getLogger(__name__)
 # Imports locaux
 from database import get_db, EntityReport, ScanJob, PendingApproval, ToolExecutionLog, APIKey
 import backend_logic as logic
+from middleware import get_full_health_status
 
 # Import Celery tasks (toutes les tâches spécialisées)
 try:
@@ -75,71 +76,58 @@ SYSTEM_PROMPT_UNIVERSAL = (
 
 
 @router.get("/health")
-def health():
+def health(request: Request, db: Session = Depends(get_db)):
     """
-    Retourne les métriques système en temps réel :
-    - CPU (%)
-    - RAM (%)
-    - GPU (si disponible)
-    - Latence DB
-    - État des workers
+    Health check complet avec vérification de tous les services:
+    - Database (PostgreSQL/SQLite)
+    - Redis (Celery broker)
+    - LLM (Mistral 7B)
+    - Métriques système (CPU, RAM, GPU)
+
+    Returns:
+        - status: "healthy" | "degraded" | "unhealthy"
+        - services: détail de chaque service
+        - system: métriques système
     """
     try:
-        # CPU & RAM
-        cpu_percent = psutil.cpu_percent(interval=0.1)
-        memory = psutil.virtual_memory()
-        ram_percent = memory.percent
-        
-        # Latence DB (simple ping)
-        db_start = time.time()
-        try:
-            db = next(get_db())
-            db.execute(text("SELECT 1"))
-            db_latency_ms = round((time.time() - db_start) * 1000, 2)
-            db.close()
-        except Exception as e:
-            logger.error(f"Erreur test DB: {e}")
-            db_latency_ms = -1
-        
-        # GPU (optionnel - nécessite nvidia-smi ou pynvml)
-        gpu_percent = None
-        try:
-            import GPUtil
-            gpus = GPUtil.getGPUs()
-            if gpus:
-                gpu_percent = round(gpus[0].load * 100, 1)
-        except:
-            pass
-        
-        # Worker state (Scrapy, LLM)
-        worker_state = "STABLE"
-        try:
-            # Test si le LLM répond
-            import requests
-            resp = requests.get("http://localhost:5000/v1/models", timeout=2)
-            if resp.status_code != 200:
-                worker_state = "DEGRADED"
-        except:
-            worker_state = "OFFLINE"
-        
+        # Utiliser le helper centralisé
+        health_status = get_full_health_status(db)
+
+        # Ajouter le request ID si disponible
+        request_id = getattr(request.state, "request_id", None)
+        if request_id:
+            health_status["request_id"] = request_id
+
+        # Mapper vers l'ancien format pour compatibilité frontend
+        llm_status = health_status["services"]["llm"]["status"]
+        worker_state = "STABLE" if llm_status == "ok" else "DEGRADED" if llm_status == "degraded" else "OFFLINE"
+
+        # Réponse compatible avec l'ancien format + nouveau format détaillé
         return {
-            "cpu_load": cpu_percent,
-            "ram_load": ram_percent,
-            "gpu_load": gpu_percent,
-            "db_latency_ms": db_latency_ms,
+            # Ancien format (compatibilité)
+            "cpu_load": health_status["system"]["cpu_percent"],
+            "ram_load": health_status["system"]["ram_percent"],
+            "gpu_load": health_status["system"]["gpu"]["load_percent"] if health_status["system"]["gpu"] else None,
+            "db_latency_ms": health_status["services"]["database"]["latency_ms"],
             "worker_state": worker_state,
-            "backend_api": "ONLINE"
+            "backend_api": "ONLINE",
+            # Nouveau format détaillé
+            "health": health_status,
         }
-        
+
     except Exception as e:
-        logger.exception("Erreur /system/metrics")
+        logger.exception("Erreur /health")
         return {
             "cpu_load": -1,
             "ram_load": -1,
             "gpu_load": None,
             "db_latency_ms": -1,
             "worker_state": "ERROR",
-            "backend_api": "ERROR"
+            "backend_api": "ERROR",
+            "health": {
+                "status": "unhealthy",
+                "error": str(e),
+            }
         }
 
 
