@@ -416,6 +416,33 @@ TOOL_REGISTRY: Dict[str, ToolSpec] = {
         hypothesis_validated="L'organisation X a un processus de disclosure"
     ),
 
+    "virustotal": ToolSpec(
+        name="virustotal",
+        layer=ToolLayer.LAYER_2_SPECIALIZED,
+        description="Analyse de réputation via VirusTotal API (domaines, IPs, fichiers)",
+        capabilities=["malware_detection", "reputation_score", "threat_intelligence", "detection_engines"],
+        legal_risk_level=LegalRiskLevel.MEDIUM,
+        requires_explicit_approval=False,
+        allowed_contexts=[
+            "OSINT passif",
+            "threat intelligence",
+            "incident response",
+            "security audit"
+        ],
+        rate_limits={
+            "requests_per_minute": 4,  # Free tier: 4 req/min
+            "requests_per_day": 500,   # Free tier: 500 req/day
+            "hardcoded": True
+        },
+        jurisdiction_notes="API publique de VirusTotal. Respecter les ToS. "
+                          "Les données soumises peuvent être partagées avec la communauté.",
+        function_name="logic_virustotal",
+        dependencies=["requests"],
+        typical_duration_seconds=2.0,
+        evidence_type="Réputation de menace, détections antivirus",
+        hypothesis_validated="La cible X est associée à des activités malveillantes"
+    ),
+
     # ========================================================================
     # COUCHE 3 - OUTILS SENSIBLES (Approbation Utilisateur Obligatoire)
     # ========================================================================

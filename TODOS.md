@@ -38,7 +38,7 @@
 - [ ] **CI/CD pipeline** - GitHub Actions pour tests automatiques + déploiement
 
 ### Outils OSINT (Layer 1-3)
-- [ ] **Intégration VirusTotal** - Scanner les IPs/domaines pour malware (Layer 2)
+- [x] **Intégration VirusTotal** - Scanner les IPs/domaines pour malware (Layer 2) - `logic_virustotal()`
 - [ ] **Intégration Shodan** - Enrichir les scans avec données Shodan (Layer 2)
 - [ ] **Intégration SecurityTrails** - Historique DNS et sous-domaines (Layer 2)
 - [ ] **Améliorer vuln_scan** - Détection de CVE plus complète (Layer 3)

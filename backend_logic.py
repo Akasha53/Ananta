@@ -1538,6 +1538,113 @@ def logic_censys(target: str):
     except Exception as e:
         return {"error": str(e)}
 
+
+def logic_virustotal(target: str):
+    """
+    Analyse de réputation via VirusTotal API v3.
+    Supporte les domaines, IPs et URLs.
+
+    Args:
+        target: Domaine, IP ou URL à analyser
+
+    Returns:
+        Dict avec les données de réputation ou erreur
+    """
+    api_key = os.getenv("VIRUSTOTAL_API_KEY")
+    if not api_key:
+        return {"error": "VIRUSTOTAL_API_KEY not configured"}
+
+    try:
+        headers = {
+            "x-apikey": api_key,
+            "Accept": "application/json"
+        }
+
+        # Déterminer le type de cible
+        import re
+        ip_pattern = re.compile(r"^(?:\d{1,3}\.){3}\d{1,3}$")
+
+        if ip_pattern.match(target):
+            # C'est une IP
+            endpoint = f"https://www.virustotal.com/api/v3/ip_addresses/{target}"
+            target_type = "ip"
+        elif target.startswith("http://") or target.startswith("https://"):
+            # C'est une URL - encoder en base64
+            import base64
+            url_id = base64.urlsafe_b64encode(target.encode()).decode().strip("=")
+            endpoint = f"https://www.virustotal.com/api/v3/urls/{url_id}"
+            target_type = "url"
+        else:
+            # C'est un domaine
+            endpoint = f"https://www.virustotal.com/api/v3/domains/{target}"
+            target_type = "domain"
+
+        r = requests.get(endpoint, headers=headers, timeout=10)
+
+        if r.status_code == 401:
+            return {"error": "Invalid VirusTotal API key"}
+        elif r.status_code == 404:
+            return {"error": f"Target '{target}' not found in VirusTotal database"}
+        elif r.status_code == 429:
+            return {"error": "VirusTotal rate limit exceeded (4 req/min on free tier)"}
+        elif r.status_code != 200:
+            return {"error": f"VirusTotal API error: HTTP {r.status_code}"}
+
+        data = r.json()
+        attributes = data.get("data", {}).get("attributes", {})
+
+        # Extraire les informations pertinentes
+        last_analysis_stats = attributes.get("last_analysis_stats", {})
+        reputation = attributes.get("reputation", 0)
+
+        # Calculer le score de détection
+        malicious = last_analysis_stats.get("malicious", 0)
+        suspicious = last_analysis_stats.get("suspicious", 0)
+        harmless = last_analysis_stats.get("harmless", 0)
+        undetected = last_analysis_stats.get("undetected", 0)
+        total_engines = malicious + suspicious + harmless + undetected
+
+        # Résumé structuré
+        summary = {
+            "target": target,
+            "target_type": target_type,
+            "reputation_score": reputation,
+            "detection_stats": {
+                "malicious": malicious,
+                "suspicious": suspicious,
+                "harmless": harmless,
+                "undetected": undetected,
+                "total_engines": total_engines
+            },
+            "risk_level": "HIGH" if malicious > 5 else "MEDIUM" if malicious > 0 or suspicious > 2 else "LOW",
+            "last_analysis_date": attributes.get("last_analysis_date"),
+            "categories": attributes.get("categories", {}),
+            "tags": attributes.get("tags", [])
+        }
+
+        # Ajouter des infos spécifiques au type
+        if target_type == "domain":
+            summary["registrar"] = attributes.get("registrar")
+            summary["creation_date"] = attributes.get("creation_date")
+            summary["whois"] = attributes.get("whois", "")[:500]  # Truncate WHOIS
+        elif target_type == "ip":
+            summary["asn"] = attributes.get("asn")
+            summary["as_owner"] = attributes.get("as_owner")
+            summary["country"] = attributes.get("country")
+            summary["network"] = attributes.get("network")
+
+        return {
+            "raw": summary,
+            "full_response": data  # Garder la réponse complète pour debug
+        }
+
+    except requests.exceptions.Timeout:
+        return {"error": "VirusTotal request timeout (>10s)"}
+    except Exception as e:
+        logger.error(f"[VIRUSTOTAL] Error analyzing {target}: {e}")
+        return {"error": str(e)}
+
+
 def logic_web_enrichment(query: str):
     """Fait une recherche web LIVE et résume les résultats (sans BDD)."""
     try:

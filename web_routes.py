@@ -1,8 +1,8 @@
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 from sqlalchemy.orm import Session
 from sqlalchemy import text, func
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 from typing import Optional, List
 import re
 import logging
@@ -15,6 +15,20 @@ logger = logging.getLogger(__name__)
 from database import get_db, EntityReport, ScanJob, PendingApproval, ToolExecutionLog, APIKey
 import backend_logic as logic
 from middleware import get_full_health_status
+from models import (
+    ScanRequest,
+    TargetRequest,
+    DomainRequest,
+    APIKeyCreate,
+    ExportRequest,
+    LogFilter,
+    CompareRequest,
+    ErrorResponse,
+    validate_target,
+    validate_query,
+    DOMAIN_PATTERN,
+    IPV4_PATTERN,
+)
 
 # Import Celery tasks (toutes les tâches spécialisées)
 try:
@@ -49,13 +63,10 @@ except ImportError:
 router = APIRouter()
 
 
-class AskBody(BaseModel):
-    query: str
-    scan_mode: Optional[str] = "full"  # "fast" (Layer 1), "standard" (Layer 1+2), "full" (all), "priority"
-    approved_tools: Optional[List[str]] = None  # Pour Layer 3 (port_scan, vuln_scan)
+# Alias pour compatibilité (utilise maintenant ScanRequest de models.py)
+AskBody = ScanRequest
 
-
-# Regex
+# Regex (importées de models.py, gardées ici pour compatibilité)
 DOMAIN_RE = re.compile(r"\b([a-zA-Z0-9-]+\.[a-zA-Z]{2,})\b")
 IP_RE = re.compile(r"\b(?:(?:25[0-5]|2[0-4]\d|1?\d?\d)\.){3}(?:25[0-5]|2[0-4]\d|1?\d?\d)\b")
 
