@@ -32,8 +32,8 @@
 - [ ] **OpenAPI documentation** - Compléter les descriptions Swagger/ReDoc
 
 ### Tests
-- [x] **Tests unitaires** - Structure créée (`tests/`), tests pour `models.py`, `api`
-- [ ] **Tests d'intégration** - Tester les workflows complets (scan → rapport → export)
+- [x] **Tests unitaires** - Structure créée (`tests/`), tests pour `models.py`, `api`, `errors.py`
+- [x] **Tests d'intégration** - `test_integration.py` workflows complets (scan, export, monitoring)
 - [ ] **Tests de charge** - Benchmark avec Locust ou k6
 - [x] **CI/CD pipeline** - GitHub Actions (`.github/workflows/ci.yml`) avec lint, tests, security
 
@@ -163,6 +163,9 @@
 - [x] **Pagination helper** - `paginate()` + PaginatedResponse dans models.py
 - [x] **Subdomain enumeration** - `logic_subdomains()` multi-sources (crt.sh, HackerTarget, DNS)
 - [x] **Documentation mise à jour** - dev_runbook.md, CLAUDE.md avec Mistral + nouvelles APIs
+- [x] **Tests errors.py** - `test_errors.py` avec 30+ tests pour ErrorCode, AnantaException
+- [x] **Tests d'intégration** - `test_integration.py` avec ~40 tests workflows complets
+- [x] **Tests pagination** - Ajout tests PaginationParams et PaginatedResponse
 
 ### Sessions précédentes
 - [x] ~~**LLM Context Window Limitation**~~ - Résolu avec migration vers Mistral 7B (32k)
