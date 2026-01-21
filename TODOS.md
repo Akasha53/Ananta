@@ -1,7 +1,7 @@
 # ANANTA - Liste des Tâches (TODOS)
 
-> **Dernière mise à jour**: 20 janvier 2026
-> **Version**: Ananta v2.2 - Mistral 7B (32k context)
+> **Dernière mise à jour**: 21 janvier 2026
+> **Version**: Ananta v2.3 - Mistral 7B (32k context)
 
 ---
 
@@ -149,7 +149,13 @@
 
 ## Tâches complétées (Historique)
 
-### Session du 20 janvier 2026 (aujourd'hui)
+### Session du 21 janvier 2026 (aujourd'hui)
+- [x] **Layer 3 UI accessible** - Mode "Critique" dans settings avec consentement légal obligatoire
+- [x] **Outils Layer 3 sélectionnables** - port_scan et vuln_scan maintenant accessibles via UI
+- [x] **Dialogue de consentement** - Confirmation légale requise avant d'utiliser les outils à risque
+- [x] **Traductions Layer 3** - Messages d'erreur FR/EN pour le mode critique
+
+### Session du 20 janvier 2026
 - [x] **Security Middlewares** - `middleware.py` avec RequestID, RateLimit, CSP, CORS
 - [x] **Health Check amélioré** - Vérifie Redis, LLM, Database avec latences
 - [x] **Validation Pydantic** - `models.py` avec tous les modèles de validation

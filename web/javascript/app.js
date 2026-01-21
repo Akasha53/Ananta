@@ -90,7 +90,11 @@ const TRANSLATIONS = {
         'settings_reset': 'Paramètres réinitialisés.',
         'cache_cleared': 'Cache vidé avec succès.',
         'scan_complete': 'Scan terminé',
-        'scan_complete_message': 'L\'analyse de {target} est terminée.'
+        'scan_complete_message': 'L\'analyse de {target} est terminée.',
+
+        // Layer 3 / Critical Mode
+        'critical_consent_required': 'Vous devez confirmer avoir l\'autorisation légale pour utiliser les outils Layer 3.',
+        'critical_no_tools': 'Vous devez sélectionner au moins un outil Layer 3 (port scan ou vuln scan).'
     },
     en: {
         // General
@@ -164,7 +168,11 @@ const TRANSLATIONS = {
         'settings_reset': 'Settings reset.',
         'cache_cleared': 'Cache cleared successfully.',
         'scan_complete': 'Scan complete',
-        'scan_complete_message': 'The analysis of {target} is complete.'
+        'scan_complete_message': 'The analysis of {target} is complete.',
+
+        // Layer 3 / Critical Mode
+        'critical_consent_required': 'You must confirm you have legal authorization to use Layer 3 tools.',
+        'critical_no_tools': 'You must select at least one Layer 3 tool (port scan or vuln scan).'
     }
 };
 
@@ -593,13 +601,34 @@ async function askBackendAsync(query) {
     // Récupérer le scan_mode depuis les settings (défaut: "standard")
     const scanMode = appSettings.scanMode || 'standard';
 
+    // Build request payload
+    const payload = {
+        query: query,
+        scan_mode: scanMode
+    };
+
+    // Si mode critique, vérifier le consentement et récupérer les outils approuvés
+    if (scanMode === 'critical') {
+        const legalConsent = document.getElementById('legal-consent-checkbox');
+        if (!legalConsent || !legalConsent.checked) {
+            throw new Error(t('critical_consent_required') || "Vous devez confirmer avoir l'autorisation légale pour utiliser les outils Layer 3.");
+        }
+
+        // Récupérer les outils Layer 3 sélectionnés
+        const selectedTools = Array.from(document.querySelectorAll('input[name="layer3-tool"]:checked'))
+            .map(cb => cb.value);
+
+        if (selectedTools.length === 0) {
+            throw new Error(t('critical_no_tools') || "Vous devez sélectionner au moins un outil Layer 3.");
+        }
+
+        payload.approved_tools = selectedTools;
+    }
+
     const res = await fetch(`${API_BASE}/agent/ask_async`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-            query: query,
-            scan_mode: scanMode
-        })
+        body: JSON.stringify(payload)
     });
 
     if (!res.ok) {
@@ -987,6 +1016,24 @@ function initSettingsListeners() {
     document.addEventListener("keydown", (e) => {
         if (e.key === "Escape") closeSettings();
     });
+
+    // Scan Mode change - show/hide Layer 3 tools section
+    const scanModeRadios = document.querySelectorAll('input[name="scan-mode"]');
+    const layer3Section = document.getElementById('layer3-tools-section');
+
+    function updateLayer3Visibility() {
+        const selectedMode = document.querySelector('input[name="scan-mode"]:checked')?.value;
+        if (layer3Section) {
+            layer3Section.style.display = selectedMode === 'critical' ? 'block' : 'none';
+        }
+    }
+
+    scanModeRadios.forEach(radio => {
+        radio.addEventListener('change', updateLayer3Visibility);
+    });
+
+    // Initial state
+    updateLayer3Visibility();
 }
 
 function saveSettings() {

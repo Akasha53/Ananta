@@ -328,6 +328,40 @@
                 <span><i class="fas fa-microscope"></i> Complet (Tous les layers)</span>
               </label>
               <p class="settings-hint" style="margin-left: 24px; margin-top: -4px;">Scan exhaustif avec toutes les sources (~5min)</p>
+              <label class="settings-radio critical-mode">
+                <input type="radio" name="scan-mode" value="critical" />
+                <span><i class="fas fa-skull-crossbones text-red-500"></i> Critique (Layer 3 - Risque Légal)</span>
+              </label>
+              <p class="settings-hint critical-warning" style="margin-left: 24px; margin-top: -4px; color: #ef4444;">
+                <i class="fas fa-exclamation-triangle"></i> Port scan, vuln scan - NÉCESSITE AUTORISATION EXPLICITE
+              </p>
+            </div>
+          </div>
+          <!-- Layer 3 Tools Selection (hidden unless critical mode) -->
+          <div id="layer3-tools-section" class="settings-field" style="display: none;">
+            <label><i class="fas fa-tools text-red-500"></i> Outils Layer 3 à activer</label>
+            <div class="layer3-tools-grid" style="display: flex; flex-direction: column; gap: 8px; margin-top: 8px;">
+              <label class="settings-checkbox">
+                <input type="checkbox" name="layer3-tool" value="port_scan" />
+                <span><i class="fas fa-network-wired"></i> Port Scan (TCP top 100 ports)</span>
+              </label>
+              <label class="settings-checkbox">
+                <input type="checkbox" name="layer3-tool" value="vuln_scan" />
+                <span><i class="fas fa-bug"></i> Vuln Scan (CVE detection)</span>
+              </label>
+            </div>
+            <div class="legal-consent-box" style="background: rgba(239, 68, 68, 0.1); border: 1px solid #ef4444; border-radius: 8px; padding: 12px; margin-top: 12px;">
+              <p style="color: #fca5a5; font-size: 12px; margin-bottom: 8px;">
+                <i class="fas fa-gavel"></i> <strong>AVERTISSEMENT LÉGAL</strong>
+              </p>
+              <p style="color: #94a3b8; font-size: 11px; line-height: 1.5;">
+                Les scans de ports et de vulnérabilités peuvent être illégaux sans autorisation écrite du propriétaire de la cible.
+                En activant ces outils, vous confirmez disposer d'une autorisation valide (pentest contractuel, bug bounty, audit interne).
+              </p>
+              <label class="settings-checkbox" style="margin-top: 8px;">
+                <input type="checkbox" id="legal-consent-checkbox" />
+                <span style="color: #ef4444; font-weight: 600;">Je confirme avoir l'autorisation légale pour ce scan</span>
+              </label>
             </div>
           </div>
         </section>
