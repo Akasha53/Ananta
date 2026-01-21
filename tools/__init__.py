@@ -7,5 +7,5 @@ Architecture en 3 couches:
 - Couche 3: Sensibles (approbation utilisateur obligatoire)
 """
 
-__version__ = "2.0.0"
+__version__ = "1.0.3"
 __author__ = "Ananta Team"

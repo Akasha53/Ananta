@@ -1,8 +1,8 @@
 @echo off
 title ANANTA OSINT - Launcher
 
-set "WEBUI_DIR=C:\Users\guilh\Desktop\Dossier perso\nas-akasha\Projet\IA\code\text-generation-webui"
-set "FASTAPI_DIR=C:\Users\guilh\Desktop\Dossier perso\nas-akasha\Projet\IA\code"
+set "WEBUI_DIR=.\text-generation-webui"
+set "FASTAPI_DIR=."
 set "LLM_MODEL=mistralai_Mistral-7B-Instruct-v0.2"
 
 echo ========================================
