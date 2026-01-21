@@ -2,6 +2,7 @@ from fastapi import FastAPI, Request
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
 from contextlib import asynccontextmanager
 from pathlib import Path
 import asyncio
@@ -142,13 +143,16 @@ app.add_middleware(
     max_age=cors_config["max_age"],
 )
 
-# 2. Rate Limiting (protège les endpoints coûteux)
+# 2. GZip Compression (compresse les réponses > 1KB)
+app.add_middleware(GZipMiddleware, minimum_size=1000)
+
+# 3. Rate Limiting (protège les endpoints coûteux)
 app.add_middleware(RateLimitMiddleware, enabled=True)
 
-# 3. Security Headers (CSP, X-Frame-Options, etc.)
+# 4. Security Headers (CSP, X-Frame-Options, etc.)
 app.add_middleware(SecurityHeadersMiddleware)
 
-# 4. Request ID Tracking (premier dans la chaîne, dernier ajouté)
+# 5. Request ID Tracking (premier dans la chaîne, dernier ajouté)
 app.add_middleware(RequestIDMiddleware)
 
 # ✅ Montage du routeur API

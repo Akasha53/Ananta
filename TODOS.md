@@ -52,7 +52,7 @@
 - [ ] **Mode hors-ligne complet** - PWA avec cache des derniers scans
 - [ ] **Notifications WebSocket** - Temps réel au lieu du polling pour les jobs
 - [ ] **Dark/Light mode toggle** - Option de thème clair
-- [ ] **Keyboard shortcuts** - Navigation rapide (Ctrl+Enter pour scan, etc.)
+- [x] **Keyboard shortcuts** - Navigation rapide (Ctrl+Enter, Ctrl+K, Ctrl+E, ?, etc.)
 - [ ] **Responsive mobile** - Améliorer l'affichage sur petits écrans
 - [ ] **Accessibilité (a11y)** - ARIA labels, contraste, navigation clavier
 
@@ -72,7 +72,7 @@
 
 ### Performance
 - [ ] **Cache Redis cluster** - Pour haute disponibilité
-- [ ] **Compression des réponses** - Gzip/Brotli pour les gros rapports
+- [x] **Compression des réponses** - GZipMiddleware pour réponses > 1KB
 - [ ] **Lazy loading** - Charger les sections de rapport à la demande
 - [ ] **Database indexing** - Optimiser les requêtes SQL fréquentes
 - [ ] **Connection pooling** - Optimiser les connexions PostgreSQL

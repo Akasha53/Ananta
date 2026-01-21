@@ -94,7 +94,17 @@ const TRANSLATIONS = {
 
         // Layer 3 / Critical Mode
         'critical_consent_required': 'Vous devez confirmer avoir l\'autorisation légale pour utiliser les outils Layer 3.',
-        'critical_no_tools': 'Vous devez sélectionner au moins un outil Layer 3 (port scan ou vuln scan).'
+        'critical_no_tools': 'Vous devez sélectionner au moins un outil Layer 3 (port scan ou vuln scan).',
+
+        // Keyboard Shortcuts
+        'keyboard_shortcuts': 'Raccourcis clavier',
+        'execute_scan': 'Exécuter le scan',
+        'focus_search': 'Focus recherche',
+        'open_settings': 'Paramètres',
+        'go_to_database': 'Aller à Database',
+        'close_modal': 'Fermer la modale',
+        'show_shortcuts': 'Afficher cette aide',
+        'press_escape': 'Appuyez sur Escape pour fermer'
     },
     en: {
         // General
@@ -172,7 +182,17 @@ const TRANSLATIONS = {
 
         // Layer 3 / Critical Mode
         'critical_consent_required': 'You must confirm you have legal authorization to use Layer 3 tools.',
-        'critical_no_tools': 'You must select at least one Layer 3 tool (port scan or vuln scan).'
+        'critical_no_tools': 'You must select at least one Layer 3 tool (port scan or vuln scan).',
+
+        // Keyboard Shortcuts
+        'keyboard_shortcuts': 'Keyboard Shortcuts',
+        'execute_scan': 'Execute scan',
+        'focus_search': 'Focus search',
+        'open_settings': 'Settings',
+        'go_to_database': 'Go to Database',
+        'close_modal': 'Close modal',
+        'show_shortcuts': 'Show this help',
+        'press_escape': 'Press Escape to close'
     }
 };
 
@@ -1012,9 +1032,65 @@ function initSettingsListeners() {
         if (e.key === "Enter") addFavorite();
     });
 
-    // Close modal on Escape
+    // Global keyboard shortcuts
     document.addEventListener("keydown", (e) => {
-        if (e.key === "Escape") closeSettings();
+        // Escape - Close modal
+        if (e.key === "Escape") {
+            closeSettings();
+            return;
+        }
+
+        // Don't trigger shortcuts when typing in inputs
+        const isTyping = ['INPUT', 'TEXTAREA'].includes(document.activeElement?.tagName);
+        const queryInput = document.getElementById("query-input");
+
+        // Ctrl+Enter or Cmd+Enter - Execute scan (works even in input)
+        if ((e.ctrlKey || e.metaKey) && e.key === "Enter") {
+            e.preventDefault();
+            handleExecution();
+            return;
+        }
+
+        // Skip remaining shortcuts if typing
+        if (isTyping) return;
+
+        // Ctrl+K or Cmd+K - Focus search input
+        if ((e.ctrlKey || e.metaKey) && e.key === "k") {
+            e.preventDefault();
+            if (queryInput) {
+                queryInput.focus();
+                queryInput.select();
+            }
+            return;
+        }
+
+        // Ctrl+E or Cmd+E - Export report
+        if ((e.ctrlKey || e.metaKey) && e.key === "e") {
+            e.preventDefault();
+            handleExportPDF();
+            return;
+        }
+
+        // Ctrl+, or Cmd+, - Open settings
+        if ((e.ctrlKey || e.metaKey) && e.key === ",") {
+            e.preventDefault();
+            openSettings();
+            return;
+        }
+
+        // Ctrl+D or Cmd+D - Go to database
+        if ((e.ctrlKey || e.metaKey) && e.key === "d") {
+            e.preventDefault();
+            window.location.href = "/web/html/database.html";
+            return;
+        }
+
+        // ? - Show keyboard shortcuts help
+        if (e.key === "?" && !e.ctrlKey && !e.metaKey) {
+            e.preventDefault();
+            showKeyboardShortcutsHelp();
+            return;
+        }
     });
 
     // Scan Mode change - show/hide Layer 3 tools section
@@ -1034,6 +1110,77 @@ function initSettingsListeners() {
 
     // Initial state
     updateLayer3Visibility();
+}
+
+function showKeyboardShortcutsHelp() {
+    // Create modal if it doesn't exist
+    let modal = document.getElementById("keyboard-shortcuts-modal");
+    if (!modal) {
+        modal = document.createElement("div");
+        modal.id = "keyboard-shortcuts-modal";
+        modal.className = "fixed inset-0 bg-black/80 z-50 flex items-center justify-center";
+        modal.innerHTML = `
+            <div class="bg-slate-900 border border-slate-700 rounded-lg p-6 max-w-md w-full mx-4">
+                <div class="flex justify-between items-center mb-4">
+                    <h3 class="text-lg font-semibold text-white">
+                        <i class="fas fa-keyboard mr-2"></i>${t('keyboard_shortcuts') || 'Raccourcis clavier'}
+                    </h3>
+                    <button onclick="document.getElementById('keyboard-shortcuts-modal').remove()"
+                            class="text-slate-400 hover:text-white">
+                        <i class="fas fa-times"></i>
+                    </button>
+                </div>
+                <div class="space-y-3 text-sm">
+                    <div class="flex justify-between items-center py-2 border-b border-slate-700">
+                        <span class="text-slate-300">${t('execute_scan') || 'Exécuter le scan'}</span>
+                        <kbd class="px-2 py-1 bg-slate-800 rounded text-cyan-400 font-mono">Ctrl+Enter</kbd>
+                    </div>
+                    <div class="flex justify-between items-center py-2 border-b border-slate-700">
+                        <span class="text-slate-300">${t('focus_search') || 'Focus recherche'}</span>
+                        <kbd class="px-2 py-1 bg-slate-800 rounded text-cyan-400 font-mono">Ctrl+K</kbd>
+                    </div>
+                    <div class="flex justify-between items-center py-2 border-b border-slate-700">
+                        <span class="text-slate-300">${t('export_report') || 'Exporter le rapport'}</span>
+                        <kbd class="px-2 py-1 bg-slate-800 rounded text-cyan-400 font-mono">Ctrl+E</kbd>
+                    </div>
+                    <div class="flex justify-between items-center py-2 border-b border-slate-700">
+                        <span class="text-slate-300">${t('open_settings') || 'Paramètres'}</span>
+                        <kbd class="px-2 py-1 bg-slate-800 rounded text-cyan-400 font-mono">Ctrl+,</kbd>
+                    </div>
+                    <div class="flex justify-between items-center py-2 border-b border-slate-700">
+                        <span class="text-slate-300">${t('go_to_database') || 'Aller à Database'}</span>
+                        <kbd class="px-2 py-1 bg-slate-800 rounded text-cyan-400 font-mono">Ctrl+D</kbd>
+                    </div>
+                    <div class="flex justify-between items-center py-2 border-b border-slate-700">
+                        <span class="text-slate-300">${t('close_modal') || 'Fermer la modale'}</span>
+                        <kbd class="px-2 py-1 bg-slate-800 rounded text-cyan-400 font-mono">Escape</kbd>
+                    </div>
+                    <div class="flex justify-between items-center py-2">
+                        <span class="text-slate-300">${t('show_shortcuts') || 'Afficher cette aide'}</span>
+                        <kbd class="px-2 py-1 bg-slate-800 rounded text-cyan-400 font-mono">?</kbd>
+                    </div>
+                </div>
+                <p class="mt-4 text-xs text-slate-500 text-center">
+                    ${t('press_escape') || 'Appuyez sur Escape pour fermer'}
+                </p>
+            </div>
+        `;
+        document.body.appendChild(modal);
+
+        // Close on click outside
+        modal.addEventListener("click", (e) => {
+            if (e.target === modal) modal.remove();
+        });
+
+        // Close on Escape
+        const closeHandler = (e) => {
+            if (e.key === "Escape") {
+                modal.remove();
+                document.removeEventListener("keydown", closeHandler);
+            }
+        };
+        document.addEventListener("keydown", closeHandler);
+    }
 }
 
 function saveSettings() {
