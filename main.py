@@ -37,7 +37,81 @@ async def lifespan(app: FastAPI):
     yield
 
 # ✅ UNE SEULE APP
-app = FastAPI(lifespan=lifespan, debug=True)
+app = FastAPI(
+    title="Ananta OSINT API",
+    description="""
+## Ananta - OSINT Analysis Platform
+
+Plateforme d'analyse OSINT (Open Source Intelligence) combinant des outils de scan automatisés
+avec un LLM local (Mistral 7B) pour générer des rapports intelligents.
+
+### Fonctionnalités principales
+
+- **Scans OSINT multi-couches**: WHOIS, DNS, SSL, HTTP headers, subdomains
+- **Intégrations externes**: VirusTotal, Shodan, SecurityTrails, Censys
+- **Génération de rapports IA**: Analyse et synthèse par LLM local
+- **Export multi-format**: PDF, JSON, CSV, XML, Markdown
+- **Système d'audit**: Traçabilité complète des exécutions d'outils
+
+### Couches de sécurité
+
+| Couche | Risque | Approbation | Exemples |
+|--------|--------|-------------|----------|
+| Layer 1 | LOW | Auto | WHOIS, DNS, headers |
+| Layer 2 | MEDIUM | Logged | Censys, crt.sh, Shodan |
+| Layer 3 | HIGH | Required | Port scan, vuln scan |
+
+### Authentification
+
+Certains endpoints nécessitent une clé API via le header `X-API-Key`.
+Créez une clé via `POST /api-keys/create`.
+    """,
+    version="2.3.0",
+    contact={
+        "name": "Ananta Project",
+        "url": "https://github.com/Akasha53/Ananta",
+    },
+    license_info={
+        "name": "ANCSAL v1.0",
+        "url": "https://github.com/Akasha53/Ananta/blob/main/LICENSE",
+    },
+    openapi_tags=[
+        {
+            "name": "Agent",
+            "description": "Endpoints pour les scans et analyses OSINT",
+        },
+        {
+            "name": "OSINT Tools",
+            "description": "Outils OSINT individuels (WHOIS, DNS, headers, etc.)",
+        },
+        {
+            "name": "Jobs",
+            "description": "Gestion des tâches asynchrones",
+        },
+        {
+            "name": "Export",
+            "description": "Export de rapports en différents formats",
+        },
+        {
+            "name": "Monitoring",
+            "description": "Statistiques et logs d'audit",
+        },
+        {
+            "name": "API Keys",
+            "description": "Gestion des clés d'authentification",
+        },
+        {
+            "name": "Workers",
+            "description": "Monitoring des workers Celery",
+        },
+        {
+            "name": "Health",
+            "description": "Vérification de l'état des services",
+        },
+    ],
+    lifespan=lifespan,
+    debug=os.getenv("ENVIRONMENT", "development") == "development",
+)
 
 # --- GLOBAL EXCEPTION HANDLER (DEV) ---
 @app.exception_handler(Exception)

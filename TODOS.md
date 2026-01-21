@@ -29,7 +29,7 @@
 - [x] **Pagination standardisée** - Helper `paginate()` + modèle `PaginatedResponse` dans `models.py`
 - [ ] **Cache ETag/Last-Modified** - Headers HTTP pour caching côté client
 - [x] **Codes d'erreur standardisés** - Module `errors.py` avec ErrorCode enum et AnantaException
-- [ ] **OpenAPI documentation** - Compléter les descriptions Swagger/ReDoc
+- [x] **OpenAPI documentation** - Titre, description, tags, contact, license dans `main.py`
 
 ### Tests
 - [x] **Tests unitaires** - Structure créée (`tests/`), tests pour `models.py`, `api`, `errors.py`
@@ -167,6 +167,7 @@
 - [x] **Tests d'intégration** - `test_integration.py` avec ~40 tests workflows complets
 - [x] **Tests pagination** - Ajout tests PaginationParams et PaginatedResponse
 - [x] **ServiceStatus tracker** - Singleton pour dégradation gracieuse (LLM/Redis)
+- [x] **OpenAPI documentation** - Docs complètes dans `/docs` avec tags et descriptions
 
 ### Sessions précédentes
 - [x] ~~**LLM Context Window Limitation**~~ - Résolu avec migration vers Mistral 7B (32k)
