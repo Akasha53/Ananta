@@ -6,6 +6,8 @@ Ce module fournit:
 - Rate limiting pour protéger les endpoints coûteux
 - Headers de sécurité (CSP, X-Frame-Options, etc.)
 - Configuration CORS sécurisée
+- Compression des réponses (Gzip)
+- Gestion gracieuse des erreurs critiques
 """
 
 import os
@@ -459,3 +461,109 @@ def get_full_health_status(db_session=None) -> Dict:
             "gpu": gpu_info,
         },
     }
+
+
+# ==================== SERVICE STATUS TRACKER ====================
+
+class ServiceStatus:
+    """
+    Singleton pour tracker l'état des services et permettre la dégradation gracieuse.
+
+    Usage:
+        status = ServiceStatus()
+        if status.is_llm_available():
+            # Use LLM
+        else:
+            # Use fallback
+    """
+    _instance = None
+    _last_check = {}
+    _status_cache = {}
+    CACHE_TTL = 30  # Secondes avant re-vérification
+
+    def __new__(cls):
+        if cls._instance is None:
+            cls._instance = super().__new__(cls)
+            cls._instance._last_check = {}
+            cls._instance._status_cache = {}
+        return cls._instance
+
+    def _should_recheck(self, service: str) -> bool:
+        """Vérifie si on doit re-tester le service."""
+        last = self._last_check.get(service, 0)
+        return (time.time() - last) > self.CACHE_TTL
+
+    def is_redis_available(self) -> bool:
+        """Vérifie si Redis est disponible (avec cache)."""
+        if not self._should_recheck("redis"):
+            return self._status_cache.get("redis", False)
+
+        status = check_redis_health()
+        available = status["status"] == "ok"
+        self._status_cache["redis"] = available
+        self._last_check["redis"] = time.time()
+        return available
+
+    def is_llm_available(self) -> bool:
+        """Vérifie si le LLM est disponible (avec cache)."""
+        if not self._should_recheck("llm"):
+            return self._status_cache.get("llm", False)
+
+        status = check_llm_health()
+        available = status["status"] == "ok"
+        self._status_cache["llm"] = available
+        self._last_check["llm"] = time.time()
+        return available
+
+    def get_degraded_features(self) -> Dict[str, bool]:
+        """
+        Retourne les fonctionnalités disponibles selon l'état des services.
+
+        Returns:
+            Dict avec les fonctionnalités et leur disponibilité
+        """
+        llm_ok = self.is_llm_available()
+        redis_ok = self.is_redis_available()
+
+        return {
+            "async_scans": redis_ok,
+            "llm_reports": llm_ok,
+            "real_time_analysis": llm_ok,
+            "job_queuing": redis_ok,
+            "fallback_reports": True,  # Toujours disponible
+            "basic_tools": True,  # WHOIS, DNS toujours OK
+            "cached_reports": True,  # SQLite/PostgreSQL fallback
+        }
+
+    def get_user_message(self) -> Optional[str]:
+        """
+        Retourne un message pour l'utilisateur si des services sont dégradés.
+        """
+        llm_ok = self.is_llm_available()
+        redis_ok = self.is_redis_available()
+
+        messages = []
+        if not llm_ok:
+            messages.append("LLM indisponible: rapports générés en mode fallback (données brutes)")
+        if not redis_ok:
+            messages.append("Redis indisponible: scans asynchrones désactivés, mode synchrone uniquement")
+
+        return " | ".join(messages) if messages else None
+
+    def reset_cache(self, service: str = None):
+        """Réinitialise le cache pour forcer une re-vérification."""
+        if service:
+            self._last_check.pop(service, None)
+            self._status_cache.pop(service, None)
+        else:
+            self._last_check.clear()
+            self._status_cache.clear()
+
+
+# Instance globale
+service_status = ServiceStatus()
+
+
+def get_service_status() -> ServiceStatus:
+    """Retourne l'instance du tracker de services."""
+    return service_status

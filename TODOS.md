@@ -17,7 +17,7 @@
 
 ### Infrastructure
 - [x] **Health check amélioré** - Vérifie Redis, LLM, et database avec latences détaillées
-- [ ] **Gestion des erreurs critiques** - Fallback si LLM down, Redis unreachable
+- [x] **Gestion des erreurs critiques** - `ServiceStatus` tracker avec dégradation gracieuse
 - [x] **Logging structuré** - Request ID unique (`X-Request-ID`) + durée (`X-Response-Time`)
 
 ---
@@ -135,7 +135,7 @@
 - [ ] **Type hints complets** - Ajouter types Python partout
 - [ ] **Docstrings** - Documenter toutes les fonctions publiques
 - [ ] **Constantes centralisées** - Déplacer les magic numbers vers un fichier config
-- [ ] **Error handling uniforme** - Créer des exceptions custom
+- [x] **Error handling uniforme** - `errors.py` avec ErrorCode, AnantaException et helpers
 
 ### Nettoyage
 - [ ] **Nettoyer logs anciens** - Rotation automatique des fichiers logs
@@ -166,6 +166,7 @@
 - [x] **Tests errors.py** - `test_errors.py` avec 30+ tests pour ErrorCode, AnantaException
 - [x] **Tests d'intégration** - `test_integration.py` avec ~40 tests workflows complets
 - [x] **Tests pagination** - Ajout tests PaginationParams et PaginatedResponse
+- [x] **ServiceStatus tracker** - Singleton pour dégradation gracieuse (LLM/Redis)
 
 ### Sessions précédentes
 - [x] ~~**LLM Context Window Limitation**~~ - Résolu avec migration vers Mistral 7B (32k)
