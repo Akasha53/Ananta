@@ -13,6 +13,8 @@ from models import (
     ExportRequest,
     LogFilter,
     CompareRequest,
+    PaginationParams,
+    PaginatedResponse,
     validate_target,
     validate_query,
 )
@@ -206,3 +208,69 @@ class TestCompareRequest:
     def test_same_report_ids(self):
         with pytest.raises(ValidationError, match="différents"):
             CompareRequest(target="example.com", report_id_1=1, report_id_2=1)
+
+
+class TestPaginationParams:
+    """Tests for PaginationParams model."""
+
+    def test_default_values(self):
+        params = PaginationParams()
+        assert params.page == 1
+        assert params.limit == 20
+        assert params.sort_order == "desc"
+
+    def test_custom_values(self):
+        params = PaginationParams(page=5, limit=50, sort_by="created_at", sort_order="asc")
+        assert params.page == 5
+        assert params.limit == 50
+        assert params.sort_by == "created_at"
+        assert params.sort_order == "asc"
+
+    def test_invalid_page(self):
+        with pytest.raises(ValidationError):
+            PaginationParams(page=0)
+
+    def test_invalid_limit(self):
+        with pytest.raises(ValidationError):
+            PaginationParams(limit=0)
+
+        with pytest.raises(ValidationError):
+            PaginationParams(limit=101)
+
+    def test_invalid_sort_order(self):
+        with pytest.raises(ValidationError):
+            PaginationParams(sort_order="invalid")
+
+
+class TestPaginatedResponse:
+    """Tests for PaginatedResponse model."""
+
+    def test_valid_response(self):
+        response = PaginatedResponse(
+            items=[1, 2, 3],
+            total=100,
+            page=1,
+            limit=20,
+            pages=5,
+            has_next=True,
+            has_prev=False
+        )
+        assert response.items == [1, 2, 3]
+        assert response.total == 100
+        assert response.pages == 5
+        assert response.has_next is True
+        assert response.has_prev is False
+
+    def test_empty_response(self):
+        response = PaginatedResponse(
+            items=[],
+            total=0,
+            page=1,
+            limit=20,
+            pages=0,
+            has_next=False,
+            has_prev=False
+        )
+        assert response.items == []
+        assert response.total == 0
+        assert response.pages == 0
