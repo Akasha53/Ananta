@@ -1,7 +1,7 @@
 import os
 import logging
 from dotenv import load_dotenv
-from sqlalchemy import create_engine, Column, Integer, String, Text, DateTime, Float, Boolean, JSON, func, ForeignKey
+from sqlalchemy import create_engine, Column, Integer, String, Text, DateTime, Float, Boolean, JSON, func, ForeignKey, Index
 from sqlalchemy.orm import declarative_base, sessionmaker, relationship
 
 # --- CONFIG ---
@@ -58,6 +58,11 @@ class ScanJob(Base):
     Modèle pour suivre l'état des scans OSINT asynchrones (Celery).
     """
     __tablename__ = "scan_jobs"
+    __table_args__ = (
+        Index('ix_scan_jobs_status', 'status'),
+        Index('ix_scan_jobs_created_at', 'created_at'),
+        Index('ix_scan_jobs_status_created', 'status', 'created_at'),  # Composite pour filtrage + tri
+    )
 
     id = Column(Integer, primary_key=True, index=True)
     job_id = Column(String, unique=True, index=True, nullable=False)  # Celery task ID
@@ -85,6 +90,14 @@ class ToolExecutionLog(Base):
     Chaque exécution d'outil est loggée pour traçabilité juridique.
     """
     __tablename__ = "tool_execution_logs"
+    __table_args__ = (
+        Index('ix_tool_logs_tool_name', 'tool_name'),
+        Index('ix_tool_logs_status', 'status'),
+        Index('ix_tool_logs_executed_at', 'executed_at'),
+        Index('ix_tool_logs_tool_layer', 'tool_layer'),
+        Index('ix_tool_logs_run_status', 'run_id', 'status'),  # Composite pour filtrage par run
+        Index('ix_tool_logs_tool_date', 'tool_name', 'executed_at'),  # Composite pour stats par outil
+    )
 
     id = Column(Integer, primary_key=True, index=True)
     run_id = Column(String, index=True, nullable=False)  # ID unique de la session/scan
@@ -115,6 +128,12 @@ class Entity(Base):
     Permet de construire une base de connaissance long terme.
     """
     __tablename__ = "entities"
+    __table_args__ = (
+        Index('ix_entities_type', 'entity_type'),
+        Index('ix_entities_risk_level', 'risk_level'),
+        Index('ix_entities_type_risk', 'entity_type', 'risk_level'),  # Composite pour filtrage
+        Index('ix_entities_last_seen', 'last_seen'),
+    )
 
     id = Column(Integer, primary_key=True, index=True)
     value = Column(String, unique=True, index=True, nullable=False)  # Valeur de l'entité
@@ -139,6 +158,13 @@ class Finding(Base):
     Chaque finding a un score de confiance.
     """
     __tablename__ = "findings"
+    __table_args__ = (
+        Index('ix_findings_entity_id', 'entity_id'),
+        Index('ix_findings_type', 'finding_type'),
+        Index('ix_findings_severity', 'severity'),
+        Index('ix_findings_entity_severity', 'entity_id', 'severity'),  # Composite pour requêtes par entité
+        Index('ix_findings_created_at', 'created_at'),
+    )
 
     id = Column(Integer, primary_key=True, index=True)
     entity_id = Column(Integer, ForeignKey("entities.id"), nullable=False)

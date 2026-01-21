@@ -74,7 +74,7 @@
 - [ ] **Cache Redis cluster** - Pour haute disponibilité
 - [x] **Compression des réponses** - GZipMiddleware pour réponses > 1KB
 - [ ] **Lazy loading** - Charger les sections de rapport à la demande
-- [ ] **Database indexing** - Optimiser les requêtes SQL fréquentes
+- [x] **Database indexing** - Index sur ScanJob, ToolExecutionLog, Entity, Finding
 - [ ] **Connection pooling** - Optimiser les connexions PostgreSQL
 
 ---
