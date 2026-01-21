@@ -19,22 +19,22 @@
 - [x] **Health check amélioré** - Vérifie Redis, LLM, et database avec latences détaillées
 - [x] **Gestion des erreurs critiques** - `ServiceStatus` tracker avec dégradation gracieuse
 - [x] **Logging structuré** - Request ID unique (`X-Request-ID`) + durée (`X-Response-Time`)
-- [ ] **Changer les chemins de variables** - Mettre les variables WEBUI_DIR et FASTAPI_DIR en chemin relatif
-- [ ] **Ananta ne reps plus au msg simples comme salut**
-- [ ] **Resumer manquant** - Lorsque l'utilisateur met le mode scan critique aucun autre scan est effectuer a part ceux de layer 3.
-- [ ] **Rapport trop court** - les rapports generer reste malgré tout trop court peut etre par manque de matiere ( pas assez d'outils utilisé pendant des scan), ou la variete des outils laisse a desirer.
+- [x] **Changer les chemins de variables** - Variables WEBUI_DIR et FASTAPI_DIR en chemin relatif (`%~dp0`)
+- [x] **Ananta ne reps plus au msg simples** - Ajout logging + error handling + fallback dans `/agent/ask`
+- [x] **Mode critique incomplet** - Layer 3 exécute maintenant Layer 1+2 d'abord pour le contexte complet
+- [x] **Rapports trop courts** - Ajout VirusTotal, Shodan, SecurityTrails au flux principal de scan
 
 ---
 
 ## Priorité HAUTE (Important)
 
 ### Qualité des Rapports OSINT (Janvier 2026)
-- [ ] **Détection CDN/Infra générique** - Avertir quand cible = Cloudflare/AWS/Google (pas de valeur stratégique)
-- [ ] **Recalibrer le scoring vuln_scan** - Headers manquants = LOW, version CDN exposée = INFO
-- [ ] **Retirer vulns obsolètes** - X-XSS-Protection (déprécié), contextualiser "version exposée"
-- [ ] **Rapports interprétatifs** - Ajouter impact business, probabilité d'exploitation, priorité
-- [ ] **Améliorer prompt LLM** - Passer de "descriptif" à "aide à la décision"
-- [ ] **Scénarios d'attaque** - Décrire comment un attaquant pourrait exploiter les findings
+- [x] **Détection CDN/Infra générique** - Fonction `detect_cdn_infrastructure()` avec 8 CDNs majeurs
+- [x] **Recalibrer le scoring vuln_scan** - Headers manquants = LOW/INFO, version CDN = INFO
+- [x] **Retirer vulns obsolètes** - X-XSS-Protection ignoré (déprécié), versions CDN contextualisées
+- [x] **Rapports interprétatifs** - Impact business, exploitabilité, priorité dans findings
+- [x] **Améliorer prompt LLM** - Nouveau prompt "aide à la décision" avec actions prioritaires
+- [x] **Scénarios d'attaque** - Ajout `attack_scenarios` dans le JSON structuré + section dans rapport
 
 ### API & Backend
 - [x] **Pydantic models complets** - `models.py` avec validateurs pour toutes les entrées
@@ -196,4 +196,4 @@ RATE_LIMIT_ENABLED=true
 
 ---
 
-*Ce fichier est généré et maintenu manuellement. Dernière revue: 20 janvier 2026.*
+*Ce fichier est généré et maintenu manuellement. Dernière revue: 21 janvier 2026.*

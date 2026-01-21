@@ -843,6 +843,177 @@ def execute_tool_with_audit(
     }
 
 
+# ================== CDN/INFRASTRUCTURE DETECTION ==================
+
+# Liste des CDNs et fournisseurs d'infrastructure majeurs
+CDN_PROVIDERS = {
+    "cloudflare": {
+        "name": "Cloudflare",
+        "indicators": ["cloudflare", "cf-ray", "cf-cache-status", "__cfduid", "cloudflare-nginx"],
+        "asn_keywords": ["cloudflare", "as13335"],
+        "ip_ranges_prefix": ["104.16.", "104.17.", "104.18.", "104.19.", "104.20.", "104.21.", "104.22.", "104.23.", "104.24.", "104.25.", "104.26.", "104.27.", "172.64.", "172.65.", "172.66.", "172.67.", "162.158.", "141.101.", "108.162.", "190.93.", "188.114.", "197.234.", "198.41.", "103.21.", "103.22.", "103.31."],
+    },
+    "aws_cloudfront": {
+        "name": "AWS CloudFront",
+        "indicators": ["cloudfront", "x-amz-cf-id", "x-amz-cf-pop", "amazonaws.com"],
+        "asn_keywords": ["amazon", "as16509", "as14618"],
+        "ip_ranges_prefix": ["13.32.", "13.33.", "13.35.", "52.84.", "52.85.", "54.182.", "54.192.", "54.230.", "54.239.", "99.84.", "143.204.", "205.251."],
+    },
+    "akamai": {
+        "name": "Akamai",
+        "indicators": ["akamai", "akamaiedge", "akamaized", "edgesuite", "edgekey"],
+        "asn_keywords": ["akamai", "as20940", "as16625"],
+        "ip_ranges_prefix": ["23.32.", "23.33.", "23.34.", "23.35.", "23.36.", "23.37.", "23.38.", "23.39.", "23.40.", "23.41.", "23.42.", "23.43.", "23.44.", "23.45.", "23.46.", "23.47.", "23.48.", "23.49.", "23.50.", "23.51.", "23.52.", "23.53.", "23.54.", "23.55.", "23.56.", "23.57.", "23.58.", "23.59.", "23.60.", "23.61.", "23.62.", "23.63.", "23.64.", "23.65.", "23.66.", "23.67."],
+    },
+    "fastly": {
+        "name": "Fastly",
+        "indicators": ["fastly", "x-served-by", "x-cache", "fastly-restarts"],
+        "asn_keywords": ["fastly", "as54113"],
+        "ip_ranges_prefix": ["151.101.", "199.232."],
+    },
+    "google_cloud": {
+        "name": "Google Cloud CDN",
+        "indicators": ["google", "gws", "googleusercontent", "gstatic", "cloud.google.com"],
+        "asn_keywords": ["google", "as15169", "as396982"],
+        "ip_ranges_prefix": ["35.186.", "35.190.", "35.191.", "35.192.", "35.193.", "35.194.", "35.195.", "35.196.", "35.197.", "35.198.", "35.199.", "35.200.", "35.201.", "35.202.", "35.203.", "35.204.", "35.205.", "35.206.", "35.207.", "35.208.", "35.209.", "35.210.", "35.211.", "35.212.", "35.213.", "35.214.", "35.215.", "35.216.", "35.217.", "35.218.", "35.219.", "35.220."],
+    },
+    "azure_cdn": {
+        "name": "Azure CDN",
+        "indicators": ["azure", "azureedge", "msedge", "microsoft"],
+        "asn_keywords": ["microsoft", "as8075"],
+        "ip_ranges_prefix": ["13.107.", "20.33.", "20.36.", "20.37.", "20.38.", "20.39.", "20.40.", "20.41.", "20.42.", "20.43.", "20.44.", "20.45.", "20.46.", "20.47.", "20.48.", "20.49.", "20.50."],
+    },
+    "sucuri": {
+        "name": "Sucuri WAF",
+        "indicators": ["sucuri", "x-sucuri-id", "x-sucuri-cache"],
+        "asn_keywords": ["sucuri", "as30148"],
+        "ip_ranges_prefix": ["192.124.249.", "185.93.228.", "185.93.229.", "185.93.230.", "185.93.231."],
+    },
+    "incapsula": {
+        "name": "Incapsula/Imperva",
+        "indicators": ["incapsula", "imperva", "incap_ses", "visid_incap"],
+        "asn_keywords": ["imperva", "incapsula"],
+        "ip_ranges_prefix": ["45.64.64.", "103.28.248.", "103.28.249.", "103.28.250.", "103.28.251."],
+    },
+}
+
+
+def detect_cdn_infrastructure(raw_data_tools: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Détecte si la cible est derrière un CDN ou une infrastructure cloud majeure.
+
+    Dans ce cas, les informations d'infrastructure collectées (IP, ports, etc.)
+    concernent le CDN et non la cible réelle, ce qui réduit leur valeur stratégique.
+
+    Args:
+        raw_data_tools: Dictionnaire des résultats des outils
+
+    Returns:
+        {
+            "detected": bool,
+            "provider": str or None,
+            "provider_name": str or None,
+            "confidence": str ("HIGH", "MEDIUM", "LOW"),
+            "evidence": list,
+            "warning": str
+        }
+    """
+    detected_providers = []
+    evidence = []
+
+    # 1. Analyser les HTTP headers
+    http_headers = raw_data_tools.get("http_headers", {})
+    if http_headers.get("status") == "ok":
+        headers_data = http_headers.get("data", {})
+        raw_headers = headers_data.get("raw_headers", {})
+        all_headers_str = str(raw_headers).lower()
+
+        for provider_key, provider_info in CDN_PROVIDERS.items():
+            for indicator in provider_info["indicators"]:
+                if indicator.lower() in all_headers_str:
+                    if provider_key not in detected_providers:
+                        detected_providers.append(provider_key)
+                        evidence.append(f"Header contient '{indicator}' ({provider_info['name']})")
+
+    # 2. Analyser l'IP résolue (via DNS ou Censys)
+    resolved_ip = None
+    dns_data = raw_data_tools.get("dns_resolution", {})
+    if dns_data.get("status") == "ok":
+        resolved_ip = dns_data.get("data", "")
+
+    if resolved_ip:
+        for provider_key, provider_info in CDN_PROVIDERS.items():
+            for prefix in provider_info.get("ip_ranges_prefix", []):
+                if resolved_ip.startswith(prefix):
+                    if provider_key not in detected_providers:
+                        detected_providers.append(provider_key)
+                        evidence.append(f"IP {resolved_ip} dans la plage {provider_info['name']}")
+
+    # 3. Analyser les données Censys (ASN, organisation)
+    censys_data = raw_data_tools.get("censys", {})
+    if censys_data.get("status") == "ok":
+        censys_str = str(censys_data.get("data", {})).lower()
+
+        for provider_key, provider_info in CDN_PROVIDERS.items():
+            for asn_kw in provider_info.get("asn_keywords", []):
+                if asn_kw.lower() in censys_str:
+                    if provider_key not in detected_providers:
+                        detected_providers.append(provider_key)
+                        evidence.append(f"ASN/Organisation contient '{asn_kw}' ({provider_info['name']})")
+
+    # 4. Analyser le certificat SSL (émetteur)
+    ssl_data = raw_data_tools.get("ssl_analysis", {})
+    if ssl_data.get("status") == "ok":
+        ssl_info = ssl_data.get("data", {})
+        issuer = str(ssl_info.get("issuer", {})).lower()
+        subject = str(ssl_info.get("subject", {})).lower()
+
+        for provider_key, provider_info in CDN_PROVIDERS.items():
+            for indicator in provider_info["indicators"]:
+                if indicator.lower() in issuer or indicator.lower() in subject:
+                    if provider_key not in detected_providers:
+                        detected_providers.append(provider_key)
+                        evidence.append(f"Certificat SSL associé à {provider_info['name']}")
+
+    # Déterminer le résultat
+    if not detected_providers:
+        return {
+            "detected": False,
+            "provider": None,
+            "provider_name": None,
+            "confidence": "N/A",
+            "evidence": [],
+            "warning": None
+        }
+
+    # Prendre le provider le plus fréquemment détecté
+    primary_provider = detected_providers[0]
+    provider_info = CDN_PROVIDERS[primary_provider]
+
+    # Calculer la confiance basée sur le nombre d'évidences
+    if len(evidence) >= 3:
+        confidence = "HIGH"
+    elif len(evidence) >= 2:
+        confidence = "MEDIUM"
+    else:
+        confidence = "LOW"
+
+    warning = (
+        f"Cette cible est derrière {provider_info['name']}. "
+        f"Les informations d'infrastructure (IP, ports, services) concernent le CDN, "
+        f"pas la cible réelle. La valeur stratégique de ces données est limitée."
+    )
+
+    return {
+        "detected": True,
+        "provider": primary_provider,
+        "provider_name": provider_info["name"],
+        "confidence": confidence,
+        "evidence": evidence,
+        "warning": warning
+    }
+
+
 # ================== RISK SCORING ==================
 
 def calculate_risk_score(raw_data_tools: Dict[str, Any]) -> Dict[str, Any]:
@@ -864,6 +1035,21 @@ def calculate_risk_score(raw_data_tools: Dict[str, Any]) -> Dict[str, Any]:
     max_score = 100
     positive_indicators = []
     negative_indicators = []
+    warnings = []
+
+    # 0. DÉTECTION CDN/INFRASTRUCTURE
+    cdn_detection = detect_cdn_infrastructure(raw_data_tools)
+    if cdn_detection["detected"]:
+        warnings.append({
+            "type": "CDN_DETECTED",
+            "provider": cdn_detection["provider_name"],
+            "confidence": cdn_detection["confidence"],
+            "message": cdn_detection["warning"],
+            "evidence": cdn_detection["evidence"]
+        })
+        # Note: On ne modifie pas le risk score car le CDN n'est pas un risque en soi
+        # mais on ajoute un indicateur pour contextualiser les résultats
+        positive_indicators.append(f"Protection CDN/WAF détectée ({cdn_detection['provider_name']})")
 
     # 1. HEADERS DE SÉCURITÉ (max 25 points de risque)
     http_headers = raw_data_tools.get("http_headers", {})
@@ -1019,7 +1205,10 @@ def calculate_risk_score(raw_data_tools: Dict[str, Any]) -> Dict[str, Any]:
         "indicators": {
             "positive": positive_indicators,
             "negative": negative_indicators
-        }
+        },
+        "warnings": warnings,
+        "cdn_detected": cdn_detection["detected"],
+        "cdn_provider": cdn_detection.get("provider_name")
     }
 
 
@@ -2686,23 +2875,32 @@ def logic_vuln_scan(target: str):
             response = requests.get(test_url, timeout=10, allow_redirects=True, verify=False)
 
             # Vérifier les headers de sécurité manquants
+            # NOTE: Les headers manquants sont des BONNES PRATIQUES, pas des vulnérabilités critiques
+            # La sévérité a été recalibrée pour éviter les faux positifs alarmistes
             security_checks = {
-                "X-Frame-Options": ("Clickjacking protection", "MEDIUM"),
-                "X-Content-Type-Options": ("MIME-type sniffing protection", "MEDIUM"),
-                "Strict-Transport-Security": ("HSTS", "MEDIUM"),
-                "Content-Security-Policy": ("CSP", "MEDIUM"),
-                "X-XSS-Protection": ("XSS filter (legacy)", "LOW"),
-                "Referrer-Policy": ("Referrer leakage prevention", "LOW"),
-                "Permissions-Policy": ("Feature policy", "LOW"),
+                # Headers importants mais absence = LOW risk (bonnes pratiques)
+                "Strict-Transport-Security": ("HSTS - force HTTPS", "LOW", True),
+                "Content-Security-Policy": ("CSP - protection XSS/injection", "LOW", True),
+                "X-Frame-Options": ("Protection clickjacking", "LOW", True),
+                "X-Content-Type-Options": ("Protection MIME sniffing", "INFO", True),
+                # Headers legacy ou optionnels = INFO (informatif seulement)
+                "X-XSS-Protection": ("Filtre XSS navigateur", "INFO", False),  # DÉPRÉCIÉ par CSP
+                "Referrer-Policy": ("Contrôle Referrer", "INFO", True),
+                "Permissions-Policy": ("Contrôle permissions browser", "INFO", True),
             }
 
-            for header, (description, severity) in security_checks.items():
+            for header, (description, severity, recommended) in security_checks.items():
                 if header not in response.headers:
+                    # X-XSS-Protection est déprécié, ne pas l'ajouter comme vulnérabilité
+                    if header == "X-XSS-Protection":
+                        continue  # Skip - ce header est déprécié et remplacé par CSP
+
                     vulnerabilities.append({
                         "severity": severity,
                         "type": "Missing Security Header",
                         "description": f"Header '{header}' absent ({description})",
-                        "remediation": f"Ajouter le header {header}"
+                        "remediation": f"Ajouter le header {header}" if recommended else "Header déprécié, utiliser CSP",
+                        "note": "Bonne pratique de sécurité, pas une vulnérabilité exploitable directement"
                     })
                 else:
                     security_headers.append(header)
@@ -2711,14 +2909,28 @@ def logic_vuln_scan(target: str):
             server_header = response.headers.get('Server', '')
             x_powered_by = response.headers.get('X-Powered-By', '')
 
+            # Détecter si c'est un CDN (version exposée = CDN, pas la cible réelle)
+            cdn_indicators = ['cloudflare', 'akamai', 'fastly', 'cloudfront', 'azure', 'sucuri', 'incapsula', 'imperva']
+            is_cdn_version = any(cdn in server_header.lower() for cdn in cdn_indicators)
+
             for version_info in [server_header, x_powered_by]:
                 if version_info:
-                    vulnerabilities.append({
-                        "severity": "LOW",
-                        "type": "Information Disclosure",
-                        "description": f"Version exposée: {version_info}",
-                        "remediation": "Masquer ou généraliser ce header"
-                    })
+                    # Si c'est un CDN, c'est informatif seulement (pas de valeur stratégique)
+                    if is_cdn_version:
+                        vulnerabilities.append({
+                            "severity": "INFO",
+                            "type": "CDN Version Exposed",
+                            "description": f"Version CDN exposée: {version_info} (infrastructure de protection, pas la cible)",
+                            "remediation": "Informatif - cette version concerne le CDN, pas votre serveur",
+                            "note": "Les informations d'infrastructure concernent le CDN, pas la cible réelle"
+                        })
+                    else:
+                        vulnerabilities.append({
+                            "severity": "LOW",
+                            "type": "Information Disclosure",
+                            "description": f"Version exposée: {version_info}",
+                            "remediation": "Masquer ou généraliser ce header pour réduire les fingerprinting"
+                        })
 
                     # Recherche CVE
                     for pattern, cves in CVE_DATABASE.items():
@@ -2936,32 +3148,45 @@ def extract_structured_findings(
     risk_analysis = llm_context["risk_analysis"]
     scan_metadata = llm_context.get("scan_metadata", {})
 
-    system_prompt = """You are a cybersecurity analyst. Extract structured findings from tool results.
+    system_prompt = """You are a SECURITY CONSULTANT extracting DECISION-READY findings from tool results.
 
 CRITICAL RULES:
-1. Return ONLY valid JSON. No markdown. No prose. No text before or after.
+1. Return ONLY valid JSON. No markdown. No prose.
 2. Extract ONLY information present in tool results - NEVER invent data.
-3. Valid SSL certificates (Cloudflare, Let's Encrypt, SSL Corp) are POSITIVE, not vulnerabilities.
-4. Missing security headers (HSTS, CSP, X-Frame-Options) ARE vulnerabilities.
-5. If a tool shows "ok" status with data, it means data WAS collected - don't say "no data".
-6. Use the automated risk_score as baseline, adjust based on findings.
+3. Valid SSL certificates (Cloudflare, Let's Encrypt) = POSITIVE, not vulnerabilities.
+4. Missing security headers = LOW severity (best practices), NOT critical vulnerabilities.
+5. If CDN detected (Cloudflare, AWS, Akamai), note that infrastructure info = CDN, not target.
+6. Focus on ACTIONABLE findings that affect the business.
 
 Output format:
 {
-  "executive_summary": "Brief factual overview (max 5 lines) - NO filler text",
+  "executive_summary": "Brief factual overview (max 3 lines) with key risk and action",
   "risk_score": 0-100,
   "risk_level": "FAIBLE|MOYEN|ÉLEVÉ|CRITIQUE",
+  "cdn_detected": true/false,
+  "cdn_provider": "name or null",
   "top_findings": [
     {
-      "claim": "Finding description - must be factual",
+      "claim": "Finding description - factual and specific",
       "severity": "CRITICAL|HIGH|MEDIUM|LOW|INFO",
-      "source": "tool_name that provided this data",
-      "impact": "Brief impact description"
+      "source": "tool_name",
+      "business_impact": "What can the client LOSE? (data, money, reputation)",
+      "exploitability": "EASY|MEDIUM|HARD - how hard is it to exploit?",
+      "action": "Specific remediation step"
     }
   ],
-  "positive_findings": ["List of security positives (TLS 1.3, SPF, DMARC, etc.)"],
-  "actions": ["Actionable recommendation 1", "Actionable recommendation 2"],
-  "limitations": ["Tool errors or skipped tools only"],
+  "positive_findings": ["Security positives (TLS 1.3, CDN protection, SPF/DMARC, etc.)"],
+  "attack_scenarios": [
+    {
+      "scenario": "Brief attack scenario description",
+      "likelihood": "HIGH|MEDIUM|LOW",
+      "prerequisites": "What attacker needs"
+    }
+  ],
+  "priority_actions": [
+    {"priority": 1, "action": "...", "effort": "LOW|MEDIUM|HIGH", "impact": "..."}
+  ],
+  "limitations": ["Tool errors or skipped tools"],
   "sources_used": ["List tools with ok status"]
 }"""
 
@@ -3562,36 +3787,42 @@ IMPORTANT : Ce score est indicatif. Tu dois l'INTERPRÉTER et le CONTEXTUALISER 
 """
 
                         sys_prompt = (
-                            f"Tu es un analyste OSINT expert. Rédige un rapport technique complet et RESPONSABLE.{partial_warning}\n\n"
+                            f"Tu es un CONSULTANT SÉCURITÉ expérimenté qui rédige des rapports d'aide à la décision.{partial_warning}\n\n"
+                            "TON OBJECTIF : Aider le client à PRIORISER ses actions de sécurité avec des recommandations ACTIONNABLES.\n\n"
                             "FORMAT OBLIGATOIRE :\n\n"
-                            "## 1. Identité\n"
-                            "Présente la cible analysée avec les infos WHOIS (registrar, date création, organisation).\n\n"
-                            "## 2. Infrastructure & Risques\n"
-                            "CRITIQUE : Cette section doit contenir une ANALYSE DE RISQUES STRUCTURÉE.\n"
+                            "## 1. Résumé Exécutif\n"
+                            "- Score de risque global et signification\n"
+                            "- 3 actions prioritaires immédiates (si nécessaires)\n"
+                            "- Verdict : la cible est-elle bien protégée ou nécessite-t-elle une attention ?\n\n"
+                            "## 2. Identité & Contexte\n"
+                            "Présente la cible (WHOIS, registrar, date création, organisation).\n"
+                            "Si CDN détecté: AVERTIR que l'infrastructure visible est celle du CDN, pas la cible réelle.\n\n"
+                            "## 3. Analyse des Risques (CRITIQUE)\n"
                             f"{risk_context}"
-                            "- Analyse les vulnérabilités détectées (headers manquants, certificats, config email, etc.)\n"
-                            "- Évalue la gravité de chaque risque (CRITIQUE/ÉLEVÉ/MOYEN/FAIBLE)\n"
-                            "- Fournis des recommandations concrètes pour chaque vulnérabilité\n"
-                            "- Mentionne les points positifs de sécurité détectés\n\n"
-                            "## 3. Empreinte Web\n"
-                            "Technologies détectées, subdomains (crt.sh), CDN/hébergeur, présence sociale.\n\n"
-                            "## 4. Sources Utilisées\n"
-                            "Liste les outils consultés avec leur statut (OK/ERROR/SKIPPED).\n\n"
-                            "## 5. Confiance & Limites\n"
-                            "- Niveau de confiance des informations\n"
-                            "- Limites de l'analyse (outils en erreur, données manquantes)\n"
-                            f"{'- IMPORTANT : Ce rapport est PARTIEL (timeout atteint)' if timeout_reached else ''}\n\n"
-                            "## 6. Conclusion\n"
-                            "Synthèse du risque global et recommandations prioritaires.\n\n"
+                            "Pour CHAQUE vulnérabilité détectée, fournis:\n"
+                            "- **Sévérité**: CRITIQUE/ÉLEVÉ/MOYEN/FAIBLE/INFO\n"
+                            "- **Impact Business**: Que peut perdre le client ? (données, réputation, argent)\n"
+                            "- **Exploitabilité**: Facile/Moyen/Difficile - Un attaquant peut-il exploiter facilement ?\n"
+                            "- **Action recommandée**: Quoi faire concrètement et en combien de temps\n\n"
+                            "## 4. Points Positifs\n"
+                            "Liste ce qui est BIEN configuré (SSL valide, HSTS, CDN protection, etc.)\n\n"
+                            "## 5. Scénarios de Risque\n"
+                            "Décris 1-2 scénarios réalistes d'attaque si les vulnérabilités ne sont pas corrigées.\n"
+                            "Exemple: 'Un attaquant pourrait exploiter X pour accéder à Y, causant Z'\n\n"
+                            "## 6. Plan d'Action Priorisé\n"
+                            "| Priorité | Action | Effort | Impact |\n"
+                            "|----------|--------|--------|--------|\n"
+                            "| 1 | ... | Faible/Moyen/Élevé | ... |\n\n"
+                            "## 7. Sources & Limites\n"
+                            "Outils utilisés et limites de l'analyse.\n\n"
                             "RÈGLES ABSOLUES :\n"
-                            "1. NE JAMAIS écrire 'Aucune information disponible' - si tu n'as pas de données, OMETS la sous-section\n"
-                            "2. NE JAMAIS inventer ou halluciner des informations - utilise UNIQUEMENT les données fournies\n"
-                            "3. NE JAMAIS dire 'aucun service découvert' si Censys montre des données (IP, location, services)\n"
-                            "4. TOUJOURS baser ton analyse sur les indicateurs de risque fournis (score, vulnérabilités, points positifs)\n"
-                            "5. Cloudflare, SSL Corporation, Let's Encrypt sont des émetteurs SSL LÉGITIMES, pas des menaces\n"
-                            "6. Un certificat SSL valide est un POINT POSITIF, pas une vulnérabilité\n"
-                            "7. Sois CONCIS - pas de paragraphes vides ou de remplissage\n"
-                            "8. Mentionner les outils en erreur dans la section 'Sources Utilisées' uniquement"
+                            "1. JAMAIS écrire 'Aucune information disponible' - OMETS la section si pas de données\n"
+                            "2. JAMAIS inventer d'informations - utilise UNIQUEMENT les données fournies\n"
+                            "3. Cloudflare, Let's Encrypt, AWS = LÉGITIMES, pas des menaces\n"
+                            "4. Un certificat SSL valide = POINT POSITIF\n"
+                            "5. Headers manquants = bonnes pratiques, PAS des vulnérabilités critiques\n"
+                            "6. Si CDN détecté, l'infra visible (IP, ports) concerne le CDN, PAS la cible\n"
+                            "7. Sois CONCIS et ACTIONNABLE - pas de remplissage"
                         )
 
                     # Générer un résumé des outils (même logique que dans le scan)
