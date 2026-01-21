@@ -113,8 +113,8 @@ launch_all.bat
 
 This starts:
 - FastAPI backend (port 8010)
-- DeepSeek LLM (port 5000)
-- Celery worker
+- Mistral 7B LLM (port 5000, 32k context)
+- Celery worker (concurrency=4)
 
 ### Stop all services
 

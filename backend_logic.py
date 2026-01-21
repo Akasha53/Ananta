@@ -1986,6 +1986,143 @@ def logic_crtsh(domain: str):
         return {"error": str(e)}
 
 
+def logic_subdomains(domain: str):
+    """
+    Enumération complète de sous-domaines via plusieurs sources.
+
+    Sources:
+    - crt.sh (Certificate Transparency)
+    - DNS brute-force (common subdomains)
+    - HackerTarget API (free tier)
+
+    Layer: 2 (MEDIUM risk - passive enumeration)
+    """
+    import socket
+    import concurrent.futures
+
+    results = {
+        "domain": domain,
+        "sources": {},
+        "all_subdomains": set(),
+        "resolved": {},
+        "statistics": {}
+    }
+
+    # Common subdomains to check
+    COMMON_SUBDOMAINS = [
+        "www", "mail", "ftp", "localhost", "webmail", "smtp", "pop", "ns1", "ns2",
+        "ns3", "ns4", "dns", "dns1", "dns2", "mx", "mx1", "mx2", "remote", "blog",
+        "webdisk", "server", "cpanel", "whm", "autodiscover", "autoconfig", "admin",
+        "portal", "dev", "staging", "test", "api", "app", "cdn", "cloud", "git",
+        "gitlab", "github", "jenkins", "ci", "monitor", "status", "support", "help",
+        "shop", "store", "secure", "vpn", "ssh", "backup", "db", "database", "mysql",
+        "postgres", "redis", "elastic", "kibana", "grafana", "prometheus", "docs",
+        "wiki", "forum", "intranet", "internal", "extranet", "mobile", "m", "img",
+        "images", "static", "assets", "media", "video", "files", "download", "upload"
+    ]
+
+    # 1. crt.sh (Certificate Transparency)
+    try:
+        url = f"https://crt.sh/?q=%.{domain}&output=json"
+        response = requests.get(url, timeout=15)
+        if response.status_code == 200:
+            data = response.json()
+            crt_subdomains = set()
+            for entry in data:
+                name_value = entry.get("name_value", "")
+                for subdomain in name_value.split("\n"):
+                    subdomain = subdomain.strip().lower()
+                    if subdomain and not subdomain.startswith("*"):
+                        crt_subdomains.add(subdomain)
+            results["sources"]["crt.sh"] = {
+                "count": len(crt_subdomains),
+                "subdomains": sorted(list(crt_subdomains))[:100]
+            }
+            results["all_subdomains"].update(crt_subdomains)
+    except Exception as e:
+        results["sources"]["crt.sh"] = {"error": str(e)}
+
+    # 2. HackerTarget API (free tier - 100 queries/day)
+    try:
+        url = f"https://api.hackertarget.com/hostsearch/?q={domain}"
+        response = requests.get(url, timeout=10)
+        if response.status_code == 200 and "error" not in response.text.lower():
+            ht_subdomains = set()
+            for line in response.text.strip().split("\n"):
+                if "," in line:
+                    subdomain = line.split(",")[0].strip().lower()
+                    if subdomain:
+                        ht_subdomains.add(subdomain)
+            results["sources"]["hackertarget"] = {
+                "count": len(ht_subdomains),
+                "subdomains": sorted(list(ht_subdomains))[:100]
+            }
+            results["all_subdomains"].update(ht_subdomains)
+    except Exception as e:
+        results["sources"]["hackertarget"] = {"error": str(e)}
+
+    # 3. DNS brute-force (common subdomains)
+    def resolve_subdomain(subdomain_prefix):
+        full_domain = f"{subdomain_prefix}.{domain}"
+        try:
+            socket.gethostbyname(full_domain)
+            return full_domain
+        except socket.gaierror:
+            return None
+
+    try:
+        dns_found = set()
+        with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
+            futures = {executor.submit(resolve_subdomain, sub): sub for sub in COMMON_SUBDOMAINS}
+            for future in concurrent.futures.as_completed(futures, timeout=30):
+                result = future.result()
+                if result:
+                    dns_found.add(result)
+
+        results["sources"]["dns_bruteforce"] = {
+            "count": len(dns_found),
+            "subdomains": sorted(list(dns_found))
+        }
+        results["all_subdomains"].update(dns_found)
+    except Exception as e:
+        results["sources"]["dns_bruteforce"] = {"error": str(e)}
+
+    # 4. Resolve all found subdomains to IPs
+    all_subs = list(results["all_subdomains"])[:200]  # Limit to 200
+
+    def resolve_to_ip(subdomain):
+        try:
+            ip = socket.gethostbyname(subdomain)
+            return (subdomain, ip)
+        except socket.gaierror:
+            return (subdomain, None)
+
+    try:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=20) as executor:
+            futures = [executor.submit(resolve_to_ip, sub) for sub in all_subs]
+            for future in concurrent.futures.as_completed(futures, timeout=60):
+                subdomain, ip = future.result()
+                if ip:
+                    results["resolved"][subdomain] = ip
+    except Exception as e:
+        logger.warning(f"[SUBDOMAINS] Resolution error: {e}")
+
+    # Statistics
+    results["statistics"] = {
+        "total_unique": len(results["all_subdomains"]),
+        "resolved_count": len(results["resolved"]),
+        "unique_ips": len(set(results["resolved"].values())),
+        "sources_used": len([s for s in results["sources"].values() if "error" not in s])
+    }
+
+    # Convert set to list for JSON serialization
+    results["all_subdomains"] = sorted(list(results["all_subdomains"]))[:200]
+
+    logger.info(f"[SUBDOMAINS] {domain}: {results['statistics']['total_unique']} found, {results['statistics']['resolved_count']} resolved")
+
+    return {"raw": results}
+
+
 def logic_wayback(domain: str):
     """Récupère l'historique du site via Wayback Machine."""
     try:

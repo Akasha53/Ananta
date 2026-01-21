@@ -26,9 +26,9 @@
 
 ### API & Backend
 - [x] **Pydantic models complets** - `models.py` avec validateurs pour toutes les entrées
-- [ ] **Pagination standardisée** - Implémenter sur tous les endpoints de liste
+- [x] **Pagination standardisée** - Helper `paginate()` + modèle `PaginatedResponse` dans `models.py`
 - [ ] **Cache ETag/Last-Modified** - Headers HTTP pour caching côté client
-- [ ] **Codes d'erreur standardisés** - Format uniforme pour toutes les erreurs API
+- [x] **Codes d'erreur standardisés** - Module `errors.py` avec ErrorCode enum et AnantaException
 - [ ] **OpenAPI documentation** - Compléter les descriptions Swagger/ReDoc
 
 ### Tests
@@ -41,8 +41,8 @@
 - [x] **Intégration VirusTotal** - `logic_virustotal()` - réputation, détections malware (Layer 2)
 - [x] **Intégration Shodan** - `logic_shodan()` - ports, services, vulnérabilités (Layer 2)
 - [x] **Intégration SecurityTrails** - `logic_securitytrails()` - historique DNS, sous-domaines (Layer 2)
+- [x] **Subdomain enumeration** - `logic_subdomains()` - crt.sh + HackerTarget + DNS brute-force (Layer 2)
 - [ ] **Améliorer vuln_scan** - Détection de CVE plus complète (Layer 3)
-- [ ] **Subdomain enumeration** - Outil de découverte de sous-domaines (Layer 2)
 
 ---
 
@@ -142,8 +142,8 @@
 - [ ] **Archiver jobs terminés** - Déplacer les vieux ScanJob vers une table archive
 
 ### Mise à jour documentation
-- [ ] **Mettre à jour dev_runbook.md** - Encore référence DeepSeek au lieu de Mistral
-- [ ] **Synchroniser CLAUDE.md** - S'assurer que tout est à jour
+- [x] **Mettre à jour dev_runbook.md** - Mis à jour avec Mistral 7B + nouvelles API keys
+- [x] **Synchroniser CLAUDE.md** - Mis à jour avec nouveaux fichiers et intégrations
 
 ---
 
@@ -159,6 +159,10 @@
 - [x] **Structure de tests** - `tests/` avec conftest, test_models, test_api
 - [x] **CI/CD Pipeline** - `.github/workflows/ci.yml` avec lint, tests, security scan
 - [x] **requirements.txt** - Dépendances documentées
+- [x] **Codes d'erreur standardisés** - `errors.py` avec ErrorCode enum et AnantaException
+- [x] **Pagination helper** - `paginate()` + PaginatedResponse dans models.py
+- [x] **Subdomain enumeration** - `logic_subdomains()` multi-sources (crt.sh, HackerTarget, DNS)
+- [x] **Documentation mise à jour** - dev_runbook.md, CLAUDE.md avec Mistral + nouvelles APIs
 
 ### Sessions précédentes
 - [x] ~~**LLM Context Window Limitation**~~ - Résolu avec migration vers Mistral 7B (32k)

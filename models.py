@@ -323,3 +323,43 @@ class SuccessResponse(BaseModel):
     success: bool = Field(default=True)
     message: str = Field(..., description="Message de confirmation")
     data: Optional[dict] = Field(default=None, description="Données retournées")
+
+
+class PaginatedResponse(BaseModel):
+    """Réponse paginée standardisée."""
+
+    items: List = Field(..., description="Liste des éléments")
+    total: int = Field(..., ge=0, description="Nombre total d'éléments")
+    page: int = Field(..., ge=1, description="Page actuelle")
+    limit: int = Field(..., ge=1, description="Éléments par page")
+    pages: int = Field(..., ge=0, description="Nombre total de pages")
+    has_next: bool = Field(..., description="Page suivante disponible")
+    has_prev: bool = Field(..., description="Page précédente disponible")
+
+
+def paginate(query, page: int = 1, limit: int = 20):
+    """
+    Helper pour paginer une requête SQLAlchemy.
+
+    Args:
+        query: Requête SQLAlchemy
+        page: Numéro de page (1-indexed)
+        limit: Nombre d'éléments par page
+
+    Returns:
+        dict avec items, total, page, limit, pages, has_next, has_prev
+    """
+    total = query.count()
+    pages = (total + limit - 1) // limit if total > 0 else 0
+    offset = (page - 1) * limit
+    items = query.offset(offset).limit(limit).all()
+
+    return {
+        "items": items,
+        "total": total,
+        "page": page,
+        "limit": limit,
+        "pages": pages,
+        "has_next": page < pages,
+        "has_prev": page > 1
+    }

@@ -495,6 +495,33 @@ TOOL_REGISTRY: Dict[str, ToolSpec] = {
         hypothesis_validated="Le domaine X a changé d'infrastructure récemment"
     ),
 
+    "subdomains": ToolSpec(
+        name="subdomains",
+        layer=ToolLayer.LAYER_2_SPECIALIZED,
+        description="Énumération complète de sous-domaines via multiples sources (crt.sh, HackerTarget, DNS brute-force)",
+        capabilities=["subdomain_enumeration", "dns_resolution", "attack_surface_mapping", "infrastructure_discovery"],
+        legal_risk_level=LegalRiskLevel.LOW,
+        requires_explicit_approval=False,
+        allowed_contexts=[
+            "OSINT passif",
+            "threat intelligence",
+            "security audit",
+            "attack surface assessment",
+            "bug bounty reconnaissance"
+        ],
+        rate_limits={
+            "requests_per_minute": 5,
+            "hardcoded": False
+        },
+        jurisdiction_notes="Énumération passive via sources publiques (Certificate Transparency, DNS). "
+                          "Le brute-force DNS est limité aux sous-domaines communs uniquement.",
+        function_name="logic_subdomains",
+        dependencies=["socket", "requests", "concurrent.futures"],
+        typical_duration_seconds=45.0,
+        evidence_type="Liste de sous-domaines, résolutions IP, cartographie d'infrastructure",
+        hypothesis_validated="Le domaine X possède une infrastructure étendue avec N sous-domaines"
+    ),
+
     # ========================================================================
     # COUCHE 3 - OUTILS SENSIBLES (Approbation Utilisateur Obligatoire)
     # ========================================================================

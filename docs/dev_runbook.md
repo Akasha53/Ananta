@@ -10,8 +10,8 @@ launch_all.bat
 Ce script lance automatiquement :
 1. Redis (Memurai) - Message broker pour Celery
 2. Backend FastAPI - API principale (port 8010)
-3. DeepSeek LLM - Modèle local (port 5000)
-4. Celery Worker - Traitement asynchrone des scans
+3. Mistral 7B LLM - Modèle local (port 5000, 32k context)
+4. Celery Worker - Traitement asynchrone des scans (concurrency=4)
 
 ### Linux/Mac (Manuel)
 ```bash
@@ -21,9 +21,9 @@ redis-server
 # Terminal 2 - Backend FastAPI
 python -m uvicorn main:app --host 127.0.0.1 --port 8010 --reload --log-level debug
 
-# Terminal 3 - DeepSeek LLM
+# Terminal 3 - Mistral 7B LLM
 cd text-generation-webui
-python server.py --model deepseek-llm-7b-chat --api --nowebui --gpu-memory 7GiB --load-in-4bit
+python server.py --model mistralai_Mistral-7B-Instruct-v0.2 --api --nowebui --gpu-memory 7GiB --load-in-4bit
 
 # Terminal 4 - Celery Worker
 celery -A tasks worker --loglevel=info
@@ -41,8 +41,8 @@ celery -A tasks beat --loglevel=info
 
 | Service | URL/Command | Résultat attendu |
 |---------|-------------|------------------|
-| FastAPI | http://localhost:8010/health | `{"status": "ok"}` |
-| DeepSeek LLM | http://localhost:5000/v1/models | Liste des modèles |
+| FastAPI | http://localhost:8010/health | `{"status": "ok", "health": {...}}` |
+| Mistral 7B LLM | http://localhost:5000/v1/models | Liste des modèles |
 | Redis | `redis-cli ping` | `PONG` |
 | Celery | Fenêtre console | `ready` message |
 
@@ -188,9 +188,17 @@ Créer un fichier `.env` à la racine :
 # Base de données (PostgreSQL ou omettre pour SQLite)
 DATABASE_URL=postgresql://user:password@host/database
 
-# API keys optionnelles
-CENSYS_API_KEY=your_censys_api_key
-
 # Redis / Celery
 REDIS_URL=redis://localhost:6379/0
+
+# API keys OSINT (optionnelles - outils skipped si absentes)
+CENSYS_API_KEY=your_key
+VIRUSTOTAL_API_KEY=your_key
+SHODAN_API_KEY=your_key
+SECURITYTRAILS_API_KEY=your_key
+
+# Configuration sécurité
+ENVIRONMENT=development  # ou production
+CORS_ORIGINS=https://example.com  # pour prod
+RATE_LIMIT_ENABLED=true  # false pour tests
 ```
