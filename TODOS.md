@@ -1,7 +1,7 @@
 # ANANTA - Liste des Tâches (TODOS)
 
 > **Dernière mise à jour**: 21 janvier 2026
-> **Version**: Ananta v2.3 - Mistral 7B (32k context)
+> **Version**: Ananta v1.0.3 - Mistral 7B (32k context)
 
 ---
 
@@ -27,7 +27,7 @@
 ### API & Backend
 - [x] **Pydantic models complets** - `models.py` avec validateurs pour toutes les entrées
 - [x] **Pagination standardisée** - Helper `paginate()` + modèle `PaginatedResponse` dans `models.py`
-- [ ] **Cache ETag/Last-Modified** - Headers HTTP pour caching côté client
+- [x] **Cache ETag/Last-Modified** - Headers HTTP pour caching côté client (endpoints /osint/report, /osint/history, /osint/export/json)
 - [x] **Codes d'erreur standardisés** - Module `errors.py` avec ErrorCode enum et AnantaException
 - [x] **OpenAPI documentation** - Titre, description, tags, contact, license dans `main.py`
 
@@ -42,7 +42,7 @@
 - [x] **Intégration Shodan** - `logic_shodan()` - ports, services, vulnérabilités (Layer 2)
 - [x] **Intégration SecurityTrails** - `logic_securitytrails()` - historique DNS, sous-domaines (Layer 2)
 - [x] **Subdomain enumeration** - `logic_subdomains()` - crt.sh + HackerTarget + DNS brute-force (Layer 2)
-- [ ] **Améliorer vuln_scan** - Détection de CVE plus complète (Layer 3)
+- [x] **Améliorer vuln_scan** - Détection CVE, fichiers sensibles, SSL/TLS, frameworks (Layer 3)
 
 ---
 
@@ -147,49 +147,6 @@
 
 ---
 
-## Tâches complétées (Historique)
-
-### Session du 21 janvier 2026 (aujourd'hui)
-- [x] **Layer 3 UI accessible** - Mode "Critique" dans settings avec consentement légal obligatoire
-- [x] **Outils Layer 3 sélectionnables** - port_scan et vuln_scan maintenant accessibles via UI
-- [x] **Dialogue de consentement** - Confirmation légale requise avant d'utiliser les outils à risque
-- [x] **Traductions Layer 3** - Messages d'erreur FR/EN pour le mode critique
-
-### Session du 20 janvier 2026
-- [x] **Security Middlewares** - `middleware.py` avec RequestID, RateLimit, CSP, CORS
-- [x] **Health Check amélioré** - Vérifie Redis, LLM, Database avec latences
-- [x] **Validation Pydantic** - `models.py` avec tous les modèles de validation
-- [x] **Intégration VirusTotal** - `logic_virustotal()` pour réputation de menaces
-- [x] **Intégration Shodan** - `logic_shodan()` pour infrastructure et vulnérabilités
-- [x] **Intégration SecurityTrails** - `logic_securitytrails()` pour historique DNS
-- [x] **Structure de tests** - `tests/` avec conftest, test_models, test_api
-- [x] **CI/CD Pipeline** - `.github/workflows/ci.yml` avec lint, tests, security scan
-- [x] **requirements.txt** - Dépendances documentées
-- [x] **Codes d'erreur standardisés** - `errors.py` avec ErrorCode enum et AnantaException
-- [x] **Pagination helper** - `paginate()` + PaginatedResponse dans models.py
-- [x] **Subdomain enumeration** - `logic_subdomains()` multi-sources (crt.sh, HackerTarget, DNS)
-- [x] **Documentation mise à jour** - dev_runbook.md, CLAUDE.md avec Mistral + nouvelles APIs
-- [x] **Tests errors.py** - `test_errors.py` avec 30+ tests pour ErrorCode, AnantaException
-- [x] **Tests d'intégration** - `test_integration.py` avec ~40 tests workflows complets
-- [x] **Tests pagination** - Ajout tests PaginationParams et PaginatedResponse
-- [x] **ServiceStatus tracker** - Singleton pour dégradation gracieuse (LLM/Redis)
-- [x] **OpenAPI documentation** - Docs complètes dans `/docs` avec tags et descriptions
-
-### Sessions précédentes
-- [x] ~~**LLM Context Window Limitation**~~ - Résolu avec migration vers Mistral 7B (32k)
-- [x] ~~**Architecture multi-workers**~~ - Simplifié avec 1 worker unique
-- [x] ~~**Global Theme System**~~ - `theme.js` appliqué à toutes les pages
-- [x] ~~**Workers Monitoring**~~ - Dashboard `workers.html` avec auto-refresh
-- [x] ~~**Monitoring Dashboard**~~ - `monitoring.html` avec stats et logs
-- [x] ~~**Export Multi-Format**~~ - PDF, JSON, CSV, XML, Markdown
-- [x] ~~**Système Multi-Langue**~~ - Français et Anglais
-- [x] ~~**Authentification API**~~ - API Keys avec hashing SHA256
-- [x] ~~**Comparaison de Scans**~~ - `comparison.html` avec détection de changements
-- [x] ~~**Markdown Rendering**~~ - Tables et formatage dans les rapports
-- [x] ~~**LLM Retry Logic**~~ - 3 tentatives avec backoff exponentiel
-
----
-
 ## Notes
 
 ### Variables d'environnement requises
@@ -217,11 +174,6 @@ RATE_LIMIT_ENABLED=true
 - **HAUTE**: Important pour la stabilité et les fonctionnalités core
 - **MOYENNE**: Améliorations significatives de l'UX ou performance
 - **BASSE**: Nice-to-have, peut attendre
-
-### Estimation de complexité
-- 🟢 Simple (< 1 jour)
-- 🟡 Moyen (1-3 jours)
-- 🔴 Complexe (> 3 jours)
 
 ### Comment contribuer
 1. Choisir une tâche non assignée

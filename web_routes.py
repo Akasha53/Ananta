@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Header, Response
 from fastapi.responses import FileResponse, JSONResponse
 from sqlalchemy.orm import Session
 from sqlalchemy import text, func
@@ -9,7 +9,10 @@ import logging
 import psutil
 import time
 import uuid
+import hashlib
+import json
 from datetime import datetime, timezone
+from email.utils import formatdate, parsedate_to_datetime
 logger = logging.getLogger(__name__)
 # Imports locaux
 from database import get_db, EntityReport, ScanJob, PendingApproval, ToolExecutionLog, APIKey
@@ -50,6 +53,89 @@ except ImportError:
     scan_parallel_task = None
     HAS_CELERY = False
     logger.warning("⚠️ Celery non disponible - Mode synchrone uniquement")
+
+
+# ==================== HTTP CACHING UTILITIES ====================
+
+def generate_etag(data: any) -> str:
+    """
+    Génère un ETag basé sur le contenu des données.
+    Utilise MD5 pour la rapidité (pas besoin de sécurité cryptographique ici).
+    """
+    if isinstance(data, str):
+        content = data
+    else:
+        content = json.dumps(data, sort_keys=True, default=str)
+    return f'"{hashlib.md5(content.encode()).hexdigest()}"'
+
+
+def format_http_date(dt: datetime) -> str:
+    """
+    Formate une datetime en format HTTP-date (RFC 7231).
+    Ex: 'Tue, 21 Jan 2026 10:30:00 GMT'
+    """
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    timestamp = dt.timestamp()
+    return formatdate(timestamp, usegmt=True)
+
+
+def check_not_modified(
+    request: Request,
+    etag: str = None,
+    last_modified: datetime = None
+) -> bool:
+    """
+    Vérifie si le client a une version à jour (304 Not Modified).
+    Retourne True si le client peut utiliser sa version en cache.
+    """
+    # Check If-None-Match (ETag)
+    if etag:
+        if_none_match = request.headers.get("if-none-match")
+        if if_none_match:
+            # Handle multiple ETags
+            client_etags = [e.strip() for e in if_none_match.split(",")]
+            if etag in client_etags or "*" in client_etags:
+                return True
+
+    # Check If-Modified-Since
+    if last_modified:
+        if_modified_since = request.headers.get("if-modified-since")
+        if if_modified_since:
+            try:
+                client_date = parsedate_to_datetime(if_modified_since)
+                if last_modified.tzinfo is None:
+                    last_modified = last_modified.replace(tzinfo=timezone.utc)
+                if last_modified <= client_date:
+                    return True
+            except (ValueError, TypeError):
+                pass  # Invalid date format, ignore
+
+    return False
+
+
+def add_cache_headers(
+    response: Response,
+    etag: str = None,
+    last_modified: datetime = None,
+    max_age: int = 300,  # 5 minutes default
+    private: bool = False
+) -> Response:
+    """
+    Ajoute les headers de cache HTTP à une réponse.
+    """
+    if etag:
+        response.headers["ETag"] = etag
+
+    if last_modified:
+        response.headers["Last-Modified"] = format_http_date(last_modified)
+
+    # Cache-Control
+    cache_control = f"{'private' if private else 'public'}, max-age={max_age}"
+    response.headers["Cache-Control"] = cache_control
+
+    return response
+
 
 # Essai import intent detector
 try:
@@ -172,12 +258,17 @@ def endpoint_censys(target: str):
     return logic.logic_censys(target)
 
 
-# ✅ HISTORIQUE BDD (CORRIGÉ)
+# ✅ HISTORIQUE BDD (AVEC CACHE HTTP)
 @router.get("/osint/history/")
 def osint_history(
+    request: Request,
     limit: int = Query(50, ge=1, le=500),
     db: Session = Depends(get_db)
 ):
+    """
+    Récupère l'historique des rapports.
+    Supporte le caching HTTP via ETag (basé sur le dernier rapport modifié).
+    """
     try:
         reports = (
             db.query(EntityReport)
@@ -186,7 +277,8 @@ def osint_history(
             .all()
         )
 
-        return [
+        # Construire les données de réponse
+        response_data = [
             {
                 "date": r.created_at.strftime("%Y-%m-%d %H:%M") if r.created_at else "--",
                 "title": f"Rapport {r.target_type or 'UNKNOWN'}",
@@ -194,6 +286,27 @@ def osint_history(
             }
             for r in reports
         ]
+
+        # Générer ETag basé sur le contenu
+        etag = generate_etag(response_data)
+
+        # Déterminer Last-Modified (date du rapport le plus récent)
+        last_modified = reports[0].updated_at or reports[0].created_at if reports else None
+
+        # Vérifier 304 Not Modified
+        if check_not_modified(request, etag=etag, last_modified=last_modified):
+            return Response(
+                status_code=304,
+                headers={
+                    "ETag": etag,
+                    "Cache-Control": "public, max-age=60"  # Cache court pour l'historique
+                }
+            )
+
+        # Retourner avec headers de cache
+        response = JSONResponse(content=response_data)
+        add_cache_headers(response, etag=etag, last_modified=last_modified, max_age=60)
+        return response
 
     except Exception as e:
         logger.exception("[/osint/history] ERREUR")
@@ -204,12 +317,15 @@ def osint_history(
 
 @router.get("/osint/report/")
 def get_cached_report(
+    request: Request,
     target: str = Query(..., description="Cible du rapport à récupérer"),
     db: Session = Depends(get_db)
 ):
     """
     Récupère un rapport en cache SANS régénération LLM.
     Utilisé par database.html pour l'aperçu rapide.
+
+    Supporte le caching HTTP via ETag et Last-Modified.
     """
     try:
         # Normaliser la cible pour la recherche
@@ -223,7 +339,60 @@ def get_cached_report(
         if not report:
             raise HTTPException(status_code=404, detail="Rapport non trouvé")
 
-        # Retourner le rapport sans régénération
+        # Générer ETag et Last-Modified
+        last_modified = report.updated_at or report.created_at
+        response_data = {
+            "target": report.target,
+            "type": report.target_type,
+            "report": report.final_report,
+            "date": last_modified.strftime("%Y-%m-%d %H:%M") if last_modified else "N/A",
+            "cached": True
+        }
+        etag = generate_etag(response_data)
+
+        # Vérifier si le client a une version à jour (304 Not Modified)
+        if check_not_modified(request, etag=etag, last_modified=last_modified):
+            return Response(
+                status_code=304,
+                headers={
+                    "ETag": etag,
+                    "Last-Modified": format_http_date(last_modified) if last_modified else None,
+                    "Cache-Control": "public, max-age=300"
+                }
+            )
+
+        # Retourner le rapport avec headers de cache
+        response = JSONResponse(content=response_data)
+        add_cache_headers(response, etag=etag, last_modified=last_modified, max_age=300)
+        return response
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception(f"[/osint/report GET] ERREUR: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail="Erreur lors de la récupération du rapport"
+        )
+
+
+@router.get("/osint/report/legacy")
+def get_cached_report_legacy(
+    target: str = Query(..., description="Cible du rapport à récupérer"),
+    db: Session = Depends(get_db)
+):
+    """
+    Version legacy sans caching HTTP (pour compatibilité).
+    """
+    try:
+        normalized = logic.normalize_target(target)
+        report = db.query(EntityReport).filter(
+            EntityReport.target.ilike(f"%{normalized}%")
+        ).first()
+
+        if not report:
+            raise HTTPException(status_code=404, detail="Rapport non trouvé")
+
         return {
             "target": report.target,
             "type": report.target_type,
@@ -292,8 +461,11 @@ def endpoint_pdf(query: str, db: Session = Depends(get_db)):
 # ==================== EXPORT FORMATS ====================
 
 @router.get("/osint/export/json")
-def export_json(query: str, db: Session = Depends(get_db)):
-    """Exporte un rapport au format JSON."""
+def export_json(request: Request, query: str, db: Session = Depends(get_db)):
+    """
+    Exporte un rapport au format JSON.
+    Supporte le caching HTTP via ETag et Last-Modified.
+    """
     try:
         normalized = logic.normalize_target(query)
         report = db.query(EntityReport).filter(
@@ -303,8 +475,10 @@ def export_json(query: str, db: Session = Depends(get_db)):
         if not report:
             raise HTTPException(status_code=404, detail="Rapport non trouvé")
 
+        # Déterminer Last-Modified
+        last_modified = report.updated_at or report.created_at
+
         # Construire l'export JSON
-        import json
         raw_data = {}
         try:
             raw_data = json.loads(report.raw_data) if report.raw_data else {}
@@ -320,14 +494,28 @@ def export_json(query: str, db: Session = Depends(get_db)):
             "updated_at": report.updated_at.isoformat() if report.updated_at else None
         }
 
-        from fastapi.responses import JSONResponse
-        return JSONResponse(
+        # Générer ETag
+        etag = generate_etag(export_data)
+
+        # Vérifier 304 Not Modified
+        if check_not_modified(request, etag=etag, last_modified=last_modified):
+            return Response(
+                status_code=304,
+                headers={
+                    "ETag": etag,
+                    "Cache-Control": "public, max-age=3600"  # 1 heure pour les exports
+                }
+            )
+
+        response = JSONResponse(
             content=export_data,
             media_type="application/json",
             headers={
                 "Content-Disposition": f'attachment; filename="report_{normalized}.json"'
             }
         )
+        add_cache_headers(response, etag=etag, last_modified=last_modified, max_age=3600)
+        return response
 
     except HTTPException:
         raise

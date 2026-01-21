@@ -2599,13 +2599,16 @@ def logic_port_scan(target: str):
 
 def logic_vuln_scan(target: str):
     """
-    Layer 3 Tool: Scan de vulnérabilités basiques.
+    Layer 3 Tool: Scan de vulnérabilités amélioré avec détection CVE.
     🚨 NÉCESSITE APPROBATION UTILISATEUR EXPLICITE + CONTEXTE LÉGAL.
 
-    Effectue des tests basiques pour détecter:
+    Effectue des tests pour détecter:
     - Versions de serveurs avec CVE connus
     - Configurations HTTP faibles
     - Headers de sécurité manquants
+    - Vulnérabilités SSL/TLS
+    - Fichiers sensibles exposés
+    - Versions de frameworks avec CVE connus
 
     ATTENTION: Peut déclencher des alertes IDS/IPS. UTILISER UNIQUEMENT AVEC AUTORISATION ÉCRITE.
 
@@ -2617,17 +2620,66 @@ def logic_vuln_scan(target: str):
     """
     try:
         import requests
+        import ssl
+        import socket
+        import re
 
         vulnerabilities = []
         security_headers = []
+        cve_findings = []
 
-        logger.warning(f"[VULN SCAN] Démarrage du scan sur {target} - TOOL LAYER 3 CRITICAL")
+        logger.warning(f"[VULN SCAN] Démarrage du scan amélioré sur {target} - TOOL LAYER 3 CRITICAL")
+
+        # Base de données CVE pour versions courantes (mise à jour régulière recommandée)
+        CVE_DATABASE = {
+            # Apache
+            "Apache/2.4.49": [{"cve": "CVE-2021-41773", "severity": "CRITICAL", "desc": "Path Traversal + RCE"}],
+            "Apache/2.4.50": [{"cve": "CVE-2021-42013", "severity": "CRITICAL", "desc": "Path Traversal bypass"}],
+            "Apache/2.4.": [{"cve": "CVE-2021-44790", "severity": "HIGH", "desc": "mod_lua buffer overflow (< 2.4.52)"}],
+            "Apache/2.2.": [{"cve": "CVE-2017-3167", "severity": "HIGH", "desc": "Authentication bypass (EOL)"}],
+            # Nginx
+            "nginx/1.16.": [{"cve": "CVE-2019-20372", "severity": "MEDIUM", "desc": "HTTP request smuggling"}],
+            "nginx/1.14.": [{"cve": "CVE-2018-16845", "severity": "MEDIUM", "desc": "Denial of Service"}],
+            # IIS
+            "Microsoft-IIS/7.": [{"cve": "CVE-2017-7269", "severity": "CRITICAL", "desc": "WebDAV RCE (Buffer Overflow)"}],
+            "Microsoft-IIS/6.": [{"cve": "CVE-2017-7269", "severity": "CRITICAL", "desc": "WebDAV RCE (EOL)"}],
+            # PHP
+            "PHP/5.": [{"cve": "CVE-2019-11043", "severity": "CRITICAL", "desc": "PHP-FPM RCE (PHP 5.x EOL)"}],
+            "PHP/7.0": [{"cve": "CVE-2019-11043", "severity": "CRITICAL", "desc": "PHP-FPM RCE (7.0 EOL)"}],
+            "PHP/7.1": [{"cve": "CVE-2019-11043", "severity": "CRITICAL", "desc": "PHP-FPM RCE (7.1 EOL)"}],
+            "PHP/7.2": [{"cve": "CVE-2019-11043", "severity": "HIGH", "desc": "PHP-FPM RCE (7.2 EOL)"}],
+            # OpenSSL
+            "OpenSSL/1.0.1": [{"cve": "CVE-2014-0160", "severity": "CRITICAL", "desc": "Heartbleed"}],
+            "OpenSSL/1.0.2": [{"cve": "CVE-2016-2107", "severity": "HIGH", "desc": "Padding Oracle (< 1.0.2h)"}],
+            # WordPress
+            "WordPress/4.": [{"cve": "Multiple", "severity": "HIGH", "desc": "WordPress 4.x - Multiple CVEs (EOL)"}],
+            "WordPress/5.0": [{"cve": "CVE-2019-8942", "severity": "HIGH", "desc": "Authenticated RCE via upload"}],
+        }
+
+        # Fichiers sensibles à vérifier
+        SENSITIVE_PATHS = [
+            ("/.env", "Environment file with credentials"),
+            ("/.git/config", "Git repository exposed"),
+            ("/wp-config.php.bak", "WordPress config backup"),
+            ("/config.php.bak", "Config backup file"),
+            ("/backup.sql", "SQL backup file"),
+            ("/phpinfo.php", "PHP info page"),
+            ("/.htpasswd", "Apache password file"),
+            ("/server-status", "Apache server status"),
+            ("/web.config", "IIS config file"),
+            ("/.DS_Store", "macOS metadata file"),
+            ("/robots.txt", "Robots file (info disclosure)"),
+            ("/sitemap.xml", "Sitemap (structure disclosure)"),
+            ("/.well-known/security.txt", "Security contact info"),
+        ]
 
         # Normaliser l'URL
         if not target.startswith(('http://', 'https://')):
             test_url = f"https://{target}"
+            domain = target
         else:
             test_url = target
+            domain = target.replace('https://', '').replace('http://', '').split('/')[0]
 
         try:
             # Test 1: Récupérer les headers HTTP
@@ -2635,17 +2687,19 @@ def logic_vuln_scan(target: str):
 
             # Vérifier les headers de sécurité manquants
             security_checks = {
-                "X-Frame-Options": "Clickjacking protection",
-                "X-Content-Type-Options": "MIME-type sniffing protection",
-                "Strict-Transport-Security": "HSTS",
-                "Content-Security-Policy": "CSP",
-                "X-XSS-Protection": "XSS filter"
+                "X-Frame-Options": ("Clickjacking protection", "MEDIUM"),
+                "X-Content-Type-Options": ("MIME-type sniffing protection", "MEDIUM"),
+                "Strict-Transport-Security": ("HSTS", "MEDIUM"),
+                "Content-Security-Policy": ("CSP", "MEDIUM"),
+                "X-XSS-Protection": ("XSS filter (legacy)", "LOW"),
+                "Referrer-Policy": ("Referrer leakage prevention", "LOW"),
+                "Permissions-Policy": ("Feature policy", "LOW"),
             }
 
-            for header, description in security_checks.items():
+            for header, (description, severity) in security_checks.items():
                 if header not in response.headers:
                     vulnerabilities.append({
-                        "severity": "MEDIUM",
+                        "severity": severity,
                         "type": "Missing Security Header",
                         "description": f"Header '{header}' absent ({description})",
                         "remediation": f"Ajouter le header {header}"
@@ -2653,32 +2707,129 @@ def logic_vuln_scan(target: str):
                 else:
                     security_headers.append(header)
 
-            # Test 2: Vérifier la version du serveur (si exposée)
+            # Test 2: Vérifier la version du serveur et CVE associés
             server_header = response.headers.get('Server', '')
-            if server_header:
-                vulnerabilities.append({
-                    "severity": "LOW",
-                    "type": "Information Disclosure",
-                    "description": f"Version du serveur exposée: {server_header}",
-                    "remediation": "Masquer ou généraliser le header Server"
-                })
+            x_powered_by = response.headers.get('X-Powered-By', '')
+
+            for version_info in [server_header, x_powered_by]:
+                if version_info:
+                    vulnerabilities.append({
+                        "severity": "LOW",
+                        "type": "Information Disclosure",
+                        "description": f"Version exposée: {version_info}",
+                        "remediation": "Masquer ou généraliser ce header"
+                    })
+
+                    # Recherche CVE
+                    for pattern, cves in CVE_DATABASE.items():
+                        if pattern in version_info:
+                            for cve in cves:
+                                cve_findings.append({
+                                    "cve_id": cve["cve"],
+                                    "severity": cve["severity"],
+                                    "affected_component": version_info,
+                                    "description": cve["desc"],
+                                    "remediation": "Mettre à jour vers la dernière version stable"
+                                })
 
             # Test 3: Vérifier HTTP methods dangereux
             try:
                 options_response = requests.options(test_url, timeout=5, verify=False)
                 allowed_methods = options_response.headers.get('Allow', '').split(',')
-                dangerous_methods = ['TRACE', 'DELETE', 'PUT']
+                dangerous_methods = ['TRACE', 'DELETE', 'PUT', 'CONNECT']
 
                 for method in dangerous_methods:
-                    if method in allowed_methods:
+                    if method.strip() in [m.strip() for m in allowed_methods]:
                         vulnerabilities.append({
-                            "severity": "MEDIUM",
+                            "severity": "MEDIUM" if method in ['TRACE', 'CONNECT'] else "HIGH",
                             "type": "Dangerous HTTP Method",
                             "description": f"Méthode HTTP {method} activée",
                             "remediation": f"Désactiver la méthode {method}"
                         })
             except:
                 pass
+
+            # Test 4: Vérifier les fichiers sensibles exposés
+            logger.info("[VULN SCAN] Vérification des fichiers sensibles...")
+            for path, desc in SENSITIVE_PATHS:
+                try:
+                    check_url = f"https://{domain}{path}"
+                    check_resp = requests.head(check_url, timeout=3, verify=False, allow_redirects=False)
+                    if check_resp.status_code == 200:
+                        severity = "HIGH" if any(s in path for s in ['.env', '.git', 'config', 'backup', '.htpasswd']) else "MEDIUM"
+                        vulnerabilities.append({
+                            "severity": severity,
+                            "type": "Sensitive File Exposed",
+                            "description": f"Fichier sensible accessible: {path} ({desc})",
+                            "remediation": f"Bloquer l'accès à {path} via la configuration serveur"
+                        })
+                except:
+                    pass
+
+            # Test 5: Vérification SSL/TLS
+            try:
+                context = ssl.create_default_context()
+                with socket.create_connection((domain, 443), timeout=5) as sock:
+                    with context.wrap_socket(sock, server_hostname=domain) as ssock:
+                        cert = ssock.getpeercert()
+                        ssl_version = ssock.version()
+
+                        # Vérifier les protocoles obsolètes
+                        if ssl_version in ['TLSv1', 'TLSv1.0', 'TLSv1.1', 'SSLv3', 'SSLv2']:
+                            vulnerabilities.append({
+                                "severity": "HIGH",
+                                "type": "Weak SSL/TLS Protocol",
+                                "description": f"Protocole obsolète: {ssl_version}",
+                                "remediation": "Utiliser TLS 1.2 ou supérieur uniquement"
+                            })
+
+                        # Vérifier l'expiration du certificat
+                        if cert:
+                            import datetime
+                            not_after = datetime.datetime.strptime(cert['notAfter'], '%b %d %H:%M:%S %Y %Z')
+                            days_until_expiry = (not_after - datetime.datetime.utcnow()).days
+                            if days_until_expiry < 0:
+                                vulnerabilities.append({
+                                    "severity": "CRITICAL",
+                                    "type": "Expired SSL Certificate",
+                                    "description": f"Certificat SSL expiré depuis {abs(days_until_expiry)} jours",
+                                    "remediation": "Renouveler le certificat SSL immédiatement"
+                                })
+                            elif days_until_expiry < 30:
+                                vulnerabilities.append({
+                                    "severity": "MEDIUM",
+                                    "type": "SSL Certificate Expiring Soon",
+                                    "description": f"Certificat SSL expire dans {days_until_expiry} jours",
+                                    "remediation": "Planifier le renouvellement du certificat"
+                                })
+            except ssl.SSLError as e:
+                vulnerabilities.append({
+                    "severity": "HIGH",
+                    "type": "SSL/TLS Issue",
+                    "description": f"Erreur SSL: {str(e)}",
+                    "remediation": "Vérifier la configuration SSL/TLS"
+                })
+            except Exception as e:
+                logger.debug(f"[VULN SCAN] SSL check skipped: {e}")
+
+            # Test 6: Détection de frameworks/CMS
+            body = response.text[:50000]  # Limiter la taille
+            framework_patterns = {
+                r'wp-content|wp-includes': ("WordPress", "CMS"),
+                r'Drupal|drupal\.js': ("Drupal", "CMS"),
+                r'Joomla|joomla': ("Joomla", "CMS"),
+                r'laravel|Laravel': ("Laravel", "Framework"),
+                r'django|Django': ("Django", "Framework"),
+                r'express|Express': ("Express.js", "Framework"),
+                r'react|React': ("React", "Frontend"),
+                r'angular|Angular': ("Angular", "Frontend"),
+                r'vue\.js|Vue': ("Vue.js", "Frontend"),
+            }
+
+            detected_frameworks = []
+            for pattern, (name, category) in framework_patterns.items():
+                if re.search(pattern, body, re.I):
+                    detected_frameworks.append({"name": name, "category": category})
 
         except requests.exceptions.SSLError:
             vulnerabilities.append({
@@ -2687,21 +2838,41 @@ def logic_vuln_scan(target: str):
                 "description": "Certificat SSL invalide ou non fiable",
                 "remediation": "Installer un certificat SSL valide"
             })
+            detected_frameworks = []
 
         except requests.exceptions.ConnectionError:
             return {"error": f"Impossible de se connecter à {target}"}
 
-        logger.info(f"[VULN SCAN] {len(vulnerabilities)} vulnérabilités détectées")
+        # Calculer le score de risque
+        severity_scores = {"CRITICAL": 4, "HIGH": 3, "MEDIUM": 2, "LOW": 1}
+        total_score = sum(severity_scores.get(v.get("severity", "LOW"), 1) for v in vulnerabilities)
+        total_score += sum(severity_scores.get(c.get("severity", "MEDIUM"), 2) for c in cve_findings)
+
+        if total_score >= 15:
+            risk_level = "CRITICAL"
+        elif total_score >= 10:
+            risk_level = "HIGH"
+        elif total_score >= 5:
+            risk_level = "MEDIUM"
+        else:
+            risk_level = "LOW"
+
+        logger.info(f"[VULN SCAN] {len(vulnerabilities)} vulnérabilités, {len(cve_findings)} CVE, Risk: {risk_level}")
 
         return {
             "raw": {
                 "target": target,
-                "scan_type": "Basic Vulnerability Scan",
+                "scan_type": "Enhanced Vulnerability Scan with CVE Detection",
+                "risk_level": risk_level,
+                "risk_score": total_score,
                 "vulnerabilities_found": len(vulnerabilities),
+                "cve_found": len(cve_findings),
                 "vulnerabilities": vulnerabilities,
+                "cve_findings": cve_findings,
                 "security_headers_present": security_headers,
+                "detected_frameworks": detected_frameworks if 'detected_frameworks' in dir() else [],
                 "warning": "Ce scan peut avoir déclenché des alertes de sécurité",
-                "disclaimer": "Scan basique uniquement. Pour un audit complet, utiliser des outils professionnels (Nuclei, Nessus, etc.)"
+                "disclaimer": "Scan semi-automatisé. Pour un audit complet, utiliser des outils professionnels (Nuclei, Nessus, etc.)"
             }
         }
 
