@@ -1,8 +1,10 @@
 @echo off
 title ANANTA OSINT - Launcher
 
-set "WEBUI_DIR=.\text-generation-webui"
-set "FASTAPI_DIR=."
+REM Utiliser des chemins relatifs (basé sur l'emplacement du script)
+set "FASTAPI_DIR=%~dp0"
+set "FASTAPI_DIR=%FASTAPI_DIR:~0,-1%"
+set "WEBUI_DIR=%FASTAPI_DIR%\text-generation-webui"
 set "LLM_MODEL=mistralai_Mistral-7B-Instruct-v0.2"
 
 echo ========================================

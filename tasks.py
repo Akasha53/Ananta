@@ -46,7 +46,7 @@ app.conf.update(CELERY_CONFIG)
 import json
 from datetime import datetime, timedelta, timezone
 from database import SessionLocal, EntityReport, ScanJob
-from backend_logic import logic_run_report, logic_port_scan, logic_vuln_scan
+from backend_logic import logic_run_report, logic_port_scan, logic_vuln_scan, generate_layer3_report
 
 logger.info("[TASKS.PY] Module imports successful")
 
@@ -318,7 +318,8 @@ def scan_osint_layer2_task(self, query: str):
 def scan_osint_layer3_task(self, query: str, approved_tools: list):
     """
     Tâche pour scans Layer 3 (critiques, nécessitent approbation).
-    Exécute uniquement les outils approuvés par l'utilisateur (port_scan, vuln_scan).
+    IMPORTANT: Exécute d'abord les scans Layer 1+2 pour collecter les données de base,
+    puis les outils Layer 3 approuvés par l'utilisateur (port_scan, vuln_scan).
 
     Route: Queue 'osint_critical'
     Timeout: 600s (10 min)
@@ -329,9 +330,9 @@ def scan_osint_layer3_task(self, query: str, approved_tools: list):
         approved_tools: Liste des outils Layer 3 approuvés par l'utilisateur
 
     Returns:
-        dict: Résultat du scan Layer 3
+        dict: Résultat complet du scan (Layer 1+2+3)
     """
-    logger.warning(f"[LAYER 3 CRITICAL] Scan critique pour: {query} | Outils: {approved_tools}")
+    logger.warning(f"[LAYER 3 CRITICAL] Scan critique COMPLET pour: {query} | Outils L3: {approved_tools}")
 
     db = SessionLocal()
 
@@ -350,31 +351,135 @@ def scan_osint_layer3_task(self, query: str, approved_tools: list):
         job = db.query(ScanJob).filter_by(job_id=self.request.id).first()
         if job:
             job.status = "PROCESSING"
-            job.progress = 10
+            job.progress = 5
             db.commit()
 
-        results = {}
+        # ============================================================
+        # PHASE 1: Scans Layer 1+2 (données de base - WHOIS, DNS, headers, Censys, etc.)
+        # ============================================================
+        logger.info(f"[LAYER 3] Phase 1: Exécution des scans Layer 1+2 pour contexte de base...")
+        update_progress(10, "Collecting base data (Layer 1+2)...")
+
+        # Callback pour progression des scans de base (10-40%)
+        def base_progress_callback(pct: int, status: str = ""):
+            # Mapper 0-100% vers 10-40%
+            mapped_progress = 10 + int(pct * 0.3)
+            update_progress(mapped_progress, status or f"Layer 1+2: {pct}%")
+
+        # Exécuter les scans Layer 1+2 (WHOIS, DNS, headers, Censys, crt.sh, etc.)
+        base_scan_result = logic_run_report(
+            query, db,
+            report_type="osint",
+            progress_callback=base_progress_callback,
+            layer_filter=[1, 2]  # Layer 1 (passif) + Layer 2 (conditionnel)
+        )
+
+        # Extraire les données collectées des scans de base
+        base_sources = base_scan_result.get("sources", [])
+        base_raw_data = {}
+
+        # Reconstruire les raw_data depuis les sources
+        for source in base_sources:
+            tool_name = source.get("tool", "unknown")
+            if "raw" in source:
+                base_raw_data[tool_name] = source["raw"]
+            elif "data" in source:
+                base_raw_data[tool_name] = source["data"]
+
+        logger.info(f"[LAYER 3] Phase 1 complète: {len(base_sources)} outils exécutés (Layer 1+2)")
+
+        # ============================================================
+        # PHASE 2: Scans Layer 3 (critiques, avec approbation)
+        # ============================================================
+        logger.info(f"[LAYER 3] Phase 2: Exécution des outils Layer 3 approuvés: {approved_tools}")
+        update_progress(45, "Running critical scans (Layer 3)...")
+
+        layer3_results = {}
 
         # Exécuter les outils approuvés
         if "port_scan" in approved_tools:
             logger.info(f"[LAYER 3] Exécution port_scan sur {query}")
-            update_progress(30, "Port scanning...")
-            results["port_scan"] = logic_port_scan(query)
+            update_progress(55, "Port scanning...")
+            layer3_results["port_scan"] = logic_port_scan(query)
 
         if "vuln_scan" in approved_tools:
             logger.info(f"[LAYER 3] Exécution vuln_scan sur {query}")
-            update_progress(60, "Vulnerability scanning...")
-            results["vuln_scan"] = logic_vuln_scan(query)
+            update_progress(70, "Vulnerability scanning...")
+            layer3_results["vuln_scan"] = logic_vuln_scan(query)
 
-        update_progress(90, "Finalizing...")
+        logger.info(f"[LAYER 3] Phase 2 complète: {len(layer3_results)} outils Layer 3 exécutés")
+
+        # ============================================================
+        # PHASE 3: Génération du rapport combiné
+        # ============================================================
+        update_progress(85, "Generating comprehensive report...")
+
+        # Générer le rapport LLM avec TOUTES les données (Layer 1+2+3)
+        report = generate_layer3_report(query, layer3_results, base_context=base_scan_result.get("report", ""))
+
+        update_progress(95, "Finalizing...")
+
+        # Combiner les sources de tous les layers
+        all_sources = base_sources.copy()
+        for tool_name, tool_result in layer3_results.items():
+            all_sources.append({
+                "tool": tool_name,
+                "layer": 3,
+                "status": "ok" if tool_result and not tool_result.get("error") else "error",
+                "data": tool_result
+            })
 
         result = {
             "target": query,
-            "layer": 3,
+            "layer": "1+2+3",  # Indique que c'est un scan complet
             "tools_executed": approved_tools,
-            "results": results,
-            "warning": "Ces scans peuvent avoir déclenché des alertes de sécurité"
+            "sources": all_sources,  # Toutes les sources pour l'UI
+            "results": layer3_results,  # Données Layer 3 spécifiques
+            "report": report,  # Rapport LLM complet
+            "warning": "Ce scan complet inclut des analyses critiques qui peuvent avoir déclenché des alertes de sécurité"
         }
+
+        # Save to EntityReport for PDF export compatibility
+        try:
+            import re
+            ipv4_pattern = r'^(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$'
+            target_type = "ip" if re.match(ipv4_pattern, query) else "domain"
+            normalized_target = query.lower().strip()
+
+            # Préparer raw_data avec TOUTES les données (Layer 1+2+3)
+            raw_data_storage = {
+                "layer3_scan": True,
+                "complete_scan": True,  # Indique que c'est un scan complet
+                "tools_executed": approved_tools,
+                # Données Layer 1+2
+                **base_raw_data,
+                # Données Layer 3
+                "port_scan": layer3_results.get("port_scan", {}),
+                "vuln_scan": layer3_results.get("vuln_scan", {}),
+                "scan_timestamp": datetime.now(timezone.utc).isoformat()
+            }
+
+            existing_entry = db.query(EntityReport).filter_by(target=normalized_target).first()
+
+            if existing_entry:
+                existing_entry.final_report = report
+                existing_entry.raw_data = json.dumps(raw_data_storage)
+                existing_entry.updated_at = datetime.now(timezone.utc)
+                logger.info(f"[LAYER 3] Updated EntityReport (complete scan) for {normalized_target}")
+            else:
+                new_entry = EntityReport(
+                    target=normalized_target,
+                    target_type=target_type,
+                    final_report=report,
+                    raw_data=json.dumps(raw_data_storage)
+                )
+                db.add(new_entry)
+                logger.info(f"[LAYER 3] Created new EntityReport (complete scan) for {normalized_target}")
+
+            db.commit()
+        except Exception as e:
+            logger.error(f"[LAYER 3] Error saving to EntityReport: {e}")
+            db.rollback()
 
         job = db.query(ScanJob).filter_by(job_id=self.request.id).first()
         if job:
@@ -383,7 +488,7 @@ def scan_osint_layer3_task(self, query: str, approved_tools: list):
             job.result = json.dumps(result)
             db.commit()
 
-        logger.warning(f"[LAYER 3] Scan critique complété: {query}")
+        logger.warning(f"[LAYER 3] Scan critique COMPLET terminé: {query} (Layer 1+2+3)")
         return result
 
     except Exception as e:

@@ -1,3 +1,131 @@
+// --- MARKDOWN HELPER ---
+// Safe markdown parsing with fallback
+function parseMarkdown(text) {
+    if (!text) return '';
+
+    // Debug logging
+    console.log('[Markdown] Parsing text, length:', text.length);
+    console.log('[Markdown] marked available:', typeof marked !== 'undefined');
+
+    try {
+        // Try marked.parse() first (newer versions)
+        if (typeof marked !== 'undefined' && typeof marked.parse === 'function') {
+            console.log('[Markdown] Using marked.parse()');
+            const result = marked.parse(text);
+            console.log('[Markdown] Success, result length:', result.length);
+            return result;
+        }
+        // Try marked() directly (older versions)
+        if (typeof marked === 'function') {
+            console.log('[Markdown] Using marked() directly');
+            return marked(text);
+        }
+        console.warn('[Markdown] marked library not available, using fallback');
+    } catch (e) {
+        console.error('[Markdown] Parse error:', e);
+    }
+
+    // Fallback: basic markdown-like rendering
+    console.log('[Markdown] Using fallback renderer');
+    let html = text;
+
+    // Escape HTML first
+    html = html.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
+    // Headers (must be done before other replacements)
+    html = html.replace(/^#{3}\s+(.+)$/gm, '<h3 class="text-lg font-bold text-slate-300 mt-4 mb-2">$1</h3>');
+    html = html.replace(/^#{2}\s+(.+)$/gm, '<h2 class="text-xl font-bold text-cyan-400 mt-4 mb-2">$1</h2>');
+    html = html.replace(/^#{1}\s+(.+)$/gm, '<h1 class="text-2xl font-bold text-cyan-400 mt-4 mb-2">$1</h1>');
+
+    // Bold and italic
+    html = html.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+    html = html.replace(/\*(.+?)\*/g, '<em>$1</em>');
+
+    // Code
+    html = html.replace(/`(.+?)`/g, '<code class="bg-slate-800 px-1 rounded text-pink-400">$1</code>');
+
+    // Lists
+    html = html.replace(/^- (.+)$/gm, '<li class="ml-4 list-disc">$1</li>');
+    html = html.replace(/^\d+\. (.+)$/gm, '<li class="ml-4 list-decimal">$1</li>');
+
+    // Tables - more robust parsing
+    let inTable = false;
+    let isFirstTableRow = false;
+    const lines = html.split('\n');
+    const processedLines = [];
+
+    for (let i = 0; i < lines.length; i++) {
+        const line = lines[i].trim();
+
+        // Check if this is a table line (starts and ends with |)
+        if (line.startsWith('|') && line.endsWith('|')) {
+            // Check if this is a separator line (contains only |, -, :, and spaces)
+            // Examples: |---|---|---| or |:---:|:---:| or | --- | --- |
+            const isSeparator = /^\|[\s\-:|]+\|$/.test(line) && line.includes('-');
+
+            if (isSeparator) {
+                // Skip separator lines entirely
+                continue;
+            }
+
+            // Extract cells (split by | and filter out empty strings)
+            const cells = line.split('|').slice(1, -1); // Remove first and last empty strings
+
+            // Skip if all cells are empty or just dashes
+            const hasContent = cells.some(c => c.trim() && !/^[\s\-:]+$/.test(c.trim()));
+            if (!hasContent) {
+                continue;
+            }
+
+            // Start new table if not in one
+            if (!inTable) {
+                processedLines.push('<table class="w-full border-collapse my-4 text-sm">');
+                inTable = true;
+                isFirstTableRow = true;
+            }
+
+            // Render row
+            if (isFirstTableRow) {
+                // First row is always the header
+                processedLines.push('<thead><tr class="bg-slate-800 text-cyan-400">');
+                cells.forEach(c => {
+                    processedLines.push(`<th class="border border-slate-600 px-3 py-2 text-left font-bold">${c.trim()}</th>`);
+                });
+                processedLines.push('</tr></thead><tbody>');
+                isFirstTableRow = false;
+            } else {
+                // Data rows
+                processedLines.push('<tr class="hover:bg-slate-800/50">');
+                cells.forEach(c => {
+                    processedLines.push(`<td class="border border-slate-700 px-3 py-2">${c.trim()}</td>`);
+                });
+                processedLines.push('</tr>');
+            }
+        } else {
+            // Not a table line - close table if we were in one
+            if (inTable) {
+                processedLines.push('</tbody></table>');
+                inTable = false;
+                isFirstTableRow = false;
+            }
+            processedLines.push(line);
+        }
+    }
+
+    // Close table if still open at end
+    if (inTable) {
+        processedLines.push('</tbody></table>');
+    }
+
+    html = processedLines.join('\n');
+
+    // Paragraphs
+    html = html.replace(/\n\n/g, '</p><p class="mb-3">');
+    html = html.replace(/\n/g, '<br>');
+
+    return '<p class="mb-3">' + html + '</p>';
+}
+
 // --- CONFIGURATION ---
 const DEFAULT_SETTINGS = {
     apiUrl: '',
@@ -9,6 +137,7 @@ const DEFAULT_SETTINGS = {
     compactMode: false,
     fontSize: 'medium',
     accentColor: 'cyan',
+    darkMode: true,  // Dark mode by default (Ananta's signature look)
     maxReports: 100,
     autoDeleteDays: 30,
     notifications: false,
@@ -471,6 +600,141 @@ function renderOsintResults(results) {
   `;
 }
 
+// Render Layer 3 (Critical) scan results
+function renderLayer3Results(result) {
+    const { target, tools_executed, results, warning } = result;
+    let html = '';
+
+    // Warning banner
+    if (warning) {
+        html += `<div class="mb-4 p-3 bg-amber-500/10 border border-amber-500/30 rounded-lg">
+            <p class="text-amber-400 text-xs"><i class="fas fa-exclamation-triangle mr-2"></i>${escapeHtml(warning)}</p>
+        </div>`;
+    }
+
+    // Port scan results
+    if (results.port_scan && results.port_scan.raw) {
+        const ps = results.port_scan.raw;
+        html += `<div class="mb-4 p-4 bg-slate-900/60 border border-slate-700 rounded-xl">
+            <div class="flex items-center gap-2 mb-3">
+                <i class="fas fa-network-wired text-cyan-400"></i>
+                <span class="text-cyan-400 font-bold text-sm uppercase">Port Scan</span>
+                <span class="ml-auto text-xs text-slate-500">${ps.scan_type || 'TCP'}</span>
+            </div>
+            <div class="grid grid-cols-2 gap-2 text-xs mb-3">
+                <div class="bg-slate-800/50 p-2 rounded">
+                    <span class="text-slate-500">Ports scannés:</span>
+                    <span class="text-slate-200 ml-2">${ps.ports_scanned || 0}</span>
+                </div>
+                <div class="bg-slate-800/50 p-2 rounded">
+                    <span class="text-slate-500">Ports ouverts:</span>
+                    <span class="text-emerald-400 ml-2 font-bold">${ps.ports_open || 0}</span>
+                </div>
+            </div>`;
+
+        if (ps.open_ports && ps.open_ports.length > 0) {
+            html += `<div class="space-y-1">
+                <p class="text-xs text-slate-400 mb-2">Ports ouverts détectés:</p>
+                <div class="grid grid-cols-2 md:grid-cols-3 gap-2">`;
+            ps.open_ports.forEach(port => {
+                html += `<div class="bg-emerald-500/10 border border-emerald-500/20 p-2 rounded text-xs">
+                    <span class="text-emerald-400 font-mono font-bold">${port.port}</span>
+                    <span class="text-slate-400 mx-1">/</span>
+                    <span class="text-slate-300">${escapeHtml(port.service || 'unknown')}</span>
+                </div>`;
+            });
+            html += `</div></div>`;
+        }
+        html += `</div>`;
+    }
+
+    // Vulnerability scan results
+    if (results.vuln_scan && results.vuln_scan.raw) {
+        const vs = results.vuln_scan.raw;
+        const riskColors = {
+            'CRITICAL': 'rose',
+            'HIGH': 'red',
+            'MEDIUM': 'amber',
+            'LOW': 'emerald'
+        };
+        const riskColor = riskColors[vs.risk_level] || 'slate';
+
+        html += `<div class="mb-4 p-4 bg-slate-900/60 border border-slate-700 rounded-xl">
+            <div class="flex items-center gap-2 mb-3">
+                <i class="fas fa-shield-alt text-${riskColor}-400"></i>
+                <span class="text-${riskColor}-400 font-bold text-sm uppercase">Vulnerability Scan</span>
+                <span class="ml-auto px-2 py-0.5 bg-${riskColor}-500/20 text-${riskColor}-400 rounded text-xs font-bold">
+                    ${vs.risk_level || 'UNKNOWN'} (Score: ${vs.risk_score || 0}/10)
+                </span>
+            </div>
+            <div class="grid grid-cols-2 gap-2 text-xs mb-3">
+                <div class="bg-slate-800/50 p-2 rounded">
+                    <span class="text-slate-500">Vulnérabilités:</span>
+                    <span class="text-amber-400 ml-2 font-bold">${vs.vulnerabilities_found || 0}</span>
+                </div>
+                <div class="bg-slate-800/50 p-2 rounded">
+                    <span class="text-slate-500">CVE détectées:</span>
+                    <span class="text-rose-400 ml-2 font-bold">${vs.cve_found || 0}</span>
+                </div>
+            </div>`;
+
+        // Security headers present
+        if (vs.security_headers_present && vs.security_headers_present.length > 0) {
+            html += `<div class="mb-3">
+                <p class="text-xs text-emerald-400 mb-2"><i class="fas fa-check-circle mr-1"></i>Headers de sécurité présents:</p>
+                <div class="flex flex-wrap gap-1">`;
+            vs.security_headers_present.forEach(h => {
+                html += `<span class="px-2 py-0.5 bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 rounded text-[10px]">${escapeHtml(h)}</span>`;
+            });
+            html += `</div></div>`;
+        }
+
+        // Vulnerabilities found
+        if (vs.vulnerabilities && vs.vulnerabilities.length > 0) {
+            html += `<div class="space-y-2">
+                <p class="text-xs text-amber-400 mb-2"><i class="fas fa-exclamation-circle mr-1"></i>Problèmes détectés:</p>`;
+            vs.vulnerabilities.forEach(v => {
+                const sevColor = v.severity === 'HIGH' || v.severity === 'CRITICAL' ? 'rose' :
+                                v.severity === 'MEDIUM' ? 'amber' : 'slate';
+                html += `<div class="bg-${sevColor}-500/5 border border-${sevColor}-500/20 p-2 rounded">
+                    <div class="flex items-center gap-2 mb-1">
+                        <span class="px-1.5 py-0.5 bg-${sevColor}-500/20 text-${sevColor}-400 rounded text-[9px] font-bold">${v.severity}</span>
+                        <span class="text-slate-300 text-xs">${escapeHtml(v.type)}</span>
+                    </div>
+                    <p class="text-slate-400 text-xs">${escapeHtml(v.description)}</p>
+                    ${v.remediation ? `<p class="text-slate-500 text-[10px] mt-1"><i class="fas fa-wrench mr-1"></i>${escapeHtml(v.remediation)}</p>` : ''}
+                </div>`;
+            });
+            html += `</div>`;
+        }
+
+        // CVE findings
+        if (vs.cve_findings && vs.cve_findings.length > 0) {
+            html += `<div class="mt-3 space-y-2">
+                <p class="text-xs text-rose-400 mb-2"><i class="fas fa-bug mr-1"></i>CVE détectées:</p>`;
+            vs.cve_findings.forEach(cve => {
+                html += `<div class="bg-rose-500/10 border border-rose-500/20 p-2 rounded">
+                    <span class="text-rose-400 font-mono text-xs font-bold">${escapeHtml(cve.cve_id)}</span>
+                    <span class="text-slate-400 text-xs ml-2">${escapeHtml(cve.description || '')}</span>
+                </div>`;
+            });
+            html += `</div>`;
+        }
+
+        html += `</div>`;
+    }
+
+    // Tools executed summary
+    html += `<div class="mt-4 pt-3 border-t border-slate-800">
+        <p class="text-xs text-slate-500">
+            <i class="fas fa-tools mr-1"></i>Outils exécutés:
+            <span class="text-slate-400">${tools_executed ? tools_executed.join(', ') : 'N/A'}</span>
+        </p>
+    </div>`;
+
+    return html;
+}
+
 function updateIntelFeed(results) {
     const feed = document.getElementById("intel-feed");
     if (!feed || !results || results.length === 0) return;
@@ -717,8 +981,9 @@ async function handleExecution() {
             let aiContent = "";
 
             if (data.answer) {
-                const safeAnswer = escapeHtml(data.answer).replace(/\n/g, '<br>');
-                aiContent += `<div class="mb-4">${safeAnswer}</div>`;
+                // Parse markdown to HTML for proper rendering
+                const renderedAnswer = parseMarkdown(data.answer);
+                aiContent += `<div class="mb-4 prose prose-invert prose-sm max-w-none">${renderedAnswer}</div>`;
             }
 
             if (data.results && data.results.length > 0) {
@@ -790,17 +1055,42 @@ async function pollAndDisplayResults(jobId) {
                 const result = jobStatus.result;
                 let aiContent = "";
 
-                if (result.report) {
-                    // Parse markdown to HTML for proper rendering
-                    const renderedReport = typeof marked !== 'undefined'
-                        ? marked.parse(result.report)
-                        : escapeHtml(result.report).replace(/\n/g, '<br>');
-                    aiContent += `<div class="mb-4 prose prose-invert prose-sm max-w-none">${renderedReport}</div>`;
-                }
+                // Check if this is a Layer 3 (critical) scan result
+                if (result.layer === 3 && result.results) {
+                    aiContent += `<div class="mb-4">
+                        <div class="flex items-center gap-2 mb-3">
+                            <span class="px-2 py-1 bg-rose-500/20 text-rose-400 border border-rose-500/30 rounded text-xs font-bold">
+                                <i class="fas fa-radiation mr-1"></i>LAYER 3 CRITICAL SCAN
+                            </span>
+                            <span class="text-slate-400 text-xs">${escapeHtml(result.target)}</span>
+                        </div>
+                    </div>`;
 
-                if (result.sources && result.sources.length > 0) {
-                    aiContent += renderOsintResults(result.sources);
-                    updateIntelFeed(result.sources);
+                    // Show LLM report if available
+                    if (result.report) {
+                        const renderedReport = parseMarkdown(result.report);
+                        aiContent += `<div class="mb-4 prose prose-invert prose-sm max-w-none">${renderedReport}</div>`;
+                    }
+
+                    // Also show structured results
+                    aiContent += `<details class="mt-4">
+                        <summary class="cursor-pointer text-sm text-slate-400 hover:text-cyan-400">
+                            <i class="fas fa-code mr-2"></i>Données brutes du scan
+                        </summary>
+                        <div class="mt-2">${renderLayer3Results(result)}</div>
+                    </details>`;
+                } else {
+                    // Standard scan result format
+                    if (result.report) {
+                        // Parse markdown to HTML for proper rendering
+                        const renderedReport = parseMarkdown(result.report);
+                        aiContent += `<div class="mb-4 prose prose-invert prose-sm max-w-none">${renderedReport}</div>`;
+                    }
+
+                    if (result.sources && result.sources.length > 0) {
+                        aiContent += renderOsintResults(result.sources);
+                        updateIntelFeed(result.sources);
+                    }
                 }
 
                 addChatMessage({ author: "ANANTA AI", content: aiContent || "<i>Scan complété</i>" });
@@ -967,6 +1257,10 @@ function populateSettingsForm() {
     // Compact Mode
     const compactCheckbox = document.getElementById("setting-compact-mode");
     if (compactCheckbox) compactCheckbox.checked = appSettings.compactMode;
+
+    // Dark Mode
+    const darkModeCheckbox = document.getElementById("setting-dark-mode");
+    if (darkModeCheckbox) darkModeCheckbox.checked = appSettings.darkMode !== false;
 
     // Font Size
     const fontSizeSelect = document.getElementById("setting-font-size");
@@ -1208,6 +1502,10 @@ function saveSettings() {
     // Language
     const language = document.querySelector('input[name="language"]:checked')?.value || 'fr';
 
+    // Dark Mode
+    const darkModeCheckbox = document.getElementById("setting-dark-mode");
+    const darkMode = darkModeCheckbox?.checked !== false;  // Default to true
+
     appSettings = {
         apiUrl: apiUrlInput?.value || '',
         llmTemperature: tempSlider ? tempSlider.value / 100 : 0.7,
@@ -1218,6 +1516,7 @@ function saveSettings() {
         compactMode: compactCheckbox?.checked || false,
         fontSize: fontSizeSelect?.value || 'medium',
         accentColor,
+        darkMode,
         language,
         maxReports: parseInt(maxReportsInput?.value) || 100,
         autoDeleteDays: parseInt(autoDeleteInput?.value) || 30,
@@ -1278,6 +1577,12 @@ function resetSettings() {
 function applySettings() {
     // Apply accent color
     document.documentElement.setAttribute('data-accent', appSettings.accentColor);
+
+    // Apply dark/light mode
+    const darkMode = appSettings.darkMode !== false;  // Default to dark
+    document.documentElement.setAttribute('data-theme', darkMode ? 'dark' : 'light');
+    document.body.classList.toggle('dark-mode', darkMode);
+    document.body.classList.toggle('light-mode', !darkMode);
 
     // Apply font size
     document.body.classList.remove('font-small', 'font-medium', 'font-large');

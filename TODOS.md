@@ -19,10 +19,22 @@
 - [x] **Health check amélioré** - Vérifie Redis, LLM, et database avec latences détaillées
 - [x] **Gestion des erreurs critiques** - `ServiceStatus` tracker avec dégradation gracieuse
 - [x] **Logging structuré** - Request ID unique (`X-Request-ID`) + durée (`X-Response-Time`)
+- [ ] **Changer les chemins de variables** - Mettre les variables WEBUI_DIR et FASTAPI_DIR en chemin relatif
+- [ ] **Ananta ne reps plus au msg simples comme salut**
+- [ ] **Resumer manquant** - Lorsque l'utilisateur met le mode scan critique aucun autre scan est effectuer a part ceux de layer 3.
+- [ ] **Rapport trop court** - les rapports generer reste malgré tout trop court peut etre par manque de matiere ( pas assez d'outils utilisé pendant des scan), ou la variete des outils laisse a desirer.
 
 ---
 
 ## Priorité HAUTE (Important)
+
+### Qualité des Rapports OSINT (Janvier 2026)
+- [ ] **Détection CDN/Infra générique** - Avertir quand cible = Cloudflare/AWS/Google (pas de valeur stratégique)
+- [ ] **Recalibrer le scoring vuln_scan** - Headers manquants = LOW, version CDN exposée = INFO
+- [ ] **Retirer vulns obsolètes** - X-XSS-Protection (déprécié), contextualiser "version exposée"
+- [ ] **Rapports interprétatifs** - Ajouter impact business, probabilité d'exploitation, priorité
+- [ ] **Améliorer prompt LLM** - Passer de "descriptif" à "aide à la décision"
+- [ ] **Scénarios d'attaque** - Décrire comment un attaquant pourrait exploiter les findings
 
 ### API & Backend
 - [x] **Pydantic models complets** - `models.py` avec validateurs pour toutes les entrées
@@ -49,11 +61,11 @@
 ## Priorité MOYENNE (Améliorations)
 
 ### Frontend / UX
-- [ ] **Mode hors-ligne complet** - PWA avec cache des derniers scans
+- [x] **Mode hors-ligne complet** - PWA avec service worker, cache et page offline
 - [ ] **Notifications WebSocket** - Temps réel au lieu du polling pour les jobs
-- [ ] **Dark/Light mode toggle** - Option de thème clair
+- [x] **Dark/Light mode toggle** - Toggle dans Settings + CSS light theme
 - [x] **Keyboard shortcuts** - Navigation rapide (Ctrl+Enter, Ctrl+K, Ctrl+E, ?, etc.)
-- [ ] **Responsive mobile** - Améliorer l'affichage sur petits écrans
+- [x] **Responsive mobile** - CSS mobile.css complet + bottom nav + touch optimizations
 - [ ] **Accessibilité (a11y)** - ARIA labels, contraste, navigation clavier
 
 ### Multi-langue

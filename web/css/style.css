@@ -854,3 +854,456 @@ body.compact-mode #chat-inner {
   border-color: #ef4444;
   background: rgba(239, 68, 68, 0.1);
 }
+
+/* ============================================
+   LIGHT MODE THEME
+   ============================================ */
+
+[data-theme="light"] {
+  --bg-color: #f1f5f9;
+  --text-color: #1e293b;
+  --text-muted: #64748b;
+  --border-color: #cbd5e1;
+  --panel-bg: rgba(255, 255, 255, 0.9);
+  --panel-border: rgba(203, 213, 225, 0.8);
+  --input-bg: #ffffff;
+  --input-border: #e2e8f0;
+  --hover-bg: rgba(241, 245, 249, 0.8);
+}
+
+[data-theme="light"] body {
+  background-color: var(--bg-color);
+  background-image:
+    radial-gradient(circle at 50% 0%, rgba(226, 232, 240, 0.8) 0%, transparent 50%),
+    linear-gradient(rgba(203, 213, 225, 0.3) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(203, 213, 225, 0.3) 1px, transparent 1px);
+  color: var(--text-color);
+}
+
+[data-theme="light"] .glass-panel {
+  background: var(--panel-bg);
+  border-color: var(--panel-border);
+}
+
+[data-theme="light"] .terminal-input {
+  background: var(--input-bg);
+  border-color: var(--input-border);
+  color: var(--text-color);
+}
+
+[data-theme="light"] .terminal-input::placeholder {
+  color: var(--text-muted);
+}
+
+[data-theme="light"] .bg-slate-900,
+[data-theme="light"] .bg-slate-800 {
+  background-color: var(--panel-bg) !important;
+}
+
+[data-theme="light"] .text-slate-400,
+[data-theme="light"] .text-slate-300 {
+  color: var(--text-muted) !important;
+}
+
+[data-theme="light"] .text-white,
+[data-theme="light"] .text-slate-100 {
+  color: var(--text-color) !important;
+}
+
+[data-theme="light"] .border-slate-700,
+[data-theme="light"] .border-slate-600 {
+  border-color: var(--border-color) !important;
+}
+
+[data-theme="light"] #chat-container {
+  background: rgba(255, 255, 255, 0.6);
+}
+
+[data-theme="light"] .chat-bubble {
+  background: rgba(241, 245, 249, 0.8);
+  border-color: var(--border-color);
+}
+
+[data-theme="light"] .settings-modal {
+  background: var(--panel-bg);
+}
+
+[data-theme="light"] .settings-section {
+  background: rgba(248, 250, 252, 0.8);
+  border-color: var(--border-color);
+}
+
+[data-theme="light"] .settings-input,
+[data-theme="light"] .settings-select {
+  background: var(--input-bg);
+  border-color: var(--input-border);
+  color: var(--text-color);
+}
+
+[data-theme="light"] ::-webkit-scrollbar-track {
+  background: #f1f5f9;
+}
+
+[data-theme="light"] ::-webkit-scrollbar-thumb {
+  background: #94a3b8;
+}
+
+[data-theme="light"] .prose {
+  color: var(--text-color);
+}
+
+[data-theme="light"] .prose h1,
+[data-theme="light"] .prose h2,
+[data-theme="light"] .prose h3,
+[data-theme="light"] .prose h4,
+[data-theme="light"] .prose h5,
+[data-theme="light"] .prose h6 {
+  color: #0f172a;
+}
+
+[data-theme="light"] .prose code {
+  background: #e2e8f0;
+  color: #0f172a;
+}
+
+[data-theme="light"] .prose pre {
+  background: #1e293b;
+  color: #e2e8f0;
+}
+
+[data-theme="light"] .prose blockquote {
+  border-left-color: var(--accent-color);
+  background: rgba(226, 232, 240, 0.5);
+}
+
+[data-theme="light"] .prose table th {
+  background: rgba(226, 232, 240, 0.8);
+  color: #0f172a;
+}
+
+[data-theme="light"] .prose table td {
+  border-color: var(--border-color);
+}
+
+/* ============================================
+   RESPONSIVE MOBILE STYLES
+   ============================================ */
+
+/* Tablet and below */
+@media (max-width: 1024px) {
+  /* Reduce sidebar width */
+  .sidebar-panel {
+    width: 200px !important;
+    min-width: 200px !important;
+  }
+
+  /* Adjust grid layouts */
+  .grid-cols-2 {
+    grid-template-columns: 1fr !important;
+  }
+
+  /* Settings modal */
+  .settings-panel {
+    width: 95%;
+    max-width: none;
+  }
+}
+
+/* Mobile devices */
+@media (max-width: 768px) {
+  /* Hide sidebars by default */
+  .sidebar-left,
+  .sidebar-right,
+  #left-panel,
+  #right-panel {
+    display: none !important;
+    position: fixed;
+    top: 0;
+    bottom: 0;
+    z-index: 100;
+    width: 280px !important;
+    max-width: 85vw;
+    transition: transform 0.3s ease;
+  }
+
+  .sidebar-left.mobile-open,
+  #left-panel.mobile-open {
+    display: flex !important;
+    left: 0;
+    transform: translateX(0);
+  }
+
+  .sidebar-right.mobile-open,
+  #right-panel.mobile-open {
+    display: flex !important;
+    right: 0;
+    transform: translateX(0);
+  }
+
+  /* Main content full width */
+  .main-content,
+  #chat-container {
+    width: 100% !important;
+    max-width: 100% !important;
+    margin: 0 !important;
+    padding: 0.5rem !important;
+  }
+
+  /* Mobile header with menu buttons */
+  .mobile-header {
+    display: flex !important;
+    position: sticky;
+    top: 0;
+    z-index: 50;
+    padding: 0.75rem 1rem;
+    background: rgba(15, 23, 42, 0.95);
+    backdrop-filter: blur(12px);
+    border-bottom: 1px solid rgba(51, 65, 85, 0.5);
+  }
+
+  .mobile-menu-btn {
+    padding: 0.5rem;
+    background: rgba(51, 65, 85, 0.5);
+    border: 1px solid rgba(51, 65, 85, 0.8);
+    border-radius: 0.5rem;
+    color: #94a3b8;
+    cursor: pointer;
+    min-width: 44px;
+    min-height: 44px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .mobile-menu-btn:active {
+    background: rgba(51, 65, 85, 0.8);
+  }
+
+  /* Overlay when sidebar open */
+  .sidebar-overlay {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.5);
+    z-index: 90;
+  }
+
+  .sidebar-overlay.active {
+    display: block;
+  }
+
+  /* Chat input area */
+  #chat-input-area,
+  .input-container {
+    padding: 0.5rem !important;
+    gap: 0.5rem !important;
+  }
+
+  #query-input {
+    font-size: 16px !important; /* Prevent iOS zoom */
+    padding: 0.75rem !important;
+  }
+
+  #send-btn {
+    min-width: 48px;
+    min-height: 48px;
+    padding: 0.75rem !important;
+  }
+
+  /* Messages */
+  .message-appear {
+    padding: 0.75rem !important;
+    font-size: 0.875rem;
+  }
+
+  .message-appear.user-message {
+    max-width: 90%;
+  }
+
+  /* OSINT cards - stack on mobile */
+  .osint-card {
+    padding: 0.75rem !important;
+  }
+
+  .grid.grid-cols-1.md\:grid-cols-2 {
+    grid-template-columns: 1fr !important;
+  }
+
+  /* Settings modal full screen on mobile */
+  .settings-modal {
+    padding: 0;
+  }
+
+  .settings-panel {
+    width: 100%;
+    height: 100%;
+    max-height: 100vh;
+    border-radius: 0;
+  }
+
+  .settings-content {
+    padding: 0.75rem 1rem;
+  }
+
+  .settings-radio-group {
+    flex-direction: column;
+  }
+
+  .settings-radio {
+    width: 100%;
+    min-width: auto;
+  }
+
+  /* Color picker - larger touch targets */
+  .color-swatch {
+    width: 44px;
+    height: 44px;
+  }
+
+  /* Layer 3 tools grid */
+  .layer3-tools-grid {
+    grid-template-columns: 1fr !important;
+  }
+
+  /* Tables - horizontal scroll */
+  .prose table {
+    display: block;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  /* Favorites tags - wrap better */
+  .favorites-list {
+    gap: 0.375rem;
+  }
+
+  .favorite-tag {
+    padding: 0.5rem 0.75rem;
+    font-size: 0.8rem;
+  }
+
+  /* Intel feed - hide on mobile to save space */
+  #intel-feed {
+    display: none;
+  }
+
+  /* Status indicators */
+  .status-panel {
+    flex-wrap: wrap;
+    gap: 0.5rem;
+  }
+
+  /* Progress bars */
+  #cpu-bar,
+  #gpu-bar,
+  #cache-usage-bar {
+    height: 6px;
+  }
+}
+
+/* Small mobile devices */
+@media (max-width: 480px) {
+  /* Even smaller font sizes */
+  body {
+    font-size: 13px;
+  }
+
+  .settings-section-title {
+    font-size: 0.7rem;
+  }
+
+  .settings-field > label:first-child {
+    font-size: 0.7rem;
+  }
+
+  .settings-btn {
+    padding: 0.5rem 0.75rem;
+    font-size: 0.7rem;
+  }
+
+  /* Prose adjustments */
+  .prose h1 {
+    font-size: 1.25rem !important;
+  }
+
+  .prose h2 {
+    font-size: 1.1rem !important;
+  }
+
+  .prose h3 {
+    font-size: 1rem !important;
+  }
+
+  /* Layer 3 results */
+  .grid-cols-2.md\:grid-cols-3 {
+    grid-template-columns: 1fr 1fr !important;
+  }
+}
+
+/* Touch device optimizations */
+@media (hover: none) and (pointer: coarse) {
+  /* Larger touch targets */
+  button,
+  .settings-btn,
+  .settings-toggle,
+  .settings-radio span,
+  .favorite-tag,
+  a {
+    min-height: 44px;
+    min-width: 44px;
+  }
+
+  /* Disable hover effects that don't work on touch */
+  .osint-card:hover {
+    transform: none;
+  }
+
+  .settings-radio span:hover {
+    background: rgba(51, 65, 85, 0.3);
+  }
+
+  /* Better tap feedback */
+  button:active,
+  .settings-btn:active {
+    opacity: 0.8;
+    transform: scale(0.98);
+  }
+}
+
+/* Landscape mobile */
+@media (max-width: 768px) and (orientation: landscape) {
+  .settings-panel {
+    max-height: 100vh;
+  }
+
+  .settings-content {
+    max-height: calc(100vh - 120px);
+  }
+}
+
+/* Print styles */
+@media print {
+  .sidebar-left,
+  .sidebar-right,
+  #left-panel,
+  #right-panel,
+  .mobile-header,
+  #send-btn,
+  .settings-modal {
+    display: none !important;
+  }
+
+  body {
+    background: white;
+    color: black;
+  }
+
+  .prose {
+    color: black;
+  }
+
+  .glass-panel {
+    background: white;
+    border: 1px solid #ccc;
+  }
+}

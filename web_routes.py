@@ -1,9 +1,9 @@
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, Header, Response
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Header, Response, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse, JSONResponse
 from sqlalchemy.orm import Session
 from sqlalchemy import text, func
 from pydantic import BaseModel, ValidationError
-from typing import Optional, List
+from typing import Optional, List, Dict, Set
 import re
 import logging
 import psutil
@@ -11,6 +11,7 @@ import time
 import uuid
 import hashlib
 import json
+import asyncio
 from datetime import datetime, timezone
 from email.utils import formatdate, parsedate_to_datetime
 logger = logging.getLogger(__name__)
@@ -881,9 +882,25 @@ def agent_ask(body: AskBody, db: Session = Depends(get_db)):
         report = logic.logic_run_report(q, db, report_type="general")
         return {"type": "osint", "results": report.get("sources", []), "answer": report.get("report", "")}
 
-    # 4) PAR DÉFAUT -> CHAT
-    answer = logic.ask_llm(SYSTEM_PROMPT_UNIVERSAL, q)
-    return {"type": "chat", "answer": answer}
+    # 4) PAR DÉFAUT -> CHAT (messages simples comme "salut", "bonjour", etc.)
+    logger.info(f"[CHAT] Message simple détecté: '{q[:50]}...' -> appel LLM")
+    try:
+        answer = logic.ask_llm(SYSTEM_PROMPT_UNIVERSAL, q)
+
+        # Vérifier que la réponse n'est pas vide
+        if not answer or answer.strip() == "":
+            logger.warning(f"[CHAT] LLM a retourné une réponse vide pour: '{q}'")
+            answer = "Je suis Ananta, votre assistant OSINT. Comment puis-je vous aider ?"
+
+        logger.info(f"[CHAT] Réponse LLM ({len(answer)} chars): '{answer[:100]}...'")
+        return {"type": "chat", "answer": answer}
+
+    except Exception as e:
+        logger.exception(f"[CHAT] Erreur lors de l'appel LLM pour '{q}': {e}")
+        return {
+            "type": "chat",
+            "answer": f"Désolé, je rencontre un problème technique. Erreur: {str(e)}"
+        }
 
 
 # ==================== CELERY ASYNC ENDPOINTS ====================

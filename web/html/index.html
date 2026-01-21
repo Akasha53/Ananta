@@ -441,6 +441,14 @@
             <i class="fas fa-palette text-pink-500"></i> Thème
           </h3>
           <div class="settings-field">
+            <label class="settings-toggle">
+              <input type="checkbox" id="setting-dark-mode" checked />
+              <span class="toggle-slider"></span>
+              <span class="toggle-label"><i class="fas fa-moon"></i> Mode sombre</span>
+            </label>
+            <p class="settings-hint">Basculer entre thème sombre et clair</p>
+          </div>
+          <div class="settings-field">
             <label>Couleur d'accent</label>
             <div class="color-picker-grid">
               <button class="color-swatch active" data-color="cyan" style="--swatch-color: #22d3ee;" title="Cyan"></button>
@@ -538,8 +546,8 @@
   </div>
 
   <!-- Markdown parser for reports -->
-  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
-  <script src="../javascript/app.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/marked@9.1.6/marked.min.js"></script>
+  <script src="../javascript/app.js?v=20260121-3"></script>
 
   <!-- PWA Service Worker & Install -->
   <script>

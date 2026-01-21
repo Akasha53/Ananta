@@ -3069,6 +3069,163 @@ Generate a complete OSINT report in Markdown."""
     return report
 
 
+def generate_layer3_report(target: str, results: dict, base_context: str = "") -> str:
+    """
+    Génère un rapport LLM pour les résultats Layer 3 (port_scan, vuln_scan).
+    Si base_context est fourni (rapport Layer 1+2), il sera intégré pour un rapport plus complet.
+
+    Args:
+        target: Cible scannée (IP ou domaine)
+        results: Dictionnaire avec port_scan et/ou vuln_scan
+        base_context: Rapport Layer 1+2 optionnel pour enrichir le contexte
+
+    Returns:
+        Rapport Markdown généré par le LLM
+    """
+    system_prompt = """You are a professional penetration tester writing a COMPREHENSIVE security assessment report.
+
+Generate a CRITICAL SECURITY SCAN REPORT in French Markdown format from the provided scan results.
+
+RULES:
+1. Write in French
+2. Use proper Markdown formatting (##, ###, tables, bullet points)
+3. Be factual - ONLY use data from the scan results
+4. Prioritize findings by severity (CRITICAL > HIGH > MEDIUM > LOW)
+5. For open ports, explain what each service typically does and potential attack vectors
+6. For vulnerabilities, provide context on why they matter and how to fix them
+7. Be CONCISE but THOROUGH
+
+Report structure:
+
+## 🎯 Résumé Exécutif
+(Target, scan type, overall risk assessment, key metrics)
+
+## 🔓 Ports Ouverts & Services
+(Table of open ports with service analysis - if port_scan data exists)
+| Port | Service | Analyse |
+|------|---------|---------|
+
+## ⚠️ Vulnérabilités Détectées
+(List by severity with impact analysis - if vuln_scan data exists)
+
+## 🛡️ Headers de Sécurité
+(Present/missing security headers analysis)
+
+## 📋 Recommandations Prioritaires
+(Actionable fixes ordered by severity)
+
+## ⚖️ Disclaimer Légal
+(Note about scope and authorization)"""
+
+    # Prepare structured data for LLM
+    scan_data = {
+        "target": target,
+        "scan_timestamp": datetime.now().isoformat(),
+        "port_scan": None,
+        "vuln_scan": None
+    }
+
+    if "port_scan" in results:
+        ps = results["port_scan"]
+        if isinstance(ps, dict) and "raw" in ps:
+            scan_data["port_scan"] = ps["raw"]
+        else:
+            scan_data["port_scan"] = ps
+
+    if "vuln_scan" in results:
+        vs = results["vuln_scan"]
+        if isinstance(vs, dict) and "raw" in vs:
+            scan_data["vuln_scan"] = vs["raw"]
+        else:
+            scan_data["vuln_scan"] = vs
+
+    # Inclure le contexte de base (Layer 1+2) si disponible
+    base_context_section = ""
+    if base_context and len(base_context) > 100:
+        # Limiter le contexte de base pour éviter de dépasser les tokens
+        truncated_context = base_context[:3000] if len(base_context) > 3000 else base_context
+        base_context_section = f"""
+
+=== CONTEXT FROM LAYER 1+2 SCANS (Infrastructure & Identity) ===
+{truncated_context}
+=== END OF BASE CONTEXT ===
+"""
+
+    user_prompt = f"""Target: {target}
+{base_context_section}
+Layer 3 Critical Scan Results (Port Scan & Vulnerability Scan):
+{json.dumps(scan_data, indent=2, ensure_ascii=False)}
+
+Generate a COMPREHENSIVE security assessment report in French Markdown that COMBINES:
+1. Infrastructure context from Layer 1+2 (if provided above)
+2. Critical findings from Layer 3 scans (port scan, vulnerability scan)
+
+The report should give a complete picture of the target's security posture."""
+
+    logger.info(f"[LAYER 3 REPORT] Génération du rapport pour {target}...")
+
+    try:
+        report = ask_llm(system_prompt, user_prompt, phase="phase2")
+        report = sanitize_llm_report(report)
+        logger.info(f"[LAYER 3 REPORT] ✅ Rapport généré: {len(report)} caractères")
+        return report
+    except Exception as e:
+        logger.error(f"[LAYER 3 REPORT] ❌ Erreur LLM: {e}")
+        # Fallback: generate a basic report without LLM
+        return generate_layer3_fallback_report(target, scan_data)
+
+
+def generate_layer3_fallback_report(target: str, scan_data: dict) -> str:
+    """
+    Génère un rapport basique sans LLM en cas d'échec.
+    """
+    report = f"""## 🎯 Rapport de Scan Critique - {target}
+
+**Date:** {scan_data.get('scan_timestamp', 'N/A')}
+**Type:** Layer 3 Critical Scan
+
+---
+
+"""
+    # Port scan section
+    if scan_data.get("port_scan"):
+        ps = scan_data["port_scan"]
+        report += f"""## 🔓 Ports Ouverts
+
+- **Ports scannés:** {ps.get('ports_scanned', 'N/A')}
+- **Ports ouverts:** {ps.get('ports_open', 0)}
+
+| Port | État | Service |
+|------|------|---------|
+"""
+        for port in ps.get('open_ports', []):
+            report += f"| {port.get('port', '?')} | {port.get('state', '?')} | {port.get('service', '?')} |\n"
+        report += "\n"
+
+    # Vuln scan section
+    if scan_data.get("vuln_scan"):
+        vs = scan_data["vuln_scan"]
+        report += f"""## ⚠️ Vulnérabilités
+
+- **Niveau de risque:** {vs.get('risk_level', 'N/A')}
+- **Score de risque:** {vs.get('risk_score', 'N/A')}/10
+- **Vulnérabilités trouvées:** {vs.get('vulnerabilities_found', 0)}
+
+"""
+        for v in vs.get('vulnerabilities', []):
+            report += f"- **[{v.get('severity', '?')}]** {v.get('type', '?')}: {v.get('description', '')}\n"
+
+        if vs.get('security_headers_present'):
+            report += f"\n**Headers présents:** {', '.join(vs['security_headers_present'])}\n"
+
+    report += """
+---
+
+⚠️ **Disclaimer:** Ce rapport a été généré automatiquement. Pour un audit complet, consultez un professionnel de la sécurité.
+"""
+    return report
+
+
 def sanitize_llm_report(report: str) -> str:
     """
     Nettoie le rapport LLM pour enlever :
@@ -3773,7 +3930,139 @@ Données collectées:
         else:
             raw_data_storage["tools"]["crtsh"] = {"status": "skipped", "reason": "timeout global atteint"}
 
-        update_progress(50, "PROCESSING")
+        update_progress(48, "PROCESSING")
+
+        # ==========================================
+        # OUTILS LAYER 2 OPTIONNELS (avec API keys)
+        # Ces outils enrichissent considérablement les rapports
+        # ==========================================
+
+        # Récupérer l'IP résolue pour Shodan/VirusTotal
+        resolved_ip_for_apis = raw_data_storage["tools"].get("dns_resolution", {}).get("data")
+
+        # VirusTotal - Réputation et détections malware (Layer 2)
+        if not timeout_reached and should_run_tool_for_layer("virustotal", layer_filter):
+            vt_target = resolved_ip_for_apis if resolved_ip_for_apis else target
+            virustotal_result = execute_tool_with_audit(
+                tool_name="virustotal",
+                target=vt_target,
+                tool_function=logic_virustotal,
+                run_id=run_id,
+                context_declared="OSINT passif - Réputation",
+                db_session=db
+            )
+
+            if virustotal_result["status"] == "ok" and virustotal_result["data"]:
+                vt_info = virustotal_result["data"].get("raw", {})
+                raw_data_storage["tools"]["virustotal"] = {
+                    "status": "ok",
+                    "data": vt_info,
+                    "duration": virustotal_result["duration"]
+                }
+                vt_risk = vt_info.get("risk_level", "N/A")
+                vt_malicious = vt_info.get("detection_stats", {}).get("malicious", 0)
+                collected_data.append(f"=== RÉPUTATION (VirusTotal) ===\nNiveau de risque: {vt_risk}\nDétections malveillantes: {vt_malicious}")
+            elif virustotal_result["status"] == "skipped":
+                raw_data_storage["tools"]["virustotal"] = {
+                    "status": "skipped",
+                    "reason": virustotal_result.get("error", "API key non configurée"),
+                    "duration": virustotal_result.get("duration", 0.0)
+                }
+            else:
+                raw_data_storage["tools"]["virustotal"] = {
+                    "status": "error",
+                    "error": virustotal_result.get("error", "Unknown error"),
+                    "duration": virustotal_result.get("duration", 0.0)
+                }
+
+            if check_timeout(scan_start_time, MAX_SCAN_DURATION, "VirusTotal"):
+                timeout_reached = True
+        else:
+            if not should_run_tool_for_layer("virustotal", layer_filter):
+                raw_data_storage["tools"]["virustotal"] = {"status": "skipped", "reason": "layer_filter"}
+
+        # Shodan - Infrastructure et ports ouverts (Layer 2)
+        if not timeout_reached and should_run_tool_for_layer("shodan", layer_filter):
+            shodan_target = resolved_ip_for_apis if resolved_ip_for_apis else target
+            shodan_result = execute_tool_with_audit(
+                tool_name="shodan",
+                target=shodan_target,
+                tool_function=logic_shodan,
+                run_id=run_id,
+                context_declared="OSINT passif - Infrastructure",
+                db_session=db
+            )
+
+            if shodan_result["status"] == "ok" and shodan_result["data"]:
+                shodan_info = shodan_result["data"].get("raw", {})
+                raw_data_storage["tools"]["shodan"] = {
+                    "status": "ok",
+                    "data": shodan_info,
+                    "duration": shodan_result["duration"]
+                }
+                open_ports = shodan_info.get("open_ports", [])
+                vulns = shodan_info.get("vulns", [])
+                collected_data.append(f"=== INFRASTRUCTURE (Shodan) ===\nPorts ouverts: {', '.join(map(str, open_ports[:10])) if open_ports else 'Aucun'}\nVulnérabilités CVE: {len(vulns)} trouvées")
+            elif shodan_result["status"] == "skipped":
+                raw_data_storage["tools"]["shodan"] = {
+                    "status": "skipped",
+                    "reason": shodan_result.get("error", "API key non configurée"),
+                    "duration": shodan_result.get("duration", 0.0)
+                }
+            else:
+                raw_data_storage["tools"]["shodan"] = {
+                    "status": "error",
+                    "error": shodan_result.get("error", "Unknown error"),
+                    "duration": shodan_result.get("duration", 0.0)
+                }
+
+            if check_timeout(scan_start_time, MAX_SCAN_DURATION, "Shodan"):
+                timeout_reached = True
+        else:
+            if not should_run_tool_for_layer("shodan", layer_filter):
+                raw_data_storage["tools"]["shodan"] = {"status": "skipped", "reason": "layer_filter"}
+
+        # SecurityTrails - Historique DNS et sous-domaines (Layer 2)
+        if not timeout_reached and should_run_tool_for_layer("securitytrails", layer_filter):
+            securitytrails_result = execute_tool_with_audit(
+                tool_name="securitytrails",
+                target=target,
+                tool_function=logic_securitytrails,
+                run_id=run_id,
+                context_declared="OSINT passif - DNS History",
+                db_session=db
+            )
+
+            if securitytrails_result["status"] == "ok" and securitytrails_result["data"]:
+                st_info = securitytrails_result["data"].get("raw", {})
+                raw_data_storage["tools"]["securitytrails"] = {
+                    "status": "ok",
+                    "data": st_info,
+                    "duration": securitytrails_result["duration"]
+                }
+                dns_history = st_info.get("dns_history", {})
+                subdomains_count = st_info.get("subdomains_count", 0)
+                collected_data.append(f"=== HISTORIQUE DNS (SecurityTrails) ===\nSous-domaines découverts: {subdomains_count}\nChangements DNS: {len(dns_history.get('a', [])) if dns_history else 0} records A")
+            elif securitytrails_result["status"] == "skipped":
+                raw_data_storage["tools"]["securitytrails"] = {
+                    "status": "skipped",
+                    "reason": securitytrails_result.get("error", "API key non configurée"),
+                    "duration": securitytrails_result.get("duration", 0.0)
+                }
+            else:
+                raw_data_storage["tools"]["securitytrails"] = {
+                    "status": "error",
+                    "error": securitytrails_result.get("error", "Unknown error"),
+                    "duration": securitytrails_result.get("duration", 0.0)
+                }
+
+            if check_timeout(scan_start_time, MAX_SCAN_DURATION, "SecurityTrails"):
+                timeout_reached = True
+        else:
+            if not should_run_tool_for_layer("securitytrails", layer_filter):
+                raw_data_storage["tools"]["securitytrails"] = {"status": "skipped", "reason": "layer_filter"}
+
+        update_progress(52, "PROCESSING")
 
         # Wayback Machine avec audit wrapper
         if not timeout_reached:
@@ -4222,6 +4511,43 @@ def markdown_to_reportlab(text: str) -> str:
     return text
 
 
+def convert_markdown_headings_for_pdf(text: str) -> list:
+    """
+    Convert markdown text with headings to a list of (type, content) tuples.
+    Returns: [(type, text), ...] where type is 'h1', 'h2', 'h3', 'h4', 'text', or 'bullet'
+    """
+    import re
+    result = []
+    lines = text.split('\n')
+
+    for line in lines:
+        stripped = line.strip()
+        if not stripped:
+            result.append(('space', ''))
+            continue
+
+        # Check for markdown headings
+        heading_match = re.match(r'^(#{1,6})\s+(.+)$', stripped)
+        if heading_match:
+            level = len(heading_match.group(1))
+            heading_text = heading_match.group(2)
+            # Remove any trailing # and emojis for clean PDF
+            heading_text = re.sub(r'\s*#+\s*$', '', heading_text)
+            heading_text = re.sub(r'^[🎯⚠️🔓🛡️📋⚖️💡🔍📊]+\s*', '', heading_text)
+            result.append((f'h{level}', heading_text))
+        # Check for bullet points
+        elif stripped.startswith('- ') or stripped.startswith('* '):
+            bullet_text = stripped[2:]
+            result.append(('bullet', bullet_text))
+        elif re.match(r'^\d+\.\s+', stripped):
+            # Numbered list
+            result.append(('bullet', stripped))
+        else:
+            result.append(('text', stripped))
+
+    return result
+
+
 def parse_markdown_tables(text: str) -> list:
     """
     Parse markdown text and extract tables, returning a list of tuples:
@@ -4362,11 +4688,49 @@ def logic_generate_pdf(query: str, db: Session):
     # =========================================================================
     try:
         raw_data = json.loads(report_entry.raw_data)
-        risk_analysis = raw_data.get("risk_analysis", {})
-        risk_score = risk_analysis.get("score", 0)
-        risk_level = risk_analysis.get("level", "INCONNU")
-        negative_indicators = risk_analysis.get("indicators", {}).get("negative", [])
-        positive_indicators = risk_analysis.get("indicators", {}).get("positive", [])
+
+        # Check if this is a Layer 3 scan (different data structure)
+        if raw_data.get("layer3_scan"):
+            # Extract Layer 3 specific data
+            vuln_scan_data = raw_data.get("vuln_scan", {})
+            if isinstance(vuln_scan_data, dict) and "raw" in vuln_scan_data:
+                vuln_scan_data = vuln_scan_data["raw"]
+
+            port_scan_data = raw_data.get("port_scan", {})
+            if isinstance(port_scan_data, dict) and "raw" in port_scan_data:
+                port_scan_data = port_scan_data["raw"]
+
+            # Map Layer 3 risk levels to standard format
+            layer3_risk_level = vuln_scan_data.get("risk_level", "UNKNOWN")
+            risk_level_map = {
+                "CRITICAL": "CRITIQUE", "HIGH": "ÉLEVÉ", "MEDIUM": "MOYEN",
+                "LOW": "FAIBLE", "UNKNOWN": "INCONNU"
+            }
+            risk_level = risk_level_map.get(layer3_risk_level, "INCONNU")
+            risk_score = vuln_scan_data.get("risk_score", 0) * 10  # Scale 0-10 to 0-100
+
+            # Extract vulnerabilities as negative indicators
+            vulnerabilities = vuln_scan_data.get("vulnerabilities", [])
+            negative_indicators = [
+                f"[{v.get('severity', 'N/A')}] {v.get('type', 'Unknown')}: {v.get('description', 'N/A')}"
+                for v in vulnerabilities
+            ]
+
+            # Extract security headers as positive indicators
+            security_headers = vuln_scan_data.get("security_headers_present", [])
+            open_ports = port_scan_data.get("open_ports", [])
+            positive_indicators = [f"Header de sécurité présent: {h}" for h in security_headers]
+
+            # Add ports info
+            if open_ports:
+                positive_indicators.insert(0, f"{len(open_ports)} ports analysés et documentés")
+        else:
+            # Standard scan format
+            risk_analysis = raw_data.get("risk_analysis", {})
+            risk_score = risk_analysis.get("score", 0)
+            risk_level = risk_analysis.get("level", "INCONNU")
+            negative_indicators = risk_analysis.get("indicators", {}).get("negative", [])
+            positive_indicators = risk_analysis.get("indicators", {}).get("positive", [])
 
         # Couleurs par niveau
         risk_colors = {
@@ -4453,10 +4817,48 @@ def logic_generate_pdf(query: str, db: Session):
     # =========================================================================
     story.append(Paragraph("ANALYSE DÉTAILLÉE", section_style))
 
+    # Styles pour les différents niveaux de titres PDF
+    h1_style = ParagraphStyle(
+        'Heading1PDF',
+        parent=normal_style,
+        fontSize=14,
+        leading=18,
+        fontName='Helvetica-Bold',
+        textColor=colors.HexColor("#1a365d"),
+        spaceBefore=12,
+        spaceAfter=6
+    )
+    h2_style = ParagraphStyle(
+        'Heading2PDF',
+        parent=normal_style,
+        fontSize=12,
+        leading=15,
+        fontName='Helvetica-Bold',
+        textColor=colors.HexColor("#2c5aa0"),
+        spaceBefore=10,
+        spaceAfter=4
+    )
+    h3_style = ParagraphStyle(
+        'Heading3PDF',
+        parent=normal_style,
+        fontSize=10,
+        leading=13,
+        fontName='Helvetica-Bold',
+        textColor=colors.HexColor("#4a5568"),
+        spaceBefore=8,
+        spaceAfter=3
+    )
+    bullet_style = ParagraphStyle(
+        'BulletPDF',
+        parent=normal_style,
+        fontSize=9,
+        leading=12,
+        leftIndent=15,
+        bulletIndent=5
+    )
+
     # Nettoyer et formatter le rapport
     clean_text = report_entry.final_report
-    # Remplacer les markdown heading par du texte simple
-    clean_text = re.sub(r'^#{1,6}\s+', '', clean_text, flags=re.MULTILINE)
 
     # Parser le markdown (texte + tables)
     parsed_content = parse_markdown_tables(clean_text)
@@ -4515,18 +4917,26 @@ def logic_generate_pdf(query: str, db: Session):
                 story.append(pdf_table)
                 story.append(Spacer(1, 0.1*inch))
         else:
-            # Rendre le texte normal avec conversion markdown
-            for para in content.split('\n'):
-                if para.strip():
-                    converted_para = markdown_to_reportlab(para.strip())
-                    # Détecter les lignes qui ressemblent à des titres
-                    if para.strip().isupper() or re.match(r'^\d+\.', para.strip()):
-                        story.append(Spacer(1, 0.1*inch))
-                        story.append(Paragraph(f"<b>{converted_para}</b>", normal_style))
-                    else:
-                        story.append(Paragraph(converted_para, normal_style))
-                else:
+            # Parse text with markdown headings
+            parsed_lines = convert_markdown_headings_for_pdf(content)
+            for line_type, line_text in parsed_lines:
+                if line_type == 'space':
                     story.append(Spacer(1, 0.05*inch))
+                elif line_type == 'h1':
+                    converted = markdown_to_reportlab(line_text)
+                    story.append(Paragraph(converted.upper(), h1_style))
+                elif line_type == 'h2':
+                    converted = markdown_to_reportlab(line_text)
+                    story.append(Paragraph(converted, h2_style))
+                elif line_type in ('h3', 'h4', 'h5', 'h6'):
+                    converted = markdown_to_reportlab(line_text)
+                    story.append(Paragraph(converted, h3_style))
+                elif line_type == 'bullet':
+                    converted = markdown_to_reportlab(line_text)
+                    story.append(Paragraph(f"• {converted}", bullet_style))
+                else:
+                    converted = markdown_to_reportlab(line_text)
+                    story.append(Paragraph(converted, normal_style))
 
     story.append(PageBreak())
 
@@ -4540,50 +4950,118 @@ def logic_generate_pdf(query: str, db: Session):
 
         # Métadonnées du scan
         story.append(Paragraph("<b>Métadonnées du Scan</b>", subsection_style))
-        scan_meta = raw_data.get("scan_metadata", {})
-        meta_info = [
-            f"<b>Version:</b> {raw_data.get('version', 'N/A')}",
-            f"<b>Date:</b> {raw_data.get('scanned_at', 'N/A')}",
-            f"<b>Durée:</b> {scan_meta.get('actual_duration', 'N/A')}s",
-            f"<b>Partiel:</b> {'Oui' if scan_meta.get('partial_result') else 'Non'}"
-        ]
+
+        # Check if this is a Layer 3 scan
+        if raw_data.get("layer3_scan"):
+            # Layer 3 specific metadata
+            scan_timestamp = raw_data.get("scan_timestamp", "N/A")
+            tools_executed = raw_data.get("tools_executed", [])
+
+            # Extract port scan stats
+            port_scan_data = raw_data.get("port_scan", {})
+            if isinstance(port_scan_data, dict) and "raw" in port_scan_data:
+                port_scan_data = port_scan_data["raw"]
+            ports_scanned = port_scan_data.get("ports_scanned", 0)
+            ports_open = port_scan_data.get("ports_open", 0)
+
+            # Extract vuln scan stats
+            vuln_scan_data = raw_data.get("vuln_scan", {})
+            if isinstance(vuln_scan_data, dict) and "raw" in vuln_scan_data:
+                vuln_scan_data = vuln_scan_data["raw"]
+            vulns_found = vuln_scan_data.get("vulnerabilities_found", 0)
+
+            meta_info = [
+                f"<b>Type:</b> Layer 3 Critical Scan",
+                f"<b>Date:</b> {scan_timestamp}",
+                f"<b>Outils:</b> {', '.join(tools_executed)}",
+                f"<b>Ports scannés:</b> {ports_scanned} ({ports_open} ouverts)",
+                f"<b>Vulnérabilités:</b> {vulns_found}"
+            ]
+        else:
+            # Standard scan metadata
+            scan_meta = raw_data.get("scan_metadata", {})
+            meta_info = [
+                f"<b>Version:</b> {raw_data.get('version', 'N/A')}",
+                f"<b>Date:</b> {raw_data.get('scanned_at', 'N/A')}",
+                f"<b>Durée:</b> {scan_meta.get('actual_duration', 'N/A')}s",
+                f"<b>Partiel:</b> {'Oui' if scan_meta.get('partial_result') else 'Non'}"
+            ]
+
         for info in meta_info:
             story.append(Paragraph(info, code_style))
         story.append(Spacer(1, 0.15*inch))
 
         # Statuts des outils
         story.append(Paragraph("<b>Outils Exécutés</b>", subsection_style))
-        tools = raw_data.get("tools", {})
-        if tools:
-            tool_rows = [["Outil", "Statut", "Durée", "Détails"]]
-            for tool_name, tool_info in tools.items():
-                status = tool_info.get("status", "?")
-                dur = tool_info.get("duration", "-")
-                dur_str = f"{dur:.1f}s" if isinstance(dur, (int, float)) else "-"
-                details = ""
-                if status == "error":
-                    details = tool_info.get("error", "")[:40]
-                elif status == "skipped":
-                    details = tool_info.get("reason", "")[:40]
-                tool_rows.append([tool_name.upper(), status.upper(), dur_str, details])
 
-            tool_tbl = Table(tool_rows, colWidths=[1.3*inch, 0.8*inch, 0.7*inch, 3.5*inch])
-            tool_tbl.setStyle(TableStyle([
-                ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor("#34495e")),
-                ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
-                ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-                ('FONTSIZE', (0, 0), (-1, -1), 8),
-                ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
-                ('BACKGROUND', (0, 1), (-1, -1), colors.HexColor("#f9f9f9")),
-                ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor("#dddddd")),
-                ('TOPPADDING', (0, 0), (-1, -1), 5),
-                ('BOTTOMPADDING', (0, 0), (-1, -1), 5),
-            ]))
-            story.append(tool_tbl)
-        story.append(Spacer(1, 0.15*inch))
+        # Handle Layer 3 tools differently
+        if raw_data.get("layer3_scan"):
+            tools_executed = raw_data.get("tools_executed", [])
+            if tools_executed:
+                tool_rows = [["Outil", "Statut", "Résultat"]]
+                for tool_name in tools_executed:
+                    tool_data = raw_data.get(tool_name, {})
+                    if isinstance(tool_data, dict) and "raw" in tool_data:
+                        tool_data = tool_data["raw"]
+
+                    if tool_name == "port_scan":
+                        result = f"{tool_data.get('ports_open', 0)} ports ouverts"
+                    elif tool_name == "vuln_scan":
+                        result = f"{tool_data.get('vulnerabilities_found', 0)} vulnérabilités, Risque: {tool_data.get('risk_level', 'N/A')}"
+                    else:
+                        result = "Complété"
+
+                    tool_rows.append([tool_name.upper(), "OK", result])
+
+                tool_tbl = Table(tool_rows, colWidths=[1.5*inch, 0.8*inch, 4*inch])
+                tool_tbl.setStyle(TableStyle([
+                    ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor("#c0392b")),
+                    ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
+                    ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+                    ('FONTSIZE', (0, 0), (-1, -1), 8),
+                    ('GRID', (0, 0), (-1, -1), 0.5, colors.grey),
+                    ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+                    ('TOPPADDING', (0, 0), (-1, -1), 4),
+                    ('BOTTOMPADDING', (0, 0), (-1, -1), 4),
+                ]))
+                story.append(tool_tbl)
+            else:
+                story.append(Paragraph("Aucun outil Layer 3 exécuté.", code_style))
+            story.append(Spacer(1, 0.15*inch))
+        else:
+            # Standard tools format
+            tools = raw_data.get("tools", {})
+            if tools:
+                tool_rows = [["Outil", "Statut", "Durée", "Détails"]]
+                for tool_name, tool_info in tools.items():
+                    status = tool_info.get("status", "?")
+                    dur = tool_info.get("duration", "-")
+                    dur_str = f"{dur:.1f}s" if isinstance(dur, (int, float)) else "-"
+                    details = ""
+                    if status == "error":
+                        details = tool_info.get("error", "")[:40]
+                    elif status == "skipped":
+                        details = tool_info.get("reason", "")[:40]
+                    tool_rows.append([tool_name.upper(), status.upper(), dur_str, details])
+
+                tool_tbl = Table(tool_rows, colWidths=[1.3*inch, 0.8*inch, 0.7*inch, 3.5*inch])
+                tool_tbl.setStyle(TableStyle([
+                    ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor("#34495e")),
+                    ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
+                    ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+                    ('FONTSIZE', (0, 0), (-1, -1), 8),
+                    ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+                    ('BACKGROUND', (0, 1), (-1, -1), colors.HexColor("#f9f9f9")),
+                    ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor("#dddddd")),
+                    ('TOPPADDING', (0, 0), (-1, -1), 5),
+                    ('BOTTOMPADDING', (0, 0), (-1, -1), 5),
+                ]))
+                story.append(tool_tbl)
+            story.append(Spacer(1, 0.15*inch))
 
         # Extraits de données brutes (compact)
         story.append(Paragraph("<b>Extraits de Données</b>", subsection_style))
+        tools = raw_data.get("tools", {})
         for tool_name, tool_info in tools.items():
             if tool_info.get("status") == "ok" and "data" in tool_info:
                 story.append(Paragraph(f"<b>{tool_name.upper()}</b>", code_style))

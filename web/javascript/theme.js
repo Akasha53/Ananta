@@ -7,7 +7,8 @@ const DEFAULT_THEME_SETTINGS = {
     accentColor: 'cyan',
     fontSize: 'medium',
     compactMode: false,
-    language: 'fr'
+    language: 'fr',
+    darkMode: true  // Dark mode by default (Ananta's signature look)
 };
 
 /**
@@ -22,7 +23,8 @@ function loadThemeSettings() {
                 accentColor: settings.accentColor || DEFAULT_THEME_SETTINGS.accentColor,
                 fontSize: settings.fontSize || DEFAULT_THEME_SETTINGS.fontSize,
                 compactMode: settings.compactMode || DEFAULT_THEME_SETTINGS.compactMode,
-                language: settings.language || DEFAULT_THEME_SETTINGS.language
+                language: settings.language || DEFAULT_THEME_SETTINGS.language,
+                darkMode: settings.darkMode !== undefined ? settings.darkMode : DEFAULT_THEME_SETTINGS.darkMode
             };
         }
     } catch (e) {
@@ -39,6 +41,11 @@ function applyTheme() {
 
     // Apply accent color
     document.documentElement.setAttribute('data-accent', settings.accentColor);
+
+    // Apply dark/light mode
+    document.documentElement.setAttribute('data-theme', settings.darkMode ? 'dark' : 'light');
+    document.body.classList.toggle('dark-mode', settings.darkMode);
+    document.body.classList.toggle('light-mode', !settings.darkMode);
 
     // Apply font size
     document.body.classList.remove('font-small', 'font-medium', 'font-large');
