@@ -1,6 +1,6 @@
 # ANANTA - Liste des Tâches (TODOS)
 
-> **Dernière mise à jour**: 22 janvier 2026
+> **Dernière mise à jour**: 22 janvier 2026  
 > **Version**: Ananta v1.0.3 - Mistral 7B (32k context)
 
 ---
@@ -20,7 +20,8 @@
 - [x] **Gestion des erreurs critiques** - `ServiceStatus` tracker avec dégradation gracieuse
 - [x] **Logging structuré** - Request ID unique (`X-Request-ID`) + durée (`X-Response-Time`)
 - [x] **Changer les chemins de variables** - Variables WEBUI_DIR et FASTAPI_DIR en chemin relatif (`%~dp0`)
-- [x] **Ananta ne reps plus au msg simples** - Ajout logging + error handling + fallback dans `/agent/ask`
+- [x] **Ananta ne répond plus aux messages simples** - Ajout logging + error handling + fallback dans `/agent/ask`
+  - [ ] **Temps de réponse trop long** - temps de réponse pour un salut : 47.85 s
 - [x] **Mode critique incomplet** - Layer 3 exécute maintenant Layer 1+2 d'abord pour le contexte complet
 - [x] **Rapports trop courts** - Ajout VirusTotal, Shodan, SecurityTrails au flux principal de scan
 
@@ -152,6 +153,15 @@
 ### Nettoyage
 - [ ] **Nettoyer logs anciens** - Rotation automatique des fichiers logs
 - [ ] **Archiver jobs terminés** - Déplacer les vieux ScanJob vers une table archive
+- [ ] **Nettoyer les tables de la BDD inutilisées** :
+  - sources (vide)
+  - tool_exec_log (pas de logs high en legal risk alors que scan effectué)
+  - scan_sessions (vide)
+  - pending_approvals (vide)
+  - findings (vide)
+  - entity_reports (vide)
+  - entities (vide)
+  - api_keys (vide)
 
 ### Mise à jour documentation
 - [x] **Mettre à jour dev_runbook.md** - Mis à jour avec Mistral 7B + nouvelles API keys
@@ -179,21 +189,3 @@ SECURITYTRAILS_API_KEY=your_key
 ENVIRONMENT=development  # ou production
 CORS_ORIGINS=https://example.com  # pour prod
 RATE_LIMIT_ENABLED=true
-```
-
-### Priorités
-- **CRITIQUE**: Doit être fait immédiatement (sécurité, bugs bloquants)
-- **HAUTE**: Important pour la stabilité et les fonctionnalités core
-- **MOYENNE**: Améliorations significatives de l'UX ou performance
-- **BASSE**: Nice-to-have, peut attendre
-
-### Comment contribuer
-1. Choisir une tâche non assignée
-2. Créer une branche `feature/<nom-tache>` ou `fix/<nom-tache>`
-3. Implémenter avec tests
-4. Créer une PR vers `main`
-5. Marquer la tâche comme complétée une fois mergée
-
----
-
-*Ce fichier est généré et maintenu manuellement. Dernière revue: 21 janvier 2026.*
