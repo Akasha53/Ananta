@@ -281,6 +281,52 @@ class APIKey(Base):
     created_by = Column(String, nullable=True)  # Utilisateur qui a créé la clé
 
 
+class ScheduledScan(Base):
+    """
+    Scans programmés récurrents avec notifications par email.
+    Permet de configurer des scans automatiques à intervalles réguliers.
+    """
+    __tablename__ = "scheduled_scans"
+    __table_args__ = (
+        Index('ix_scheduled_scans_is_active', 'is_active'),
+        Index('ix_scheduled_scans_next_run', 'next_run_at'),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String, nullable=False)  # Nom du scan programmé
+    target = Column(String, nullable=False)  # Cible à scanner (domaine/IP)
+
+    # Configuration du scan
+    scan_mode = Column(String, default="full")  # fast, standard, full
+    report_template = Column(String, default="detailed")  # detailed, executive, technical, minimal
+    language = Column(String, default="fr")  # fr, en, es, de
+
+    # Planification (cron-like)
+    schedule_type = Column(String, nullable=False)  # daily, weekly, monthly, custom
+    cron_expression = Column(String, nullable=True)  # Pour custom: "0 8 * * 1" (lundi 8h)
+    hour = Column(Integer, default=8)  # Heure d'exécution (0-23)
+    day_of_week = Column(Integer, nullable=True)  # Pour weekly: 0=lundi, 6=dimanche
+    day_of_month = Column(Integer, nullable=True)  # Pour monthly: 1-31
+
+    # État
+    is_active = Column(Boolean, default=True)
+    last_run_at = Column(DateTime(timezone=True), nullable=True)
+    next_run_at = Column(DateTime(timezone=True), nullable=True)
+    last_run_status = Column(String, nullable=True)  # SUCCESS, FAILED, RUNNING
+    last_error = Column(Text, nullable=True)
+    run_count = Column(Integer, default=0)
+
+    # Notifications
+    notify_email = Column(String, nullable=True)  # Email pour les notifications
+    notify_on_change = Column(Boolean, default=True)  # Notifier seulement si changements
+    notify_on_error = Column(Boolean, default=True)  # Notifier en cas d'erreur
+
+    # Métadonnées
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+    created_by = Column(String, nullable=True)
+
+
 def init_db():
     try:
         Base.metadata.create_all(bind=engine)

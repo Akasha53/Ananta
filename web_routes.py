@@ -756,6 +756,180 @@ def export_markdown(query: str, db: Session = Depends(get_db)):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.get("/osint/export/xlsx")
+def export_xlsx(query: str, db: Session = Depends(get_db)):
+    """Exporte un rapport au format Excel (XLSX)."""
+    try:
+        from openpyxl import Workbook
+        from openpyxl.styles import Font, PatternFill, Border, Side, Alignment
+        from openpyxl.utils import get_column_letter
+        import io
+
+        normalized = logic.normalize_target(query)
+        report = db.query(EntityReport).filter(
+            EntityReport.target.ilike(f"%{normalized}%")
+        ).first()
+
+        if not report:
+            raise HTTPException(status_code=404, detail="Rapport non trouvé")
+
+        raw_data = {}
+        try:
+            raw_data = json.loads(report.raw_data) if report.raw_data else {}
+        except:
+            pass
+
+        # Create workbook
+        wb = Workbook()
+
+        # === Sheet 1: Summary ===
+        ws_summary = wb.active
+        ws_summary.title = "Résumé"
+
+        # Styles
+        header_font = Font(bold=True, color="FFFFFF")
+        header_fill = PatternFill(start_color="1F4E79", end_color="1F4E79", fill_type="solid")
+        border = Border(
+            left=Side(style='thin'),
+            right=Side(style='thin'),
+            top=Side(style='thin'),
+            bottom=Side(style='thin')
+        )
+
+        # Summary header
+        ws_summary["A1"] = "Rapport OSINT - Ananta"
+        ws_summary["A1"].font = Font(bold=True, size=14)
+        ws_summary.merge_cells('A1:D1')
+
+        summary_data = [
+            ("Cible", report.target),
+            ("Type", report.target_type or "UNKNOWN"),
+            ("Date d'analyse", raw_data.get("scanned_at", "N/A")),
+            ("Créé le", report.created_at.strftime("%Y-%m-%d %H:%M") if report.created_at else "N/A"),
+        ]
+
+        for row_idx, (key, value) in enumerate(summary_data, start=3):
+            ws_summary[f"A{row_idx}"] = key
+            ws_summary[f"A{row_idx}"].font = Font(bold=True)
+            ws_summary[f"B{row_idx}"] = value
+
+        # Risk Analysis
+        risk = raw_data.get("risk_analysis", {})
+        if risk:
+            ws_summary["A8"] = "Analyse de Risque"
+            ws_summary["A8"].font = Font(bold=True, size=12)
+            ws_summary["A9"] = "Score"
+            ws_summary["B9"] = risk.get("score", 0)
+            ws_summary["A10"] = "Niveau"
+            ws_summary["B10"] = risk.get("level", "UNKNOWN")
+
+        # Set column widths
+        ws_summary.column_dimensions['A'].width = 20
+        ws_summary.column_dimensions['B'].width = 50
+
+        # === Sheet 2: Tools Results ===
+        ws_tools = wb.create_sheet("Outils")
+
+        # Header row
+        headers = ["Outil", "Statut", "Durée (s)", "Détails"]
+        for col_idx, header in enumerate(headers, start=1):
+            cell = ws_tools.cell(row=1, column=col_idx, value=header)
+            cell.font = header_font
+            cell.fill = header_fill
+            cell.border = border
+            cell.alignment = Alignment(horizontal='center')
+
+        # Tools data
+        tools = raw_data.get("tools", {})
+        for row_idx, (tool_name, tool_data) in enumerate(tools.items(), start=2):
+            ws_tools.cell(row=row_idx, column=1, value=tool_name).border = border
+            ws_tools.cell(row=row_idx, column=2, value=tool_data.get("status", "unknown")).border = border
+            duration = tool_data.get("duration", "")
+            ws_tools.cell(row=row_idx, column=3, value=f"{duration:.2f}" if isinstance(duration, (int, float)) else "").border = border
+
+            # Details summary
+            if tool_data.get("status") == "ok":
+                data = tool_data.get("data", {})
+                if isinstance(data, dict):
+                    details = ", ".join(f"{k}: {str(v)[:50]}" for k, v in list(data.items())[:3])
+                else:
+                    details = str(data)[:100]
+            elif tool_data.get("status") == "error":
+                details = tool_data.get("error", "")[:100]
+            else:
+                details = tool_data.get("reason", "")[:100]
+            ws_tools.cell(row=row_idx, column=4, value=details).border = border
+
+        # Set column widths
+        ws_tools.column_dimensions['A'].width = 20
+        ws_tools.column_dimensions['B'].width = 12
+        ws_tools.column_dimensions['C'].width = 12
+        ws_tools.column_dimensions['D'].width = 60
+
+        # === Sheet 3: Risk Indicators ===
+        ws_risk = wb.create_sheet("Indicateurs")
+
+        headers = ["Type", "Indicateur"]
+        for col_idx, header in enumerate(headers, start=1):
+            cell = ws_risk.cell(row=1, column=col_idx, value=header)
+            cell.font = header_font
+            cell.fill = header_fill
+            cell.border = border
+
+        row_idx = 2
+        for ind in risk.get("indicators", {}).get("positive", []):
+            ws_risk.cell(row=row_idx, column=1, value="✅ Positif").border = border
+            ws_risk.cell(row=row_idx, column=2, value=ind).border = border
+            row_idx += 1
+
+        for ind in risk.get("indicators", {}).get("negative", []):
+            ws_risk.cell(row=row_idx, column=1, value="⚠️ Négatif").border = border
+            ws_risk.cell(row=row_idx, column=2, value=ind).border = border
+            row_idx += 1
+
+        ws_risk.column_dimensions['A'].width = 15
+        ws_risk.column_dimensions['B'].width = 60
+
+        # === Sheet 4: Full Report ===
+        ws_report = wb.create_sheet("Rapport Complet")
+        ws_report["A1"] = "Rapport d'analyse"
+        ws_report["A1"].font = Font(bold=True, size=12)
+
+        # Split report into lines for better readability
+        if report.final_report:
+            lines = report.final_report.split('\n')
+            for row_idx, line in enumerate(lines, start=3):
+                ws_report.cell(row=row_idx, column=1, value=line)
+
+        ws_report.column_dimensions['A'].width = 100
+
+        # Save to buffer
+        output = io.BytesIO()
+        wb.save(output)
+        output.seek(0)
+
+        from fastapi.responses import StreamingResponse
+        return StreamingResponse(
+            output,
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            headers={
+                "Content-Disposition": f'attachment; filename="report_{normalized}.xlsx"'
+            }
+        )
+
+    except HTTPException:
+        raise
+    except ImportError as e:
+        logger.error(f"[/osint/export/xlsx] openpyxl not installed: {e}")
+        raise HTTPException(
+            status_code=501,
+            detail="Export Excel non disponible. Installez openpyxl: pip install openpyxl"
+        )
+    except Exception as e:
+        logger.exception(f"❌ Erreur /osint/export/xlsx: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 # ==================== CACHE MANAGEMENT ====================
 
 @router.get("/cache/stats")
@@ -940,6 +1114,10 @@ def agent_ask_async(body: AskBody, db: Session = Depends(get_db)):
     # Récupérer le scan_mode (défaut: "full" - mode simple et stable)
     scan_mode = getattr(body, 'scan_mode', 'full') or 'full'
     approved_tools = getattr(body, 'approved_tools', None) or []
+    # Récupérer la langue (défaut: "fr")
+    language = getattr(body, 'language', 'fr') or 'fr'
+
+    logger.info(f"[ASYNC] Langue du rapport: {language}")
 
     # Router vers la tâche appropriée selon le scan_mode
     task = None
@@ -979,9 +1157,9 @@ def agent_ask_async(body: AskBody, db: Session = Depends(get_db)):
 
     else:
         # Mode "full" par défaut: scan séquentiel complet (stable)
-        task = scan_osint_task.delay(query_to_scan, report_type)
+        task = scan_osint_task.delay(query_to_scan, report_type, language)
         task_queue = "osint_medium"
-        logger.info(f"[ASYNC] Mode FULL -> queue osint_medium")
+        logger.info(f"[ASYNC] Mode FULL -> queue osint_medium (lang={language})")
 
     # Créer l'entrée ScanJob en BDD
     job = ScanJob(
@@ -1582,6 +1760,179 @@ def compare_whois_data(data1: any, data2: any, changes: list):
 
 
 # ==================== CELERY WORKERS MONITORING ====================
+
+# ==================== WEBSOCKET NOTIFICATIONS ====================
+
+# Connection manager for WebSocket clients
+class ConnectionManager:
+    """Manages WebSocket connections for real-time job notifications."""
+
+    def __init__(self):
+        self.active_connections: Dict[str, Set[WebSocket]] = {}  # job_id -> set of websockets
+
+    async def connect(self, websocket: WebSocket, job_id: str):
+        await websocket.accept()
+        if job_id not in self.active_connections:
+            self.active_connections[job_id] = set()
+        self.active_connections[job_id].add(websocket)
+        logger.info(f"[WebSocket] Client connected for job {job_id}")
+
+    def disconnect(self, websocket: WebSocket, job_id: str):
+        if job_id in self.active_connections:
+            self.active_connections[job_id].discard(websocket)
+            if not self.active_connections[job_id]:
+                del self.active_connections[job_id]
+        logger.info(f"[WebSocket] Client disconnected from job {job_id}")
+
+    async def send_job_update(self, job_id: str, message: dict):
+        """Send update to all clients watching a specific job."""
+        if job_id in self.active_connections:
+            disconnected = []
+            for websocket in self.active_connections[job_id]:
+                try:
+                    await websocket.send_json(message)
+                except Exception as e:
+                    logger.warning(f"[WebSocket] Failed to send to client: {e}")
+                    disconnected.append(websocket)
+            # Clean up disconnected clients
+            for ws in disconnected:
+                self.active_connections[job_id].discard(ws)
+
+    async def broadcast(self, message: dict):
+        """Send message to all connected clients."""
+        for job_id in list(self.active_connections.keys()):
+            await self.send_job_update(job_id, message)
+
+
+# Global connection manager instance
+ws_manager = ConnectionManager()
+
+
+@router.websocket("/ws/jobs/{job_id}")
+async def websocket_job_status(websocket: WebSocket, job_id: str):
+    """
+    WebSocket endpoint for real-time job status updates.
+    Replaces polling for better performance and UX.
+
+    Usage:
+        const ws = new WebSocket(`ws://localhost:8010/ws/jobs/${jobId}`);
+        ws.onmessage = (event) => {
+            const data = JSON.parse(event.data);
+            console.log('Job update:', data);
+        };
+    """
+    await ws_manager.connect(websocket, job_id)
+
+    try:
+        # Get database session
+        from database import SessionLocal
+        db = SessionLocal()
+
+        try:
+            # Send initial status
+            job = db.query(ScanJob).filter_by(job_id=job_id).first()
+            if job:
+                await websocket.send_json({
+                    "type": "status",
+                    "job_id": job.job_id,
+                    "status": job.status,
+                    "progress": job.progress,
+                    "query": job.query
+                })
+            else:
+                await websocket.send_json({
+                    "type": "error",
+                    "message": "Job not found"
+                })
+                return
+
+            # Keep connection alive and poll for updates
+            last_status = job.status
+            last_progress = job.progress
+
+            while True:
+                await asyncio.sleep(1)  # Check every second
+
+                # Refresh job status
+                db.refresh(job)
+
+                # Send update if status or progress changed
+                if job.status != last_status or job.progress != last_progress:
+                    last_status = job.status
+                    last_progress = job.progress
+
+                    update_message = {
+                        "type": "update",
+                        "job_id": job.job_id,
+                        "status": job.status,
+                        "progress": job.progress
+                    }
+
+                    # If completed, include the result
+                    if job.status == "COMPLETED" and job.result:
+                        try:
+                            update_message["result"] = json.loads(job.result)
+                        except:
+                            update_message["result"] = {"error": "Parse error"}
+
+                    # If failed, include error message
+                    if job.status == "FAILED":
+                        update_message["error"] = job.error_message
+
+                    await websocket.send_json(update_message)
+
+                    # Close connection if job is done
+                    if job.status in ("COMPLETED", "FAILED"):
+                        await websocket.send_json({
+                            "type": "complete",
+                            "job_id": job.job_id,
+                            "final_status": job.status
+                        })
+                        break
+
+                # Handle incoming messages (ping/pong, close requests)
+                try:
+                    data = await asyncio.wait_for(
+                        websocket.receive_text(),
+                        timeout=0.1
+                    )
+                    if data == "ping":
+                        await websocket.send_text("pong")
+                    elif data == "close":
+                        break
+                except asyncio.TimeoutError:
+                    pass  # No message received, continue polling
+
+        finally:
+            db.close()
+
+    except WebSocketDisconnect:
+        logger.info(f"[WebSocket] Client disconnected from job {job_id}")
+    except Exception as e:
+        logger.exception(f"[WebSocket] Error for job {job_id}: {e}")
+    finally:
+        ws_manager.disconnect(websocket, job_id)
+
+
+# Helper function to notify WebSocket clients (called from tasks.py)
+async def notify_job_update(job_id: str, status: str, progress: int, result: dict = None, error: str = None):
+    """
+    Notify all WebSocket clients watching a job about an update.
+    Called from Celery tasks via asyncio.
+    """
+    message = {
+        "type": "update",
+        "job_id": job_id,
+        "status": status,
+        "progress": progress
+    }
+    if result:
+        message["result"] = result
+    if error:
+        message["error"] = error
+
+    await ws_manager.send_job_update(job_id, message)
+
 
 @router.get("/workers/status")
 def get_workers_status(db: Session = Depends(get_db)):

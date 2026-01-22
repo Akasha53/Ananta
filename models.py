@@ -114,6 +114,14 @@ class ScanRequest(BaseModel):
         default=None,
         description="Outils Layer 3 approuvés (port_scan, vuln_scan)"
     )
+    report_template: Literal["detailed", "executive", "technical", "minimal"] = Field(
+        default="detailed",
+        description="Template de rapport: detailed (complet), executive (résumé), technical (focus technique), minimal (essentiel)"
+    )
+    language: Literal["fr", "en", "es", "de"] = Field(
+        default="fr",
+        description="Langue du rapport généré: fr (Français), en (English), es (Español), de (Deutsch)"
+    )
 
     @field_validator("query")
     @classmethod
@@ -210,7 +218,7 @@ class ExportRequest(BaseModel):
         max_length=253,
         description="Cible du rapport à exporter"
     )
-    format: Literal["pdf", "json", "csv", "xml", "markdown"] = Field(
+    format: Literal["pdf", "json", "csv", "xml", "markdown", "xlsx"] = Field(
         default="pdf",
         description="Format d'export"
     )

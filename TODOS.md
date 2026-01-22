@@ -1,6 +1,6 @@
 # ANANTA - Liste des Tâches (TODOS)
 
-> **Dernière mise à jour**: 21 janvier 2026
+> **Dernière mise à jour**: 22 janvier 2026
 > **Version**: Ananta v1.0.3 - Mistral 7B (32k context)
 
 ---
@@ -62,22 +62,22 @@
 
 ### Frontend / UX
 - [x] **Mode hors-ligne complet** - PWA avec service worker, cache et page offline
-- [ ] **Notifications WebSocket** - Temps réel au lieu du polling pour les jobs
+- [x] **Notifications WebSocket** - Temps réel au lieu du polling pour les jobs (avec fallback polling)
 - [x] **Dark/Light mode toggle** - Toggle dans Settings + CSS light theme
 - [x] **Keyboard shortcuts** - Navigation rapide (Ctrl+Enter, Ctrl+K, Ctrl+E, ?, etc.)
 - [x] **Responsive mobile** - CSS mobile.css complet + bottom nav + touch optimizations
-- [ ] **Accessibilité (a11y)** - ARIA labels, contraste, navigation clavier
+- [x] **Accessibilité (a11y)** - ARIA labels, contraste, navigation clavier, skip links, focus indicators
 
 ### Multi-langue
-- [ ] **Ajouter Espagnol** - Traductions complètes
-- [ ] **Ajouter Allemand** - Traductions complètes
+- [x] **Ajouter Espagnol** - Traductions complètes dans app.js
+- [x] **Ajouter Allemand** - Traductions complètes dans app.js
 - [ ] **Traduction dynamique** - Traduire les rapports générés par le LLM
-- [ ] **Détection auto de langue** - Basé sur le navigateur
+- [x] **Détection auto de langue** - Basé sur le navigateur (detectBrowserLanguage())
 
 ### Rapports & Export
-- [ ] **Templates de rapports** - Choisir entre plusieurs formats (exécutif, technique, détaillé)
+- [x] **Templates de rapports** - Choisir entre plusieurs formats (détaillé, exécutif, technique, minimal)
 - [ ] **Rapports programmés** - Scheduler des scans récurrents avec alerte par email
-- [ ] **Export Excel (XLSX)** - En plus de CSV, JSON, XML, Markdown
+- [x] **Export Excel (XLSX)** - En plus de CSV, JSON, XML, Markdown (openpyxl)
 - [ ] **Branding personnalisé** - Logo et couleurs custom dans les PDF
 - [ ] **Comparaison de scans** - Améliorer la détection de changements
 - [ ] **Timeline visuelle** - Graphique de l'évolution d'une cible dans le temps
@@ -85,7 +85,7 @@
 ### Performance
 - [ ] **Cache Redis cluster** - Pour haute disponibilité
 - [x] **Compression des réponses** - GZipMiddleware pour réponses > 1KB
-- [ ] **Lazy loading** - Charger les sections de rapport à la demande
+- [x] **Lazy loading** - Charger les sections de rapport à la demande (IntersectionObserver)
 - [x] **Database indexing** - Index sur ScanJob, ToolExecutionLog, Entity, Finding
 - [ ] **Connection pooling** - Optimiser les connexions PostgreSQL
 

@@ -564,7 +564,8 @@ def llm_phase1_extract_findings(raw_data_storage: dict, risk_analysis: dict,
 
 
 def llm_phase2_generate_report(structured_data: dict, target: str,
-                                target_type: str, report_type: str = "osint") -> str:
+                                target_type: str, report_type: str = "osint",
+                                language: str = "fr") -> str:
     """
     WRAPPER Phase 2: Génère le rapport Markdown depuis les findings structurés.
 
@@ -575,13 +576,14 @@ def llm_phase2_generate_report(structured_data: dict, target: str,
         target: Cible scannée
         target_type: Type de cible
         report_type: Type de rapport (défaut: "osint")
+        language: Code langue pour le rapport (fr, en, es, de)
 
     Returns:
         Rapport Markdown complet
     """
-    logger.info(f"[LLM PHASE 2] Génération rapport pour {target}")
+    logger.info(f"[LLM PHASE 2] Génération rapport pour {target} (lang={language})")
 
-    return generate_report_from_structured(target, target_type, structured_data, report_type)
+    return generate_report_from_structured(target, target_type, structured_data, report_type, language)
 
 
 # ================== PARALLEL AGGREGATION ==================
@@ -3231,7 +3233,8 @@ def generate_report_from_structured(
     target: str,
     target_type: str,
     structured_data: dict,
-    report_type: str = "osint"
+    report_type: str = "osint",
+    language: str = "fr"
 ) -> str:
     """
     PHASE 2 : Génération du rapport Markdown à partir du JSON structuré.
@@ -3240,24 +3243,19 @@ def generate_report_from_structured(
     Output : Rapport Markdown complet (1500-2000 tokens)
 
     Le LLM reçoit seulement le JSON + template, pas les données brutes.
+
+    Args:
+        target: Cible analysée
+        target_type: Type de cible (domain, ip, etc.)
+        structured_data: Données structurées du scan
+        report_type: Type de rapport
+        language: Code langue (fr, en, es, de) - default: fr
     """
-    system_prompt = """You are a professional cybersecurity report writer.
-
-Generate a complete OSINT report in Markdown format from the provided structured data.
-
-ABSOLUTE RULES:
-1. Write in French
-2. Use proper Markdown formatting (##, ###, -, *, etc.)
-3. Be factual and precise - use ONLY data from the structured input
-4. NEVER write "Aucune information disponible" - if no data, SKIP the subsection entirely
-5. NEVER hallucinate or invent information not present in the input
-6. NEVER say "no services found" if the data shows IP, location, or infrastructure info
-7. Cloudflare, SSL Corporation, Let's Encrypt are LEGITIMATE SSL issuers, not threats
-8. A valid SSL certificate is a POSITIVE security indicator, not a vulnerability
-9. Distinguish FACTS from HYPOTHESES clearly
-10. Be CONCISE - no filler paragraphs, no empty statements
-
-Report structure:
+    # Language-specific report structures
+    report_structures = {
+        "fr": {
+            "instruction": "Write in French",
+            "sections": """Report structure:
 ## 1. Résumé Exécutif
 (Brief overview based on executive_summary and risk_score)
 
@@ -3275,6 +3273,92 @@ Report structure:
 
 ## 6. Sources & Limites
 (List sources_used and limitations - mention tools that failed/skipped)"""
+        },
+        "en": {
+            "instruction": "Write in English",
+            "sections": """Report structure:
+## 1. Executive Summary
+(Brief overview based on executive_summary and risk_score)
+
+## 2. Identity & Infrastructure
+(WHOIS info, IP location, CDN - ONLY what's available in data)
+
+## 3. Risk Analysis
+(Based on top_findings - categorize by severity)
+
+## 4. Detailed Findings (Top Findings)
+(List each finding with source and impact)
+
+## 5. Recommendations
+(Based on actions from structured data)
+
+## 6. Sources & Limitations
+(List sources_used and limitations - mention tools that failed/skipped)"""
+        },
+        "es": {
+            "instruction": "Write in Spanish",
+            "sections": """Report structure:
+## 1. Resumen Ejecutivo
+(Descripción general basada en executive_summary y risk_score)
+
+## 2. Identidad e Infraestructura
+(Info WHOIS, ubicación IP, CDN - SOLO lo disponible en los datos)
+
+## 3. Análisis de Riesgos
+(Basado en top_findings - categorizar por severidad)
+
+## 4. Hallazgos Detallados (Top Findings)
+(Lista de cada hallazgo con fuente e impacto)
+
+## 5. Recomendaciones
+(Basado en acciones de los datos estructurados)
+
+## 6. Fuentes y Limitaciones
+(Lista de sources_used y limitaciones - mencionar herramientas fallidas)"""
+        },
+        "de": {
+            "instruction": "Write in German",
+            "sections": """Report structure:
+## 1. Zusammenfassung
+(Kurzer Überblick basierend auf executive_summary und risk_score)
+
+## 2. Identität & Infrastruktur
+(WHOIS-Info, IP-Standort, CDN - NUR verfügbare Daten)
+
+## 3. Risikoanalyse
+(Basierend auf top_findings - nach Schweregrad kategorisieren)
+
+## 4. Detaillierte Erkenntnisse (Top Findings)
+(Liste jedes Fundes mit Quelle und Auswirkung)
+
+## 5. Empfehlungen
+(Basierend auf Aktionen aus strukturierten Daten)
+
+## 6. Quellen & Einschränkungen
+(Liste der sources_used und Einschränkungen - fehlgeschlagene Tools erwähnen)"""
+        }
+    }
+
+    # Get language-specific content (fallback to French)
+    lang_config = report_structures.get(language, report_structures["fr"])
+
+    system_prompt = f"""You are a professional cybersecurity report writer.
+
+Generate a complete OSINT report in Markdown format from the provided structured data.
+
+ABSOLUTE RULES:
+1. {lang_config["instruction"]}
+2. Use proper Markdown formatting (##, ###, -, *, etc.)
+3. Be factual and precise - use ONLY data from the structured input
+4. NEVER write "No information available" - if no data, SKIP the subsection entirely
+5. NEVER hallucinate or invent information not present in the input
+6. NEVER say "no services found" if the data shows IP, location, or infrastructure info
+7. Cloudflare, SSL Corporation, Let's Encrypt are LEGITIMATE SSL issuers, not threats
+8. A valid SSL certificate is a POSITIVE security indicator, not a vulnerability
+9. Distinguish FACTS from HYPOTHESES clearly
+10. Be CONCISE - no filler paragraphs, no empty statements
+
+{lang_config["sections"]}"""
 
     user_prompt = f"""Target: {target} ({target_type})
 
@@ -3294,7 +3378,7 @@ Generate a complete OSINT report in Markdown."""
     return report
 
 
-def generate_layer3_report(target: str, results: dict, base_context: str = "") -> str:
+def generate_layer3_report(target: str, results: dict, base_context: str = "", language: str = "fr") -> str:
     """
     Génère un rapport LLM pour les résultats Layer 3 (port_scan, vuln_scan).
     Si base_context est fourni (rapport Layer 1+2), il sera intégré pour un rapport plus complet.
@@ -3303,24 +3387,16 @@ def generate_layer3_report(target: str, results: dict, base_context: str = "") -
         target: Cible scannée (IP ou domaine)
         results: Dictionnaire avec port_scan et/ou vuln_scan
         base_context: Rapport Layer 1+2 optionnel pour enrichir le contexte
+        language: Code langue (fr, en, es, de) - default: fr
 
     Returns:
         Rapport Markdown généré par le LLM
     """
-    system_prompt = """You are a professional penetration tester writing a COMPREHENSIVE security assessment report.
-
-Generate a CRITICAL SECURITY SCAN REPORT in French Markdown format from the provided scan results.
-
-RULES:
-1. Write in French
-2. Use proper Markdown formatting (##, ###, tables, bullet points)
-3. Be factual - ONLY use data from the scan results
-4. Prioritize findings by severity (CRITICAL > HIGH > MEDIUM > LOW)
-5. For open ports, explain what each service typically does and potential attack vectors
-6. For vulnerabilities, provide context on why they matter and how to fix them
-7. Be CONCISE but THOROUGH
-
-Report structure:
+    # Language-specific Layer 3 report structures
+    layer3_structures = {
+        "fr": {
+            "instruction": "Write in French",
+            "sections": """Report structure:
 
 ## 🎯 Résumé Exécutif
 (Target, scan type, overall risk assessment, key metrics)
@@ -3341,6 +3417,98 @@ Report structure:
 
 ## ⚖️ Disclaimer Légal
 (Note about scope and authorization)"""
+        },
+        "en": {
+            "instruction": "Write in English",
+            "sections": """Report structure:
+
+## 🎯 Executive Summary
+(Target, scan type, overall risk assessment, key metrics)
+
+## 🔓 Open Ports & Services
+(Table of open ports with service analysis - if port_scan data exists)
+| Port | Service | Analysis |
+|------|---------|----------|
+
+## ⚠️ Detected Vulnerabilities
+(List by severity with impact analysis - if vuln_scan data exists)
+
+## 🛡️ Security Headers
+(Present/missing security headers analysis)
+
+## 📋 Priority Recommendations
+(Actionable fixes ordered by severity)
+
+## ⚖️ Legal Disclaimer
+(Note about scope and authorization)"""
+        },
+        "es": {
+            "instruction": "Write in Spanish",
+            "sections": """Report structure:
+
+## 🎯 Resumen Ejecutivo
+(Objetivo, tipo de escaneo, evaluación de riesgo general, métricas clave)
+
+## 🔓 Puertos Abiertos y Servicios
+(Tabla de puertos abiertos con análisis de servicios - si existen datos de port_scan)
+| Puerto | Servicio | Análisis |
+|--------|----------|----------|
+
+## ⚠️ Vulnerabilidades Detectadas
+(Lista por severidad con análisis de impacto - si existen datos de vuln_scan)
+
+## 🛡️ Encabezados de Seguridad
+(Análisis de encabezados de seguridad presentes/faltantes)
+
+## 📋 Recomendaciones Prioritarias
+(Correcciones accionables ordenadas por severidad)
+
+## ⚖️ Descargo Legal
+(Nota sobre alcance y autorización)"""
+        },
+        "de": {
+            "instruction": "Write in German",
+            "sections": """Report structure:
+
+## 🎯 Zusammenfassung
+(Ziel, Scan-Typ, Gesamtrisikobewertung, Schlüsselmetriken)
+
+## 🔓 Offene Ports & Dienste
+(Tabelle offener Ports mit Dienstanalyse - wenn port_scan Daten vorhanden)
+| Port | Dienst | Analyse |
+|------|--------|---------|
+
+## ⚠️ Erkannte Schwachstellen
+(Liste nach Schweregrad mit Auswirkungsanalyse - wenn vuln_scan Daten vorhanden)
+
+## 🛡️ Sicherheitsheader
+(Analyse vorhandener/fehlender Sicherheitsheader)
+
+## 📋 Prioritäre Empfehlungen
+(Umsetzbare Korrekturen nach Schweregrad geordnet)
+
+## ⚖️ Rechtlicher Hinweis
+(Hinweis zu Umfang und Genehmigung)"""
+        }
+    }
+
+    # Get language-specific content (fallback to French)
+    lang_config = layer3_structures.get(language, layer3_structures["fr"])
+
+    system_prompt = f"""You are a professional penetration tester writing a COMPREHENSIVE security assessment report.
+
+Generate a CRITICAL SECURITY SCAN REPORT in Markdown format from the provided scan results.
+
+RULES:
+1. {lang_config["instruction"]}
+2. Use proper Markdown formatting (##, ###, tables, bullet points)
+3. Be factual - ONLY use data from the scan results
+4. Prioritize findings by severity (CRITICAL > HIGH > MEDIUM > LOW)
+5. For open ports, explain what each service typically does and potential attack vectors
+6. For vulnerabilities, provide context on why they matter and how to fix them
+7. Be CONCISE but THOROUGH
+
+{lang_config["sections"]}"""
 
     # Prepare structured data for LLM
     scan_data = {
@@ -3610,7 +3778,7 @@ Total: {len(tool_cards)} outils
 
 # ================== ORCHESTRATEUR CENTRAL (AVEC CACHE BDD) ==================
 
-def logic_run_report(query: str, db: Session, report_type: str = "osint", progress_callback: callable = None, layer_filter: Optional[List[int]] = None) -> Dict[str, Any]:
+def logic_run_report(query: str, db: Session, report_type: str = "osint", progress_callback: callable = None, layer_filter: Optional[List[int]] = None, language: str = "fr") -> Dict[str, Any]:
     """
     1. Identifie la cible.
     2. Vérifie le cache BDD (< 10 jours).
@@ -3618,6 +3786,7 @@ def logic_run_report(query: str, db: Session, report_type: str = "osint", progre
 
     v2.0 : Utilise execute_tool_with_audit() pour tous les outils (audit trail complet)
     v2.1 : Support du filtrage par couche (layer_filter) pour multi-workers
+    v2.2 : Support multi-langue (fr, en, es, de)
 
     Args:
         query: La requête/cible à analyser
@@ -3626,6 +3795,7 @@ def logic_run_report(query: str, db: Session, report_type: str = "osint", progre
         progress_callback: Fonction optionnelle (progress: int, status: str) pour updates
         layer_filter: Liste des couches à exécuter (ex: [1] pour Layer 1 only, [1,2] pour Layer 1+2)
                      None = toutes les couches (comportement par défaut)
+        language: Code langue pour le rapport (fr, en, es, de) - default: fr
     """
     def update_progress(progress: int, status: str = "PROCESSING"):
         """Helper pour mettre à jour la progression si callback disponible."""
@@ -4650,10 +4820,11 @@ Données collectées:
                 target=target,
                 target_type=target_type,
                 structured_data=structured_data,
-                report_type=report_type
+                report_type=report_type,
+                language=language
             )
 
-            logger.info(f"[HYBRID PIPELINE] ✅ Rapport complet généré ({len(final_report)} caractères)")
+            logger.info(f"[HYBRID PIPELINE] ✅ Rapport complet généré ({len(final_report)} caractères, lang={language})")
 
         except Exception as e:
             logger.error(f"[HYBRID PIPELINE] ❌ Erreur pipeline: {e}")

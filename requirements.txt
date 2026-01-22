@@ -34,6 +34,9 @@ torch>=2.0.0  # Required by sentence-transformers
 # === PDF Generation ===
 reportlab>=4.0.0
 
+# === Excel Export ===
+openpyxl>=3.1.0
+
 # === System Monitoring ===
 psutil>=5.9.0
 GPUtil>=1.4.0  # GPU monitoring (optional)

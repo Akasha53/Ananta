@@ -74,13 +74,14 @@ def task_failure_handler(sender=None, task_id=None, exception=None, args=None, k
 # ==================== TÂCHES ====================
 
 @app.task(bind=True, name="ananta.scan_osint")
-def scan_osint_task(self, query: str, report_type: str = "osint"):
+def scan_osint_task(self, query: str, report_type: str = "osint", language: str = "fr"):
     """
     Tâche Celery pour exécuter un scan OSINT complet en arrière-plan.
 
     Args:
         query: La cible à scanner (domaine, IP, ou requête)
         report_type: Type de rapport ("osint" ou "general")
+        language: Code langue pour le rapport (fr, en, es, de)
 
     Returns:
         dict: Résultat du scan avec rapport et métadonnées
@@ -112,7 +113,7 @@ def scan_osint_task(self, query: str, report_type: str = "osint"):
             db.commit()
 
         # Exécuter le scan OSINT avec callback de progression
-        result = logic_run_report(query, db, report_type=report_type, progress_callback=update_progress)
+        result = logic_run_report(query, db, report_type=report_type, progress_callback=update_progress, language=language)
 
         # Mettre à jour le statut à "COMPLETED"
         job = db.query(ScanJob).filter_by(job_id=self.request.id).first()
@@ -122,7 +123,7 @@ def scan_osint_task(self, query: str, report_type: str = "osint"):
             job.result = json.dumps(result)
             db.commit()
 
-        logger.info(f"[SCAN] Scan complété pour: {query}")
+        logger.info(f"[SCAN] Scan complété pour: {query} (lang={language})")
         return result
 
     except Exception as e:
@@ -794,6 +795,322 @@ def scan_parallel_task(self, query: str):
     }
 
 
+# ==================== TÂCHES PROGRAMMÉES (SCHEDULED SCANS) ====================
+
+@app.task(bind=True, name="ananta.check_scheduled_scans")
+def check_scheduled_scans_task(self):
+    """
+    Tâche périodique qui vérifie les scans programmés à exécuter.
+    Exécutée toutes les minutes par Celery Beat.
+
+    Pour chaque scan dont next_run_at <= now et is_active=True,
+    lance l'exécution et met à jour le prochain run.
+    """
+    from database import ScheduledScan
+
+    logger.info("[SCHEDULER] Vérification des scans programmés...")
+
+    db = SessionLocal()
+    executed = 0
+
+    try:
+        now = datetime.now(timezone.utc)
+
+        # Trouver les scans à exécuter
+        due_scans = db.query(ScheduledScan).filter(
+            ScheduledScan.is_active == True,
+            ScheduledScan.next_run_at <= now,
+            ScheduledScan.last_run_status != "RUNNING"  # Éviter les doublons
+        ).all()
+
+        for scan in due_scans:
+            logger.info(f"[SCHEDULER] Lancement du scan programmé: {scan.name} -> {scan.target}")
+
+            # Marquer comme en cours
+            scan.last_run_status = "RUNNING"
+            db.commit()
+
+            # Lancer la tâche d'exécution
+            execute_scheduled_scan_task.delay(scan.id)
+            executed += 1
+
+        logger.info(f"[SCHEDULER] {executed} scan(s) programmé(s) lancé(s)")
+        return {"checked": len(due_scans), "executed": executed}
+
+    except Exception as e:
+        logger.error(f"[SCHEDULER ERROR] {str(e)}")
+        db.rollback()
+        raise
+    finally:
+        db.close()
+
+
+@app.task(bind=True, name="ananta.execute_scheduled_scan")
+def execute_scheduled_scan_task(self, scheduled_scan_id: int):
+    """
+    Exécute un scan programmé spécifique.
+
+    Args:
+        scheduled_scan_id: ID du ScheduledScan à exécuter
+
+    Workflow:
+    1. Charge la config du scan programmé
+    2. Exécute le scan OSINT
+    3. Compare avec le dernier rapport (si notify_on_change)
+    4. Envoie notification email si nécessaire
+    5. Met à jour next_run_at selon la planification
+    """
+    from database import ScheduledScan, EntityReport
+    import smtplib
+    from email.mime.text import MIMEText
+    from email.mime.multipart import MIMEMultipart
+
+    logger.info(f"[SCHEDULED SCAN] Exécution du scan programmé ID: {scheduled_scan_id}")
+
+    db = SessionLocal()
+
+    try:
+        # Charger la configuration
+        scan = db.query(ScheduledScan).filter_by(id=scheduled_scan_id).first()
+        if not scan:
+            logger.error(f"[SCHEDULED SCAN] Scan programmé {scheduled_scan_id} introuvable")
+            return {"error": "Scheduled scan not found"}
+
+        if not scan.is_active:
+            logger.warning(f"[SCHEDULED SCAN] Scan {scan.name} désactivé, abandon")
+            return {"status": "skipped", "reason": "inactive"}
+
+        # Sauvegarder l'ancien rapport pour comparaison
+        old_report = None
+        if scan.notify_on_change:
+            existing = db.query(EntityReport).filter_by(target=scan.target.lower()).first()
+            if existing:
+                old_report = existing.final_report
+
+        # Exécuter le scan
+        logger.info(f"[SCHEDULED SCAN] Lancement scan: {scan.target} (mode: {scan.scan_mode})")
+
+        result = logic_run_report(
+            scan.target,
+            db,
+            report_type="osint",
+            language=scan.language
+        )
+
+        # Mise à jour du statut
+        scan.last_run_at = datetime.now(timezone.utc)
+        scan.run_count += 1
+
+        if result.get("error"):
+            scan.last_run_status = "FAILED"
+            scan.last_error = result.get("error")
+
+            # Notification d'erreur
+            if scan.notify_on_error and scan.notify_email:
+                send_scheduled_scan_notification(
+                    scan.notify_email,
+                    scan.name,
+                    scan.target,
+                    "error",
+                    error_message=scan.last_error
+                )
+        else:
+            scan.last_run_status = "SUCCESS"
+            scan.last_error = None
+
+            # Vérifier les changements
+            new_report = result.get("report", "")
+            has_changes = old_report is None or old_report != new_report
+
+            # Notification si changements ou toujours notifier
+            if scan.notify_email:
+                if not scan.notify_on_change or has_changes:
+                    send_scheduled_scan_notification(
+                        scan.notify_email,
+                        scan.name,
+                        scan.target,
+                        "success",
+                        report_preview=new_report[:500] if new_report else None,
+                        has_changes=has_changes
+                    )
+
+        # Calculer le prochain run
+        scan.next_run_at = calculate_next_run(scan)
+
+        db.commit()
+
+        logger.info(f"[SCHEDULED SCAN] Scan {scan.name} terminé. Prochain: {scan.next_run_at}")
+
+        return {
+            "status": scan.last_run_status,
+            "target": scan.target,
+            "next_run": str(scan.next_run_at)
+        }
+
+    except Exception as e:
+        logger.error(f"[SCHEDULED SCAN ERROR] {str(e)}")
+
+        # Mise à jour du statut en cas d'erreur
+        try:
+            scan = db.query(ScheduledScan).filter_by(id=scheduled_scan_id).first()
+            if scan:
+                scan.last_run_status = "FAILED"
+                scan.last_error = str(e)
+                scan.next_run_at = calculate_next_run(scan)
+                db.commit()
+        except:
+            db.rollback()
+
+        raise
+    finally:
+        db.close()
+
+
+def calculate_next_run(scan) -> datetime:
+    """
+    Calcule la prochaine date d'exécution d'un scan programmé.
+
+    Args:
+        scan: Instance de ScheduledScan
+
+    Returns:
+        datetime du prochain run
+    """
+    now = datetime.now(timezone.utc)
+
+    if scan.schedule_type == "daily":
+        # Tous les jours à l'heure spécifiée
+        next_run = now.replace(hour=scan.hour, minute=0, second=0, microsecond=0)
+        if next_run <= now:
+            next_run += timedelta(days=1)
+        return next_run
+
+    elif scan.schedule_type == "weekly":
+        # Une fois par semaine, jour et heure spécifiés
+        days_ahead = scan.day_of_week - now.weekday()
+        if days_ahead <= 0:  # Le jour est passé cette semaine
+            days_ahead += 7
+        next_run = now + timedelta(days=days_ahead)
+        next_run = next_run.replace(hour=scan.hour, minute=0, second=0, microsecond=0)
+        if next_run <= now:
+            next_run += timedelta(weeks=1)
+        return next_run
+
+    elif scan.schedule_type == "monthly":
+        # Une fois par mois, jour du mois et heure spécifiés
+        day = min(scan.day_of_month, 28)  # Sécurité pour février
+        next_run = now.replace(day=day, hour=scan.hour, minute=0, second=0, microsecond=0)
+        if next_run <= now:
+            # Passer au mois suivant
+            if now.month == 12:
+                next_run = next_run.replace(year=now.year + 1, month=1)
+            else:
+                next_run = next_run.replace(month=now.month + 1)
+        return next_run
+
+    elif scan.schedule_type == "custom" and scan.cron_expression:
+        # Expression cron personnalisée
+        try:
+            from croniter import croniter
+            cron = croniter(scan.cron_expression, now)
+            return cron.get_next(datetime)
+        except ImportError:
+            logger.warning("[SCHEDULER] croniter non installé, fallback daily")
+            return now + timedelta(days=1)
+        except Exception as e:
+            logger.error(f"[SCHEDULER] Erreur parsing cron: {e}")
+            return now + timedelta(days=1)
+
+    # Fallback: dans 24h
+    return now + timedelta(days=1)
+
+
+def send_scheduled_scan_notification(
+    email: str,
+    scan_name: str,
+    target: str,
+    status: str,
+    error_message: str = None,
+    report_preview: str = None,
+    has_changes: bool = False
+):
+    """
+    Envoie une notification par email pour un scan programmé.
+
+    Args:
+        email: Adresse email destinataire
+        scan_name: Nom du scan programmé
+        target: Cible scannée
+        status: "success" ou "error"
+        error_message: Message d'erreur (si status=error)
+        report_preview: Aperçu du rapport (si status=success)
+        has_changes: Indique si des changements ont été détectés
+    """
+    smtp_host = os.getenv("SMTP_HOST")
+    smtp_port = int(os.getenv("SMTP_PORT", "587"))
+    smtp_user = os.getenv("SMTP_USER")
+    smtp_pass = os.getenv("SMTP_PASS")
+    smtp_from = os.getenv("SMTP_FROM", "ananta@localhost")
+
+    if not smtp_host:
+        logger.warning("[EMAIL] SMTP_HOST non configuré, notification ignorée")
+        return False
+
+    try:
+        # Construire le message
+        msg = MIMEMultipart("alternative")
+        msg["Subject"] = f"[Ananta] Scan programmé: {scan_name} - {'OK' if status == 'success' else 'ERREUR'}"
+        msg["From"] = smtp_from
+        msg["To"] = email
+
+        if status == "success":
+            changes_text = "Des changements ont été détectés!" if has_changes else "Aucun changement détecté."
+            body = f"""
+Rapport de scan programmé Ananta
+
+Nom: {scan_name}
+Cible: {target}
+Statut: Succès
+{changes_text}
+
+Aperçu du rapport:
+{report_preview or 'Voir le rapport complet sur l\'interface web.'}
+
+---
+Ce message est généré automatiquement par Ananta OSINT Platform.
+            """
+        else:
+            body = f"""
+Rapport de scan programmé Ananta
+
+Nom: {scan_name}
+Cible: {target}
+Statut: ERREUR
+
+Message d'erreur:
+{error_message or 'Erreur inconnue'}
+
+---
+Ce message est généré automatiquement par Ananta OSINT Platform.
+            """
+
+        msg.attach(MIMEText(body, "plain"))
+
+        # Envoyer
+        with smtplib.SMTP(smtp_host, smtp_port) as server:
+            if smtp_user and smtp_pass:
+                server.starttls()
+                server.login(smtp_user, smtp_pass)
+            server.send_message(msg)
+
+        logger.info(f"[EMAIL] Notification envoyée à {email}")
+        return True
+
+    except Exception as e:
+        logger.error(f"[EMAIL ERROR] Échec envoi notification: {e}")
+        return False
+
+
 # ==================== TÂCHES PÉRIODIQUES ====================
 
 # Configuration des tâches périodiques (optionnel)
@@ -802,6 +1119,11 @@ app.conf.beat_schedule = {
         'task': 'ananta.cleanup_old_jobs',
         'schedule': 86400.0,  # Toutes les 24h
         'args': (7,)  # Supprimer les jobs de plus de 7 jours
+    },
+    'check-scheduled-scans-minutely': {
+        'task': 'ananta.check_scheduled_scans',
+        'schedule': 60.0,  # Toutes les minutes
+        'args': ()
     },
 }
 

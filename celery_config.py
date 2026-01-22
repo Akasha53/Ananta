@@ -115,6 +115,16 @@ CELERY_ROUTES = {
         'queue': 'default',
         'routing_key': 'default',
     },
+
+    # Scans programmés (Celery Beat)
+    'ananta.check_scheduled_scans': {
+        'queue': 'maintenance',
+        'routing_key': 'maintenance',
+    },
+    'ananta.execute_scheduled_scan': {
+        'queue': 'osint_medium',
+        'routing_key': 'osint.medium',
+    },
 }
 
 # ==================== CONFIGURATION CELERY ====================

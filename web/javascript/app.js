@@ -134,6 +134,7 @@ const DEFAULT_SETTINGS = {
     cacheTtl: 10,
     exportFormat: 'pdf',
     scanMode: 'standard',  // "fast" (Layer 1), "standard" (Layer 1+2), "full" (all)
+    reportTemplate: 'detailed',  // "detailed", "executive", "technical", "minimal"
     compactMode: false,
     fontSize: 'medium',
     accentColor: 'cyan',
@@ -322,6 +323,182 @@ const TRANSLATIONS = {
         'close_modal': 'Close modal',
         'show_shortcuts': 'Show this help',
         'press_escape': 'Press Escape to close'
+    },
+    es: {
+        // General
+        'system_initialized': 'Sistema Inicializado',
+        'system_ready': 'Bienvenido a la consola de inteligencia Ananta. Listo para la extracción de datos. Por favor ingrese una URL, IP o dominio para iniciar el análisis OSINT.',
+        'execute': 'EJECUTAR',
+        'export_report': 'Exportar Informe',
+        'backend_api': 'Backend API',
+
+        // Sidebar
+        'central_console': 'Consola Central',
+        'database': 'Base de datos',
+        'user': 'Usuario',
+        'root_access': 'Acceso Root',
+
+        // System Health
+        'system_health': 'Salud del Sistema',
+        'db_latency': 'Latencia BD',
+        'worker_state': 'Estado Worker',
+        'cpu_load': 'Carga CPU',
+        'gpu_load': 'Carga GPU',
+        'indicators_extracted': 'Indicadores Extraídos',
+        'no_indicators': 'No se identificaron indicadores en la sesión actual.',
+
+        // Messages
+        'error_critical': 'ERROR CRÍTICO:',
+        'scan_launched': 'Escaneo OSINT lanzado en segundo plano. Por favor espere...',
+        'no_recent_analysis': 'No hay análisis reciente para exportar.',
+        'generating_report': 'Generando informe',
+
+        // Settings
+        'settings': 'Configuración',
+        'api_configuration': 'Configuración API',
+        'backend_url': 'URL del Backend',
+        'auto_detection': 'Dejar vacío para auto-detección',
+        'llm_parameters': 'Parámetros LLM',
+        'temperature': 'Temperatura',
+        'temperature_hint': 'Más alto = más creativo, más bajo = más preciso',
+        'timeout_seconds': 'Timeout (segundos)',
+        'cache_management': 'Gestión de Caché',
+        'space_used': 'Espacio utilizado',
+        'cache_ttl_days': 'TTL del caché (días)',
+        'clear_cache': 'Limpiar caché',
+        'export_settings': 'Exportar',
+        'default_format': 'Formato predeterminado',
+        'display_settings': 'Visualización',
+        'compact_mode': 'Modo compacto',
+        'font_size': 'Tamaño de fuente',
+        'font_small': 'Pequeña',
+        'font_medium': 'Mediana',
+        'font_large': 'Grande',
+        'theme': 'Tema',
+        'accent_color': 'Color de acento',
+        'history': 'Historial',
+        'max_reports': 'Número máximo de informes',
+        'auto_delete_days': 'Auto-eliminar después de (días)',
+        'auto_delete_hint': '0 = nunca eliminar',
+        'notifications': 'Notificaciones',
+        'browser_alerts': 'Alertas del navegador',
+        'notification_hint': 'Recibir una notificación cuando termine un escaneo',
+        'test': 'Probar',
+        'favorites': 'Accesos Directos Favoritos',
+        'no_favorites': 'Sin favoritos',
+        'add_target': 'Agregar un objetivo...',
+        'reset': 'Restablecer',
+        'save': 'Guardar',
+        'language': 'Idioma',
+
+        // Notifications
+        'settings_saved': 'Configuración guardada correctamente.',
+        'settings_reset': 'Configuración restablecida.',
+        'cache_cleared': 'Caché limpiado correctamente.',
+        'scan_complete': 'Escaneo completo',
+        'scan_complete_message': 'El análisis de {target} está completo.',
+
+        // Layer 3 / Critical Mode
+        'critical_consent_required': 'Debe confirmar que tiene autorización legal para usar las herramientas Layer 3.',
+        'critical_no_tools': 'Debe seleccionar al menos una herramienta Layer 3 (escaneo de puertos o vulnerabilidades).',
+
+        // Keyboard Shortcuts
+        'keyboard_shortcuts': 'Atajos de Teclado',
+        'execute_scan': 'Ejecutar escaneo',
+        'focus_search': 'Enfocar búsqueda',
+        'open_settings': 'Configuración',
+        'go_to_database': 'Ir a Base de datos',
+        'close_modal': 'Cerrar modal',
+        'show_shortcuts': 'Mostrar esta ayuda',
+        'press_escape': 'Presione Escape para cerrar'
+    },
+    de: {
+        // General
+        'system_initialized': 'System Initialisiert',
+        'system_ready': 'Willkommen bei der Ananta Intelligence-Konsole. Bereit für Datenextraktion. Bitte geben Sie eine URL, IP oder Domain ein, um die OSINT-Analyse zu starten.',
+        'execute': 'AUSFÜHREN',
+        'export_report': 'Bericht Exportieren',
+        'backend_api': 'Backend API',
+
+        // Sidebar
+        'central_console': 'Zentrale Konsole',
+        'database': 'Datenbank',
+        'user': 'Benutzer',
+        'root_access': 'Root-Zugang',
+
+        // System Health
+        'system_health': 'Systemzustand',
+        'db_latency': 'DB-Latenz',
+        'worker_state': 'Worker-Status',
+        'cpu_load': 'CPU-Last',
+        'gpu_load': 'GPU-Last',
+        'indicators_extracted': 'Extrahierte Indikatoren',
+        'no_indicators': 'Keine Indikatoren in der aktuellen Sitzung identifiziert.',
+
+        // Messages
+        'error_critical': 'KRITISCHER FEHLER:',
+        'scan_launched': 'OSINT-Scan im Hintergrund gestartet. Bitte warten...',
+        'no_recent_analysis': 'Keine aktuelle Analyse zum Exportieren.',
+        'generating_report': 'Bericht wird erstellt',
+
+        // Settings
+        'settings': 'Einstellungen',
+        'api_configuration': 'API-Konfiguration',
+        'backend_url': 'Backend-URL',
+        'auto_detection': 'Leer lassen für automatische Erkennung',
+        'llm_parameters': 'LLM-Parameter',
+        'temperature': 'Temperatur',
+        'temperature_hint': 'Höher = kreativer, niedriger = präziser',
+        'timeout_seconds': 'Timeout (Sekunden)',
+        'cache_management': 'Cache-Verwaltung',
+        'space_used': 'Genutzter Speicher',
+        'cache_ttl_days': 'Cache-TTL (Tage)',
+        'clear_cache': 'Cache leeren',
+        'export_settings': 'Export',
+        'default_format': 'Standardformat',
+        'display_settings': 'Anzeige',
+        'compact_mode': 'Kompaktmodus',
+        'font_size': 'Schriftgröße',
+        'font_small': 'Klein',
+        'font_medium': 'Mittel',
+        'font_large': 'Groß',
+        'theme': 'Design',
+        'accent_color': 'Akzentfarbe',
+        'history': 'Verlauf',
+        'max_reports': 'Maximale Anzahl Berichte',
+        'auto_delete_days': 'Auto-Löschen nach (Tagen)',
+        'auto_delete_hint': '0 = niemals löschen',
+        'notifications': 'Benachrichtigungen',
+        'browser_alerts': 'Browser-Benachrichtigungen',
+        'notification_hint': 'Benachrichtigung erhalten, wenn ein Scan abgeschlossen ist',
+        'test': 'Testen',
+        'favorites': 'Favoriten-Verknüpfungen',
+        'no_favorites': 'Keine Favoriten',
+        'add_target': 'Ziel hinzufügen...',
+        'reset': 'Zurücksetzen',
+        'save': 'Speichern',
+        'language': 'Sprache',
+
+        // Notifications
+        'settings_saved': 'Einstellungen erfolgreich gespeichert.',
+        'settings_reset': 'Einstellungen zurückgesetzt.',
+        'cache_cleared': 'Cache erfolgreich geleert.',
+        'scan_complete': 'Scan abgeschlossen',
+        'scan_complete_message': 'Die Analyse von {target} ist abgeschlossen.',
+
+        // Layer 3 / Critical Mode
+        'critical_consent_required': 'Sie müssen bestätigen, dass Sie die rechtliche Genehmigung zur Verwendung von Layer 3-Tools haben.',
+        'critical_no_tools': 'Sie müssen mindestens ein Layer 3-Tool auswählen (Port-Scan oder Schwachstellen-Scan).',
+
+        // Keyboard Shortcuts
+        'keyboard_shortcuts': 'Tastaturkürzel',
+        'execute_scan': 'Scan ausführen',
+        'focus_search': 'Suche fokussieren',
+        'open_settings': 'Einstellungen',
+        'go_to_database': 'Zur Datenbank',
+        'close_modal': 'Modal schließen',
+        'show_shortcuts': 'Diese Hilfe anzeigen',
+        'press_escape': 'Escape drücken zum Schließen'
     }
 };
 
@@ -338,11 +515,114 @@ function t(key, params = {}) {
     return text;
 }
 
+// Apply translations to all elements with data-i18n attribute
+function applyTranslations() {
+    const lang = appSettings.language || 'fr';
+    console.log('[i18n] Applying translations for language:', lang);
+
+    // Update all elements with data-i18n attribute
+    document.querySelectorAll('[data-i18n]').forEach(el => {
+        const key = el.getAttribute('data-i18n');
+        if (key && TRANSLATIONS[lang]?.[key]) {
+            el.textContent = TRANSLATIONS[lang][key];
+        } else if (key && TRANSLATIONS['fr']?.[key]) {
+            el.textContent = TRANSLATIONS['fr'][key];
+        }
+    });
+
+    // Update all elements with data-i18n-placeholder attribute
+    document.querySelectorAll('[data-i18n-placeholder]').forEach(el => {
+        const key = el.getAttribute('data-i18n-placeholder');
+        if (key && TRANSLATIONS[lang]?.[key]) {
+            el.placeholder = TRANSLATIONS[lang][key];
+        }
+    });
+
+    // Update all elements with data-i18n-title attribute
+    document.querySelectorAll('[data-i18n-title]').forEach(el => {
+        const key = el.getAttribute('data-i18n-title');
+        if (key && TRANSLATIONS[lang]?.[key]) {
+            el.title = TRANSLATIONS[lang][key];
+        }
+    });
+
+    // Update HTML lang attribute
+    document.documentElement.lang = lang;
+
+    // Update specific well-known elements by ID
+    const translations = {
+        // Sidebar
+        'btn-console span.hidden': 'central_console',
+        // Header
+        // Main UI elements are handled by data-i18n attributes
+    };
+
+    // Apply critical UI translations directly
+    applyStaticTranslations(lang);
+}
+
+// Apply translations to static HTML elements that don't have data-i18n
+function applyStaticTranslations(lang) {
+    const trans = TRANSLATIONS[lang] || TRANSLATIONS['fr'];
+
+    // Send button
+    const sendBtn = document.querySelector('#send-btn span');
+    if (sendBtn) sendBtn.textContent = trans['execute'] || 'EXECUTER';
+
+    // Export button
+    const exportBtn = document.querySelector('#btn-export-pdf');
+    if (exportBtn) {
+        const icon = exportBtn.querySelector('i');
+        exportBtn.innerHTML = '';
+        if (icon) exportBtn.appendChild(icon);
+        exportBtn.appendChild(document.createTextNode(' ' + (trans['export_report'] || 'Exporter Rapport')));
+    }
+
+    // Settings modal title
+    const settingsTitle = document.getElementById('settings-title');
+    if (settingsTitle) {
+        const icon = settingsTitle.querySelector('i');
+        settingsTitle.innerHTML = '';
+        if (icon) {
+            settingsTitle.appendChild(icon);
+            settingsTitle.appendChild(document.createTextNode(' ' + (trans['settings'] || 'Paramètres')));
+        }
+    }
+
+    // Settings section titles
+    const sectionTitles = {
+        'api_configuration': document.querySelector('.settings-section:nth-child(1) .settings-section-title'),
+        'llm_parameters': document.querySelector('.settings-section:nth-child(2) .settings-section-title'),
+    };
+
+    // More comprehensive updates could be added here
+}
+
+// Detect browser language and map to supported languages
+function detectBrowserLanguage() {
+    const supportedLanguages = ['fr', 'en', 'es', 'de'];
+    const browserLang = navigator.language || navigator.userLanguage || 'fr';
+    const langCode = browserLang.split('-')[0].toLowerCase();
+
+    if (supportedLanguages.includes(langCode)) {
+        return langCode;
+    }
+    // Default to English for unsupported languages, French for francophone fallback
+    return browserLang.startsWith('fr') ? 'fr' : 'en';
+}
+
 // Load settings from localStorage
 function loadSettings() {
     try {
         const saved = localStorage.getItem('ananta-settings');
-        return saved ? { ...DEFAULT_SETTINGS, ...JSON.parse(saved) } : { ...DEFAULT_SETTINGS };
+        if (saved) {
+            return { ...DEFAULT_SETTINGS, ...JSON.parse(saved) };
+        } else {
+            // First time load - detect browser language
+            const detectedLang = detectBrowserLanguage();
+            console.log('[Settings] Auto-detected language:', detectedLang);
+            return { ...DEFAULT_SETTINGS, language: detectedLang };
+        }
     } catch {
         return { ...DEFAULT_SETTINGS };
     }
@@ -570,17 +850,76 @@ async function denyToolUsage(approval_id) {
     }
 }
 
-function renderOsintResults(results) {
+// Lazy Loading Observer for report sections
+const lazyLoadObserver = 'IntersectionObserver' in window ? new IntersectionObserver((entries) => {
+    entries.forEach(entry => {
+        if (entry.isIntersecting) {
+            const section = entry.target;
+            const lazyContent = section.getAttribute('data-lazy-content');
+            if (lazyContent) {
+                try {
+                    // Replace placeholder with actual content
+                    section.innerHTML = decodeURIComponent(lazyContent);
+                    section.removeAttribute('data-lazy-content');
+                    section.classList.remove('lazy-section');
+                    section.classList.add('lazy-section-loaded');
+                } catch (e) {
+                    console.error('[LazyLoad] Error loading section:', e);
+                }
+            }
+            lazyLoadObserver.unobserve(section);
+        }
+    });
+}, {
+    rootMargin: '100px', // Start loading 100px before visible
+    threshold: 0.1
+}) : null;
+
+// Create a lazy-loadable section
+function createLazySection(content, placeholder = null) {
+    if (!lazyLoadObserver) {
+        // Fallback: return content directly if IntersectionObserver not supported
+        return content;
+    }
+
+    const sectionId = `lazy-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+    const placeholderHtml = placeholder || `
+        <div class="lazy-placeholder animate-pulse">
+            <div class="h-4 bg-slate-700 rounded w-3/4 mb-2"></div>
+            <div class="h-3 bg-slate-700 rounded w-1/2"></div>
+        </div>
+    `;
+
+    // Schedule observer attachment after DOM is updated
+    setTimeout(() => {
+        const section = document.getElementById(sectionId);
+        if (section) {
+            lazyLoadObserver.observe(section);
+        }
+    }, 0);
+
+    return `
+        <div id="${sectionId}" class="lazy-section" data-lazy-content="${encodeURIComponent(content)}">
+            ${placeholderHtml}
+        </div>
+    `;
+}
+
+function renderOsintResults(results, useLazyLoad = true) {
     if (!results || results.length === 0) {
         return `<p class="text-rose-400 italic">⚠️ Aucun point d'entrée trouvé pour cette cible.</p>`;
     }
 
-    const cards = results.map((r, i) => `
-    <div class="osint-card border border-slate-800 bg-slate-900/40 p-4 rounded-xl transition-all">
+    // For large result sets, use lazy loading
+    const LAZY_THRESHOLD = 4;
+    const shouldLazyLoad = useLazyLoad && results.length > LAZY_THRESHOLD;
+
+    const renderCard = (r, i) => `
+    <div class="osint-card border border-slate-800 bg-slate-900/40 p-4 rounded-xl transition-all" role="article" aria-label="Source ${i + 1}">
       <div class="flex justify-between items-start mb-3">
         <span class="px-2 py-0.5 bg-cyan-500/10 text-cyan-400 border border-cyan-500/20 rounded text-[9px] font-bold uppercase tracking-tighter">SOURCE #${i + 1}</span>
-        <a href="${r.url}" target="_blank" class="text-slate-500 hover:text-cyan-400 transition-colors">
-          <i class="fas fa-external-link-alt text-xs"></i>
+        <a href="${r.url}" target="_blank" rel="noopener noreferrer" class="text-slate-500 hover:text-cyan-400 transition-colors" aria-label="Ouvrir la source dans un nouvel onglet">
+          <i class="fas fa-external-link-alt text-xs" aria-hidden="true"></i>
         </a>
       </div>
       <h4 class="text-cyan-100 font-bold text-sm mb-2 truncate">${escapeHtml(r.title || 'Sans titre')}</h4>
@@ -588,7 +927,34 @@ function renderOsintResults(results) {
         ${escapeHtml(r.summary || r.description || 'Aucune description disponible.')}
       </p>
     </div>
-  `).join("");
+  `;
+
+    if (shouldLazyLoad) {
+        // Render first few cards immediately, lazy load the rest
+        const immediateCards = results.slice(0, LAZY_THRESHOLD).map((r, i) => renderCard(r, i)).join("");
+        const lazyCards = results.slice(LAZY_THRESHOLD).map((r, i) => renderCard(r, i + LAZY_THRESHOLD)).join("");
+
+        const lazySection = createLazySection(
+            `<div class="grid grid-cols-1 md:grid-cols-2 gap-4">${lazyCards}</div>`,
+            `<div class="text-center py-4">
+                <i class="fas fa-spinner fa-spin text-cyan-500 mr-2"></i>
+                <span class="text-slate-500 text-xs">Chargement de ${results.length - LAZY_THRESHOLD} sources supplémentaires...</span>
+            </div>`
+        );
+
+        return `
+        <div class="space-y-4 mt-2">
+          <p class="text-xs text-slate-500 uppercase tracking-widest font-bold mb-4">Sources Analysées (${results.length}):</p>
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+            ${immediateCards}
+          </div>
+          ${lazySection}
+        </div>
+      `;
+    }
+
+    // Standard rendering for small result sets
+    const cards = results.map((r, i) => renderCard(r, i)).join("");
 
     return `
     <div class="space-y-4 mt-2">
@@ -884,11 +1250,17 @@ async function askBackend(query) {
 async function askBackendAsync(query) {
     // Récupérer le scan_mode depuis les settings (défaut: "standard")
     const scanMode = appSettings.scanMode || 'standard';
+    // Récupérer la langue depuis les settings (défaut: "fr")
+    const language = appSettings.language || 'fr';
+    // Récupérer le template de rapport (défaut: "detailed")
+    const reportTemplate = appSettings.reportTemplate || 'detailed';
 
     // Build request payload
     const payload = {
         query: query,
-        scan_mode: scanMode
+        scan_mode: scanMode,
+        language: language,
+        report_template: reportTemplate
     };
 
     // Si mode critique, vérifier le consentement et récupérer les outils approuvés
@@ -928,6 +1300,70 @@ async function pollJobStatus(jobId) {
         throw new Error("Impossible de récupérer le statut du job");
     }
     return res.json();
+}
+
+// WebSocket support for real-time job updates
+function createJobWebSocket(jobId, onUpdate, onComplete, onError) {
+    const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const wsHost = API_BASE.replace(/^https?:\/\//, '') || `${window.location.hostname}:${window.location.port}`;
+    const wsUrl = `${wsProtocol}//${wsHost}/ws/jobs/${jobId}`;
+
+    console.log('[WebSocket] Connecting to:', wsUrl);
+
+    const ws = new WebSocket(wsUrl);
+
+    ws.onopen = () => {
+        console.log('[WebSocket] Connected for job:', jobId);
+    };
+
+    ws.onmessage = (event) => {
+        try {
+            const data = JSON.parse(event.data);
+            console.log('[WebSocket] Received:', data.type, data);
+
+            if (data.type === 'update' || data.type === 'status') {
+                onUpdate(data);
+            }
+
+            if (data.type === 'complete' || data.status === 'COMPLETED' || data.status === 'FAILED') {
+                onComplete(data);
+                ws.close();
+            }
+
+            if (data.type === 'error') {
+                onError(new Error(data.message || 'WebSocket error'));
+                ws.close();
+            }
+        } catch (e) {
+            console.error('[WebSocket] Parse error:', e);
+        }
+    };
+
+    ws.onerror = (error) => {
+        console.error('[WebSocket] Error:', error);
+        onError(new Error('WebSocket connection error'));
+    };
+
+    ws.onclose = (event) => {
+        console.log('[WebSocket] Closed:', event.code, event.reason);
+    };
+
+    // Ping to keep connection alive
+    const pingInterval = setInterval(() => {
+        if (ws.readyState === WebSocket.OPEN) {
+            ws.send('ping');
+        } else {
+            clearInterval(pingInterval);
+        }
+    }, 30000);
+
+    return {
+        ws,
+        close: () => {
+            clearInterval(pingInterval);
+            ws.close();
+        }
+    };
 }
 
 function isOsintQuery(query) {
@@ -1007,9 +1443,6 @@ async function handleExecution() {
 }
 
 async function pollAndDisplayResults(jobId) {
-    const maxAttempts = 180; // 180 tentatives x 2s = 6 minutes max (backend timeout = 5 min)
-    let attempts = 0;
-
     // Créer un message de progression
     const chatInner = document.getElementById("chat-inner");
     const progressWrapper = document.createElement("div");
@@ -1019,6 +1452,7 @@ async function pollAndDisplayResults(jobId) {
             <div class="flex items-center gap-3 mb-3">
                 <i class="fas fa-sync animate-spin text-cyan-400"></i>
                 <span class="text-sm font-bold text-cyan-400">SCAN EN COURS</span>
+                <span id="connection-type-${jobId}" class="text-[10px] text-slate-600 ml-auto"></span>
             </div>
             <div class="w-full bg-slate-800 rounded-full h-2 overflow-hidden">
                 <div id="progress-bar-${jobId}" class="bg-cyan-500 h-2 transition-all duration-300" style="width: 0%"></div>
@@ -1030,91 +1464,144 @@ async function pollAndDisplayResults(jobId) {
 
     const progressBar = document.getElementById(`progress-bar-${jobId}`);
     const progressText = document.getElementById(`progress-text-${jobId}`);
+    const connectionType = document.getElementById(`connection-type-${jobId}`);
 
-    while (attempts < maxAttempts) {
-        await new Promise(resolve => setTimeout(resolve, 2000)); // Poll toutes les 2 secondes
+    // Try WebSocket first, fallback to polling
+    const useWebSocket = 'WebSocket' in window;
 
-        try {
-            const jobStatus = await pollJobStatus(jobId);
+    return new Promise((resolve, reject) => {
+        let wsConnection = null;
+        let pollingFallback = false;
 
-            // Mettre à jour la barre de progression
-            if (progressBar && jobStatus.progress !== undefined) {
-                progressBar.style.width = `${jobStatus.progress}%`;
-            }
+        const handleResult = (result) => {
+            progressWrapper.remove();
+            let aiContent = "";
 
-            if (progressText) {
-                progressText.textContent = `${jobStatus.status} - ${jobStatus.progress || 0}%`;
-            }
+            // Check if this is a Layer 3 (critical) scan result
+            if (result.layer === 3 && result.results) {
+                aiContent += `<div class="mb-4">
+                    <div class="flex items-center gap-2 mb-3">
+                        <span class="px-2 py-1 bg-rose-500/20 text-rose-400 border border-rose-500/30 rounded text-xs font-bold">
+                            <i class="fas fa-radiation mr-1"></i>LAYER 3 CRITICAL SCAN
+                        </span>
+                        <span class="text-slate-400 text-xs">${escapeHtml(result.target)}</span>
+                    </div>
+                </div>`;
 
-            // Vérifier l'état
-            if (jobStatus.status === "COMPLETED") {
-                // Supprimer le message de progression
-                progressWrapper.remove();
-
-                // Afficher le résultat
-                const result = jobStatus.result;
-                let aiContent = "";
-
-                // Check if this is a Layer 3 (critical) scan result
-                if (result.layer === 3 && result.results) {
-                    aiContent += `<div class="mb-4">
-                        <div class="flex items-center gap-2 mb-3">
-                            <span class="px-2 py-1 bg-rose-500/20 text-rose-400 border border-rose-500/30 rounded text-xs font-bold">
-                                <i class="fas fa-radiation mr-1"></i>LAYER 3 CRITICAL SCAN
-                            </span>
-                            <span class="text-slate-400 text-xs">${escapeHtml(result.target)}</span>
-                        </div>
-                    </div>`;
-
-                    // Show LLM report if available
-                    if (result.report) {
-                        const renderedReport = parseMarkdown(result.report);
-                        aiContent += `<div class="mb-4 prose prose-invert prose-sm max-w-none">${renderedReport}</div>`;
-                    }
-
-                    // Also show structured results
-                    aiContent += `<details class="mt-4">
-                        <summary class="cursor-pointer text-sm text-slate-400 hover:text-cyan-400">
-                            <i class="fas fa-code mr-2"></i>Données brutes du scan
-                        </summary>
-                        <div class="mt-2">${renderLayer3Results(result)}</div>
-                    </details>`;
-                } else {
-                    // Standard scan result format
-                    if (result.report) {
-                        // Parse markdown to HTML for proper rendering
-                        const renderedReport = parseMarkdown(result.report);
-                        aiContent += `<div class="mb-4 prose prose-invert prose-sm max-w-none">${renderedReport}</div>`;
-                    }
-
-                    if (result.sources && result.sources.length > 0) {
-                        aiContent += renderOsintResults(result.sources);
-                        updateIntelFeed(result.sources);
-                    }
+                if (result.report) {
+                    const renderedReport = parseMarkdown(result.report);
+                    aiContent += `<div class="mb-4 prose prose-invert prose-sm max-w-none">${renderedReport}</div>`;
                 }
 
-                addChatMessage({ author: "ANANTA AI", content: aiContent || "<i>Scan complété</i>" });
+                aiContent += `<details class="mt-4">
+                    <summary class="cursor-pointer text-sm text-slate-400 hover:text-cyan-400">
+                        <i class="fas fa-code mr-2"></i>Données brutes du scan
+                    </summary>
+                    <div class="mt-2">${renderLayer3Results(result)}</div>
+                </details>`;
+            } else {
+                if (result.report) {
+                    const renderedReport = parseMarkdown(result.report);
+                    aiContent += `<div class="mb-4 prose prose-invert prose-sm max-w-none">${renderedReport}</div>`;
+                }
 
-                // Send browser notification if enabled
-                notifyScanComplete(lastTarget);
-                return;
-
-            } else if (jobStatus.status === "FAILED") {
-                progressWrapper.remove();
-                throw new Error(jobStatus.error || "Le scan a échoué");
+                if (result.sources && result.sources.length > 0) {
+                    aiContent += renderOsintResults(result.sources);
+                    updateIntelFeed(result.sources);
+                }
             }
 
-            attempts++;
+            addChatMessage({ author: "ANANTA AI", content: aiContent || "<i>Scan complété</i>" });
+            notifyScanComplete(lastTarget);
+            resolve();
+        };
 
-        } catch (e) {
+        const handleError = (error) => {
             progressWrapper.remove();
-            throw new Error(`Erreur de polling: ${e.message}`);
-        }
-    }
+            reject(error);
+        };
 
-    // Timeout
-    progressWrapper.remove();
-    throw new Error("Timeout : le scan a pris trop de temps");
+        const updateProgress = (data) => {
+            if (progressBar && data.progress !== undefined) {
+                progressBar.style.width = `${data.progress}%`;
+            }
+            if (progressText) {
+                progressText.textContent = `${data.status || 'PROCESSING'} - ${data.progress || 0}%`;
+            }
+        };
+
+        // Try WebSocket first
+        if (useWebSocket) {
+            if (connectionType) connectionType.textContent = '⚡ WebSocket';
+
+            wsConnection = createJobWebSocket(
+                jobId,
+                // onUpdate
+                (data) => {
+                    updateProgress(data);
+                },
+                // onComplete
+                (data) => {
+                    if (data.status === 'COMPLETED' && data.result) {
+                        handleResult(data.result);
+                    } else if (data.status === 'FAILED') {
+                        handleError(new Error(data.error || 'Le scan a échoué'));
+                    }
+                },
+                // onError - fallback to polling
+                (error) => {
+                    console.warn('[WebSocket] Error, falling back to polling:', error);
+                    pollingFallback = true;
+                    if (connectionType) connectionType.textContent = '📡 Polling';
+                    startPolling();
+                }
+            );
+
+            // Set a timeout to switch to polling if WebSocket doesn't work
+            setTimeout(() => {
+                if (wsConnection && wsConnection.ws.readyState !== WebSocket.OPEN && !pollingFallback) {
+                    console.warn('[WebSocket] Connection timeout, falling back to polling');
+                    wsConnection.close();
+                    pollingFallback = true;
+                    if (connectionType) connectionType.textContent = '📡 Polling';
+                    startPolling();
+                }
+            }, 5000);
+        } else {
+            if (connectionType) connectionType.textContent = '📡 Polling';
+            startPolling();
+        }
+
+        // Polling fallback function
+        async function startPolling() {
+            const maxAttempts = 180;
+            let attempts = 0;
+
+            while (attempts < maxAttempts) {
+                await new Promise(r => setTimeout(r, 2000));
+
+                try {
+                    const jobStatus = await pollJobStatus(jobId);
+                    updateProgress(jobStatus);
+
+                    if (jobStatus.status === "COMPLETED") {
+                        handleResult(jobStatus.result);
+                        return;
+                    } else if (jobStatus.status === "FAILED") {
+                        handleError(new Error(jobStatus.error || "Le scan a échoué"));
+                        return;
+                    }
+
+                    attempts++;
+                } catch (e) {
+                    handleError(new Error(`Erreur de polling: ${e.message}`));
+                    return;
+                }
+            }
+
+            handleError(new Error("Timeout : le scan a pris trop de temps"));
+        }
+    });
 }
 
 // --- BOUTONS SIDEBAR ---
@@ -1128,6 +1615,7 @@ async function handleExportPDF() {
     const format = appSettings.exportFormat || 'pdf';
     const formatNames = {
         'pdf': 'PDF',
+        'xlsx': 'Excel',
         'json': 'JSON',
         'csv': 'CSV',
         'xml': 'XML',
@@ -1136,6 +1624,7 @@ async function handleExportPDF() {
 
     const endpoints = {
         'pdf': `/osint/generate_pdf/?query=${encodeURIComponent(lastTarget)}`,
+        'xlsx': `/osint/export/xlsx?query=${encodeURIComponent(lastTarget)}`,
         'json': `/osint/export/json?query=${encodeURIComponent(lastTarget)}`,
         'csv': `/osint/export/csv?query=${encodeURIComponent(lastTarget)}`,
         'xml': `/osint/export/xml?query=${encodeURIComponent(lastTarget)}`,
@@ -1157,6 +1646,10 @@ async function handleExportPDF() {
 document.addEventListener("DOMContentLoaded", () => {
     console.log('[Init] DOM Content Loaded');
     console.log('[Init] API_BASE:', API_BASE);
+    console.log('[Init] Language:', appSettings.language);
+
+    // Apply translations immediately on page load
+    applyTranslations();
 
     // Check if all required elements exist
     const requiredElements = {
@@ -1254,6 +1747,12 @@ function populateSettingsForm() {
         radio.checked = radio.value === (appSettings.scanMode || 'standard');
     });
 
+    // Report Template
+    const reportTemplateRadios = document.querySelectorAll('input[name="report-template"]');
+    reportTemplateRadios.forEach(radio => {
+        radio.checked = radio.value === (appSettings.reportTemplate || 'detailed');
+    });
+
     // Compact Mode
     const compactCheckbox = document.getElementById("setting-compact-mode");
     if (compactCheckbox) compactCheckbox.checked = appSettings.compactMode;
@@ -1277,6 +1776,14 @@ function populateSettingsForm() {
     languageRadios.forEach(radio => {
         radio.checked = radio.value === appSettings.language;
     });
+
+    // Show detected language hint
+    const langHint = document.getElementById("auto-detect-lang-hint");
+    if (langHint) {
+        const detectedLang = detectBrowserLanguage();
+        const langNames = { fr: 'Français', en: 'English', es: 'Español', de: 'Deutsch' };
+        langHint.textContent = `Langue détectée du navigateur: ${langNames[detectedLang] || detectedLang}`;
+    }
 
     // Max Reports
     const maxReportsInput = document.getElementById("setting-max-reports");
@@ -1495,6 +2002,9 @@ function saveSettings() {
     // Scan mode
     const scanMode = document.querySelector('input[name="scan-mode"]:checked')?.value || 'standard';
 
+    // Report template
+    const reportTemplate = document.querySelector('input[name="report-template"]:checked')?.value || 'detailed';
+
     // Accent color
     const activeColor = document.querySelector(".color-swatch.active");
     const accentColor = activeColor?.dataset.color || 'cyan';
@@ -1513,6 +2023,7 @@ function saveSettings() {
         cacheTtl: parseInt(cacheTtlInput?.value) || 10,
         exportFormat,
         scanMode,
+        reportTemplate,
         compactMode: compactCheckbox?.checked || false,
         fontSize: fontSizeSelect?.value || 'medium',
         accentColor,
@@ -1545,19 +2056,23 @@ function saveSettings() {
 
     closeSettings();
 
-    // Reload page if API URL or language changed
-    if (apiUrlChanged || languageChanged) {
+    // Reload page only if API URL changed (language is now applied dynamically)
+    if (apiUrlChanged) {
         setTimeout(() => {
-            const message = languageChanged
-                ? 'Language changed. Reload the page to apply? / Langue modifiée. Recharger la page pour appliquer ?'
-                : (language === 'fr'
-                    ? 'L\'URL de l\'API a changé. Recharger la page pour appliquer ?'
-                    : 'API URL changed. Reload the page to apply?');
+            const message = language === 'fr'
+                ? 'L\'URL de l\'API a changé. Recharger la page pour appliquer ?'
+                : 'API URL changed. Reload the page to apply?';
 
             if (confirm(message)) {
                 window.location.reload();
             }
         }, 500);
+    }
+
+    // Translations are now applied dynamically without reload
+    if (languageChanged) {
+        console.log('[Settings] Language changed to:', language);
+        // applyTranslations is called in applySettings()
     }
 }
 
@@ -1596,6 +2111,9 @@ function applySettings() {
         Notification.requestPermission();
     }
 
+    // Apply translations based on selected language
+    applyTranslations();
+
     // Update export button text based on format
     updateExportButton();
 }
@@ -1607,6 +2125,7 @@ function updateExportButton() {
     const format = appSettings.exportFormat || 'pdf';
     const icons = {
         'pdf': 'fa-file-pdf',
+        'xlsx': 'fa-file-excel',
         'json': 'fa-file-code',
         'csv': 'fa-file-csv',
         'xml': 'fa-file-code',
@@ -1615,6 +2134,7 @@ function updateExportButton() {
 
     const labels = {
         'pdf': 'Exporter PDF',
+        'xlsx': 'Exporter Excel',
         'json': 'Exporter JSON',
         'csv': 'Exporter CSV',
         'xml': 'Exporter XML',

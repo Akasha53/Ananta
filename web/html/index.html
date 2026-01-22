@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="fr" class="dark">
+<html lang="fr" class="dark" dir="ltr">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover, maximum-scale=1" />
@@ -41,12 +41,15 @@
 </head>
 
 <body class="overflow-hidden">
-  <div class="scanline"></div>
+  <!-- Skip to main content link for keyboard/screen reader users -->
+  <a href="#chat-zone" class="skip-link">Aller au contenu principal</a>
+
+  <div class="scanline" aria-hidden="true"></div>
 
   <div class="flex h-screen w-full">
 
     <!-- SIDEBAR GAUCHE -->
-    <aside class="w-20 md:w-64 glass-panel flex flex-col items-center py-6 gap-8">
+    <aside class="w-20 md:w-64 glass-panel flex flex-col items-center py-6 gap-8" role="navigation" aria-label="Navigation principale">
       <div class="flex items-center gap-3 px-4 group cursor-default">
         <div class="w-10 h-10 bg-cyan-500 rounded flex items-center justify-center shadow-[0_0_20px_rgba(34,211,238,0.5)] group-hover:rotate-90 transition-transform duration-500">
           <i class="fas fa-microchip text-slate-900 text-xl"></i>
@@ -60,52 +63,52 @@
       <nav class="flex-1 w-full px-3 space-y-4">
         <div class="hidden md:block text-[10px] text-slate-500 uppercase font-bold tracking-widest ml-3 mb-2">Modules</div>
         
-        <button id="btn-console" class="w-full flex items-center justify-center md:justify-start gap-4 p-3 rounded-lg bg-cyan-500/10 text-cyan-400 border border-cyan-500/20 shadow-inner">
-          <i class="fas fa-terminal text-lg"></i>
-          <span class="hidden md:block text-sm font-medium uppercase">Console Centrale</span>
+        <button id="btn-console" class="w-full flex items-center justify-center md:justify-start gap-4 p-3 rounded-lg bg-cyan-500/10 text-cyan-400 border border-cyan-500/20 shadow-inner" aria-label="Console Centrale" aria-current="page" role="menuitem">
+          <i class="fas fa-terminal text-lg" aria-hidden="true"></i>
+          <span class="hidden md:block text-sm font-medium uppercase" data-i18n="central_console">Console Centrale</span>
         </button>
         
         <!-- Ajout ID btn-database -->
-        <a href="database.html" class="w-full flex items-center justify-center md:justify-start gap-4 p-3 rounded-lg text-slate-500 hover:bg-slate-800 transition-all">
-          <i class="fas fa-database text-lg"></i>
-          <span class="hidden md:block text-sm font-medium uppercase">Base de données</span>
+        <a href="database.html" class="w-full flex items-center justify-center md:justify-start gap-4 p-3 rounded-lg text-slate-500 hover:bg-slate-800 transition-all focus:outline-none focus:ring-2 focus:ring-cyan-500" role="menuitem" aria-label="Base de données">
+          <i class="fas fa-database text-lg" aria-hidden="true"></i>
+          <span class="hidden md:block text-sm font-medium uppercase" data-i18n="database">Base de données</span>
         </a>
 
         <!-- Monitoring Dashboard -->
-        <a href="monitoring.html" class="w-full flex items-center justify-center md:justify-start gap-4 p-3 rounded-lg text-slate-500 hover:bg-slate-800 transition-all">
-          <i class="fas fa-chart-line text-lg"></i>
+        <a href="monitoring.html" class="w-full flex items-center justify-center md:justify-start gap-4 p-3 rounded-lg text-slate-500 hover:bg-slate-800 transition-all focus:outline-none focus:ring-2 focus:ring-cyan-500" role="menuitem" aria-label="Monitoring">
+          <i class="fas fa-chart-line text-lg" aria-hidden="true"></i>
           <span class="hidden md:block text-sm font-medium uppercase">Monitoring</span>
         </a>
 
         <!-- Scan Comparison -->
-        <a href="comparison.html" class="w-full flex items-center justify-center md:justify-start gap-4 p-3 rounded-lg text-slate-500 hover:bg-slate-800 transition-all">
-          <i class="fas fa-code-compare text-lg"></i>
+        <a href="comparison.html" class="w-full flex items-center justify-center md:justify-start gap-4 p-3 rounded-lg text-slate-500 hover:bg-slate-800 transition-all focus:outline-none focus:ring-2 focus:ring-cyan-500" role="menuitem" aria-label="Comparaison de scans">
+          <i class="fas fa-code-compare text-lg" aria-hidden="true"></i>
           <span class="hidden md:block text-sm font-medium uppercase">Comparaison</span>
         </a>
 
         <!-- Workers Monitoring -->
-        <a href="workers.html" class="w-full flex items-center justify-center md:justify-start gap-4 p-3 rounded-lg text-slate-500 hover:bg-slate-800 transition-all">
-          <i class="fas fa-server text-lg"></i>
+        <a href="workers.html" class="w-full flex items-center justify-center md:justify-start gap-4 p-3 rounded-lg text-slate-500 hover:bg-slate-800 transition-all focus:outline-none focus:ring-2 focus:ring-cyan-500" role="menuitem" aria-label="Workers Celery">
+          <i class="fas fa-server text-lg" aria-hidden="true"></i>
           <span class="hidden md:block text-sm font-medium uppercase">Workers</span>
         </a>
       </nav>
 
       <div class="w-full px-3 pt-6 border-t border-slate-800">
-        <div class="hidden md:block text-[10px] text-slate-500 uppercase font-bold tracking-widest ml-3 mb-3">Utilisateur</div>
+        <div class="hidden md:block text-[10px] text-slate-500 uppercase font-bold tracking-widest ml-3 mb-3" data-i18n="user">Utilisateur</div>
         <div class="flex items-center gap-3 p-2 rounded-lg bg-slate-800/50">
           <div class="w-8 h-8 rounded-full bg-slate-700 flex items-center justify-center overflow-hidden">
             <i class="fas fa-user-secret text-slate-400"></i>
           </div>
           <div class="hidden md:block overflow-hidden">
             <p class="text-[10px] font-bold truncate">ANALYSTE_01</p>
-            <p class="text-[9px] text-emerald-500 uppercase">Accès Root</p>
+            <p class="text-[9px] text-emerald-500 uppercase" data-i18n="root_access">Accès Root</p>
           </div>
         </div>
       </div>
     </aside>
 
     <!-- CENTRE -->
-    <main class="flex-1 flex flex-col relative min-w-0 overflow-hidden">
+    <main class="flex-1 flex flex-col relative min-w-0 overflow-hidden" role="main" aria-label="Console OSINT principale">
 
       <header class="h-16 glass-panel flex items-center justify-between px-6 z-10">
         <div class="flex items-center gap-4">
@@ -123,22 +126,22 @@
         <div class="flex items-center gap-6">
           <div class="flex items-center gap-2 px-3 py-1 rounded-full bg-slate-900 border border-slate-800">
             <div id="led-api" class="status-led led-off"></div>
-            <span class="text-[10px] font-bold uppercase tracking-tighter text-slate-400">Backend API</span>
+            <span class="text-[10px] font-bold uppercase tracking-tighter text-slate-400" data-i18n="backend_api">Backend API</span>
           </div>
-          <button id="btn-settings" class="text-slate-500 hover:text-white transition-colors"><i class="fas fa-cog"></i></button>
+          <button id="btn-settings" class="text-slate-500 hover:text-white transition-colors focus:outline-none focus:ring-2 focus:ring-cyan-500 rounded" aria-label="Ouvrir les paramètres" title="Paramètres (Ctrl+,)"><i class="fas fa-cog" aria-hidden="true"></i></button>
         </div>
       </header>
 
       <!-- Chat -->
-      <section id="chat-zone" class="flex-1 overflow-y-auto px-6 py-6">
-        <div id="chat-inner" class="mx-auto w-full max-w-6xl space-y-6">
-          <div class="message-appear bg-slate-900/40 border border-slate-800 p-6 rounded-xl flex gap-5 items-start">
+      <section id="chat-zone" class="flex-1 overflow-y-auto px-6 py-6" role="log" aria-label="Conversation avec Ananta" aria-live="polite">
+        <div id="chat-inner" class="mx-auto w-full max-w-6xl space-y-6" role="list">
+          <div class="message-appear bg-slate-900/40 border border-slate-800 p-6 rounded-xl flex gap-5 items-start" id="init-message">
             <div class="w-10 h-10 rounded bg-cyan-500/20 flex items-center justify-center text-cyan-400 flex-shrink-0">
               <i class="fas fa-info-circle"></i>
             </div>
             <div>
-              <h3 class="text-cyan-400 font-bold text-sm uppercase tracking-wider mb-1">Système Initialisé</h3>
-              <p class="text-slate-400 text-sm leading-relaxed">
+              <h3 class="text-cyan-400 font-bold text-sm uppercase tracking-wider mb-1" data-i18n="system_initialized">Système Initialisé</h3>
+              <p class="text-slate-400 text-sm leading-relaxed" data-i18n="system_ready">
                 Bienvenue dans la console de renseignement Ananta. Prêt pour l'extraction de données.
                 Veuillez entrer une URL, une IP ou un domaine pour débuter l'analyse OSINT.
               </p>
@@ -153,49 +156,54 @@
           <div class="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
             <i class="fas fa-chevron-right text-cyan-500 text-sm group-focus-within:animate-pulse"></i>
           </div>
+          <label for="query-input" class="sr-only">Entrez une cible OSINT (domaine, IP) ou une question</label>
           <input
             id="query-input"
             type="text"
             autocomplete="off"
             placeholder="Analyses @domaine, scanning IP, ou requête contextuelle..."
-            class="w-full terminal-input rounded-xl pl-10 pr-32 py-4 text-sm font-medium transition-all"
+            class="w-full terminal-input rounded-xl pl-10 pr-32 py-4 text-sm font-medium transition-all focus:outline-none focus:ring-2 focus:ring-cyan-500"
+            aria-label="Champ de recherche OSINT"
+            aria-describedby="query-hint"
           />
+          <span id="query-hint" class="sr-only">Utilisez Ctrl+Enter pour exécuter le scan</span>
           <button
             id="send-btn"
-            class="absolute right-2 top-2 bottom-2 px-6 bg-cyan-600 hover:bg-cyan-500 text-slate-900 font-bold rounded-lg transition-all flex items-center gap-2 group"
+            class="absolute right-2 top-2 bottom-2 px-6 bg-cyan-600 hover:bg-cyan-500 text-slate-900 font-bold rounded-lg transition-all flex items-center gap-2 group focus:outline-none focus:ring-2 focus:ring-cyan-300"
+            aria-label="Exécuter le scan OSINT"
           >
-            <span>EXECUTER</span>
-            <i class="fas fa-paper-plane text-xs transition-transform group-hover:translate-x-1"></i>
+            <span data-i18n="execute">EXECUTER</span>
+            <i class="fas fa-paper-plane text-xs transition-transform group-hover:translate-x-1" aria-hidden="true"></i>
           </button>
         </div>
       </div>
     </main>
 
     <!-- SIDEBAR DROITE -->
-    <aside class="w-80 glass-panel hidden lg:flex flex-col p-6 gap-8 min-w-[320px]">
+    <aside class="w-80 glass-panel hidden lg:flex flex-col p-6 gap-8 min-w-[320px]" role="complementary" aria-label="Informations système et indicateurs">
 
       <!-- System Health -->
       <section>
         <div class="text-[10px] uppercase font-bold text-slate-500 tracking-widest flex items-center gap-2">
           <i class="fas fa-heartbeat text-rose-500"></i>
-          Santé du Système
+          <span data-i18n="system_health">Santé du Système</span>
         </div>
 
         <div class="mt-6 space-y-4">
           <div class="flex justify-between items-center p-3 rounded-lg bg-slate-900/50 border border-slate-800">
-            <span class="text-xs text-slate-400">DB Latency</span>
+            <span class="text-xs text-slate-400" data-i18n="db_latency">DB Latency</span>
             <span id="db-latency" class="text-xs font-bold text-slate-600">-- ms</span>
           </div>
 
           <div class="flex justify-between items-center p-3 rounded-lg bg-slate-900/50 border border-slate-800">
-            <span class="text-xs text-slate-400">Worker State</span>
+            <span class="text-xs text-slate-400" data-i18n="worker_state">Worker State</span>
             <span id="worker-status" class="text-xs font-bold text-slate-600">IDLE</span>
           </div>
 
           <!-- CPU -->
           <div class="p-3 rounded-lg bg-slate-900/50 border border-slate-800">
             <div class="flex justify-between items-center mb-2">
-              <span class="text-xs text-slate-400">CPU Load</span>
+              <span class="text-xs text-slate-400" data-i18n="cpu_load">CPU Load</span>
               <span id="cpu-percent" class="text-[10px] font-bold text-slate-600">--%</span>
             </div>
             <div class="w-full bg-slate-800 h-1 rounded-full overflow-hidden">
@@ -206,7 +214,7 @@
           <!-- GPU -->
           <div class="p-3 rounded-lg bg-slate-900/50 border border-slate-800">
             <div class="flex justify-between items-center mb-2">
-              <span class="text-xs text-slate-400">GPU Load</span>
+              <span class="text-xs text-slate-400" data-i18n="gpu_load">GPU Load</span>
               <span id="gpu-percent" class="text-[10px] font-bold text-slate-600">--%</span>
             </div>
             <div class="w-full bg-slate-800 h-1 rounded-full overflow-hidden">
@@ -220,11 +228,11 @@
       <section class="flex-1 flex flex-col min-h-0">
         <div class="text-[10px] uppercase font-bold text-slate-500 tracking-widest flex items-center gap-2">
           <i class="fas fa-fingerprint text-cyan-500"></i>
-          Indicateurs Extraits
+          <span data-i18n="indicators_extracted">Indicateurs Extraits</span>
         </div>
 
         <div id="intel-feed" class="flex-1 overflow-y-auto space-y-3 pr-2 min-h-0 mt-4">
-          <div class="text-[11px] text-slate-600 italic text-center py-10 px-4 border border-dashed border-slate-800 rounded-lg">
+          <div class="text-[11px] text-slate-600 italic text-center py-10 px-4 border border-dashed border-slate-800 rounded-lg" data-i18n="no_indicators">
             Aucun indicateur identifié dans la session actuelle.
           </div>
         </div>
@@ -232,8 +240,8 @@
 
       <!-- Footer -->
       <div class="pt-4 border-t border-slate-800">
-        <button id="btn-export-pdf" class="w-full py-3 bg-slate-800 hover:bg-slate-700 rounded-lg text-xs font-bold uppercase tracking-widest transition-colors mb-2">
-          <i class="fas fa-file-pdf mr-2"></i> Exporter Rapport
+        <button id="btn-export-pdf" class="w-full py-3 bg-slate-800 hover:bg-slate-700 rounded-lg text-xs font-bold uppercase tracking-widest transition-colors mb-2 focus:outline-none focus:ring-2 focus:ring-cyan-500" aria-label="Exporter le rapport" title="Exporter (Ctrl+E)">
+          <i class="fas fa-file-pdf mr-2" aria-hidden="true"></i><span data-i18n="export_report">Exporter Rapport</span>
         </button>
       </div>
     </aside>
@@ -261,15 +269,15 @@
   </div>
 
   <!-- Settings Modal -->
-  <div id="settings-modal" class="settings-modal hidden">
-    <div class="settings-overlay" onclick="closeSettings()"></div>
-    <div class="settings-panel glass-panel">
+  <div id="settings-modal" class="settings-modal hidden" role="dialog" aria-modal="true" aria-labelledby="settings-title">
+    <div class="settings-overlay" onclick="closeSettings()" aria-hidden="true"></div>
+    <div class="settings-panel glass-panel" role="document">
       <div class="settings-header">
-        <h2 class="text-lg font-bold text-cyan-400 uppercase tracking-wider flex items-center gap-3">
-          <i class="fas fa-cog"></i> Paramètres
+        <h2 id="settings-title" class="text-lg font-bold text-cyan-400 uppercase tracking-wider flex items-center gap-3">
+          <i class="fas fa-cog" aria-hidden="true"></i> Paramètres
         </h2>
-        <button onclick="closeSettings()" class="text-slate-500 hover:text-white transition-colors">
-          <i class="fas fa-times text-xl"></i>
+        <button onclick="closeSettings()" class="text-slate-500 hover:text-white transition-colors focus:outline-none focus:ring-2 focus:ring-cyan-500 rounded" aria-label="Fermer les paramètres">
+          <i class="fas fa-times text-xl" aria-hidden="true"></i>
         </button>
       </div>
 
@@ -389,6 +397,38 @@
           </button>
         </section>
 
+        <!-- Report Templates -->
+        <section class="settings-section">
+          <h3 class="settings-section-title">
+            <i class="fas fa-file-invoice text-teal-500"></i> Template de Rapport
+          </h3>
+          <div class="settings-field">
+            <label>Style du rapport généré</label>
+            <div class="settings-radio-group" style="flex-direction: column; gap: 8px;">
+              <label class="settings-radio">
+                <input type="radio" name="report-template" value="detailed" checked />
+                <span><i class="fas fa-list-alt"></i> Détaillé</span>
+              </label>
+              <p class="settings-hint" style="margin-left: 24px; margin-top: -4px;">Rapport complet avec toutes les informations et analyses</p>
+              <label class="settings-radio">
+                <input type="radio" name="report-template" value="executive" />
+                <span><i class="fas fa-briefcase"></i> Exécutif</span>
+              </label>
+              <p class="settings-hint" style="margin-left: 24px; margin-top: -4px;">Résumé pour décideurs avec points clés et recommandations</p>
+              <label class="settings-radio">
+                <input type="radio" name="report-template" value="technical" />
+                <span><i class="fas fa-code"></i> Technique</span>
+              </label>
+              <p class="settings-hint" style="margin-left: 24px; margin-top: -4px;">Focus sur les détails techniques (ports, CVE, headers)</p>
+              <label class="settings-radio">
+                <input type="radio" name="report-template" value="minimal" />
+                <span><i class="fas fa-compress-alt"></i> Minimal</span>
+              </label>
+              <p class="settings-hint" style="margin-left: 24px; margin-top: -4px;">Essentiel uniquement: verdict et indicateurs critiques</p>
+            </div>
+          </div>
+        </section>
+
         <!-- Export Settings -->
         <section class="settings-section">
           <h3 class="settings-section-title">
@@ -396,14 +436,22 @@
           </h3>
           <div class="settings-field">
             <label>Format par défaut</label>
-            <div class="settings-radio-group">
+            <div class="settings-radio-group" style="flex-wrap: wrap;">
               <label class="settings-radio">
                 <input type="radio" name="export-format" value="pdf" checked />
                 <span><i class="fas fa-file-pdf"></i> PDF</span>
               </label>
               <label class="settings-radio">
+                <input type="radio" name="export-format" value="xlsx" />
+                <span><i class="fas fa-file-excel"></i> Excel</span>
+              </label>
+              <label class="settings-radio">
                 <input type="radio" name="export-format" value="json" />
                 <span><i class="fas fa-file-code"></i> JSON</span>
+              </label>
+              <label class="settings-radio">
+                <input type="radio" name="export-format" value="csv" />
+                <span><i class="fas fa-file-csv"></i> CSV</span>
               </label>
               <label class="settings-radio">
                 <input type="radio" name="export-format" value="md" />
@@ -468,16 +516,25 @@
           </h3>
           <div class="settings-field">
             <label>Langue de l'interface</label>
-            <div class="settings-radio-group">
+            <div class="settings-radio-group" style="flex-wrap: wrap;">
               <label class="settings-radio">
                 <input type="radio" name="language" value="fr" checked />
-                <span><i class="fas fa-flag"></i> Français</span>
+                <span>🇫🇷 Français</span>
               </label>
               <label class="settings-radio">
                 <input type="radio" name="language" value="en" />
-                <span><i class="fas fa-flag"></i> English</span>
+                <span>🇬🇧 English</span>
+              </label>
+              <label class="settings-radio">
+                <input type="radio" name="language" value="es" />
+                <span>🇪🇸 Español</span>
+              </label>
+              <label class="settings-radio">
+                <input type="radio" name="language" value="de" />
+                <span>🇩🇪 Deutsch</span>
               </label>
             </div>
+            <p class="settings-hint" id="auto-detect-lang-hint"></p>
           </div>
         </section>
 
