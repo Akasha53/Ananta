@@ -87,7 +87,15 @@ LLM_CONFIG = {
 LLM_API_URL = LLM_CONFIG["api_url"]
 
 # Modèle d'embedding
-embedding_model = SentenceTransformer("all-MiniLM-L6-v2")
+# NOTE perf: SentenceTransformer peut prendre plusieurs dizaines de secondes à charger.
+# On le charge en lazy pour éviter de pénaliser les endpoints rapides (ex: /agent/ask "salut").
+_embedding_model = None
+
+def get_embedding_model() -> SentenceTransformer:
+    global _embedding_model
+    if _embedding_model is None:
+        _embedding_model = SentenceTransformer("all-MiniLM-L6-v2")
+    return _embedding_model
 
 
 # ================== TIMEOUT HELPERS ==================
