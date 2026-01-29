@@ -2051,6 +2051,25 @@ def osint_graph(
     return {"target": norm, "report_id": report.id, "graph": graph}
 
 
+@router.get("/osint/graph/{report_id}")
+def osint_graph_by_report(
+    report_id: int,
+    db: Session = Depends(get_db),
+):
+    """Retourne le graph relationnel pour un report_id (utile pour diff/comparaison)."""
+    report = db.query(EntityReport).filter(EntityReport.id == report_id).first()
+    if not report:
+        raise HTTPException(status_code=404, detail="Rapport non trouvé")
+
+    try:
+        payload = json.loads(report.raw_data) if report.raw_data else {}
+    except Exception:
+        payload = {}
+
+    graph = payload.get("intel_graph") or {"version": 1, "root": None, "nodes": [], "edges": []}
+    return {"target": report.target, "report_id": report.id, "graph": graph}
+
+
 @router.get("/osint/structured")
 def osint_structured(
     target: str = Query(..., description="Cible (domaine/IP)"),
@@ -2074,6 +2093,24 @@ def osint_structured(
         payload = {}
 
     return {"target": norm, "report_id": report.id, "structured_data": payload.get("structured_data") or {}}
+
+
+@router.get("/osint/structured/{report_id}")
+def osint_structured_by_report(
+    report_id: int,
+    db: Session = Depends(get_db),
+):
+    """Retourne les findings structurés (Phase 1) pour un report_id."""
+    report = db.query(EntityReport).filter(EntityReport.id == report_id).first()
+    if not report:
+        raise HTTPException(status_code=404, detail="Rapport non trouvé")
+
+    try:
+        payload = json.loads(report.raw_data) if report.raw_data else {}
+    except Exception:
+        payload = {}
+
+    return {"target": report.target, "report_id": report.id, "structured_data": payload.get("structured_data") or {}}
 
 
 @router.get("/osint/timeline")

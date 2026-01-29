@@ -3934,6 +3934,39 @@ def build_intel_graph(target: str, target_type: str, raw_data_storage: dict, str
                         add_node(sid, "SOCIAL", s.strip())
                         add_edge(root_id, sid, "has_profile")
 
+    # Subdomains -> root + resolved IPs
+    subs = tools.get("subdomains") or {}
+    subs_raw = None
+    if subs.get("status") == "ok":
+        data = subs.get("data")
+        if isinstance(data, dict):
+            subs_raw = data.get("raw") if isinstance(data.get("raw"), dict) else data
+
+    if isinstance(subs_raw, dict):
+        all_subs = subs_raw.get("all_subdomains")
+        resolved = subs_raw.get("resolved")
+
+        if isinstance(all_subs, list):
+            for s in all_subs[:80]:
+                if isinstance(s, str) and s.strip():
+                    s_norm = s.strip().lower()
+                    sid = f"domain:{s_norm}"
+                    add_node(sid, "DOMAIN", s_norm)
+                    add_edge(root_id, sid, "has_subdomain")
+
+        if isinstance(resolved, dict):
+            # resolved: {subdomain: ip}
+            for sd, ip_val in list(resolved.items())[:120]:
+                if isinstance(sd, str) and isinstance(ip_val, str) and sd and ip_val:
+                    sd_norm = sd.strip().lower()
+                    sid = f"domain:{sd_norm}"
+                    add_node(sid, "DOMAIN", sd_norm)
+                    add_edge(root_id, sid, "has_subdomain")
+
+                    ip_id = f"ip:{ip_val}"
+                    add_node(ip_id, "IP", ip_val)
+                    add_edge(sid, ip_id, "resolves_to")
+
     return {"version": 1, "root": root_id, "nodes": list(nodes.values()), "edges": edges}
 
 
