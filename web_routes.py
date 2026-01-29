@@ -2357,6 +2357,92 @@ def compare_scans(
             elif tool_name == "robots_txt" and both_ok(tool1_data, tool2_data):
                 compare_robots_txt_data(tool1_data.get("data"), tool2_data.get("data"), changes)
 
+        # -------------------- Structured diff (exposures + graph) --------------------
+        exp1 = data1.get("exposures") or []
+        exp2 = data2.get("exposures") or []
+
+        def _exp_key(e: dict) -> str:
+            if not isinstance(e, dict):
+                return ""
+            return f"{e.get('type','')}|{e.get('id','')}|{e.get('title','')}"
+
+        exp_map1 = {k: e for e in exp1 if (k := _exp_key(e))}
+        exp_map2 = {k: e for e in exp2 if (k := _exp_key(e))}
+
+        exp_added = [exp_map2[k] for k in exp_map2.keys() - exp_map1.keys()]
+        exp_removed = [exp_map1[k] for k in exp_map1.keys() - exp_map2.keys()]
+
+        exp_changed = []
+        for k in exp_map1.keys() & exp_map2.keys():
+            a = exp_map1[k]
+            b = exp_map2[k]
+            if (a.get("severity") != b.get("severity")) or (a.get("confidence") != b.get("confidence")):
+                exp_changed.append({"before": a, "after": b})
+
+        g1 = (data1.get("intel_graph") or {})
+        g2 = (data2.get("intel_graph") or {})
+
+        def _node_key(n: dict) -> str:
+            if not isinstance(n, dict):
+                return ""
+            return n.get("id") or ""
+
+        def _edge_key(ed: dict) -> str:
+            if not isinstance(ed, dict):
+                return ""
+            return f"{ed.get('source')}|{ed.get('type')}|{ed.get('target')}"
+
+        node_map1 = {k: x for x in ((g1.get("nodes") or []) if isinstance(g1, dict) else []) if (k := _node_key(x))}
+        node_map2 = {k: x for x in ((g2.get("nodes") or []) if isinstance(g2, dict) else []) if (k := _node_key(x))}
+        edge_map1 = {k: x for x in ((g1.get("edges") or []) if isinstance(g1, dict) else []) if (k := _edge_key(x))}
+        edge_map2 = {k: x for x in ((g2.get("edges") or []) if isinstance(g2, dict) else []) if (k := _edge_key(x))}
+
+        nodes_added = [node_map2[k] for k in list(node_map2.keys() - node_map1.keys())[:200]]
+        nodes_removed = [node_map1[k] for k in list(node_map1.keys() - node_map2.keys())[:200]]
+        edges_added = [edge_map2[k] for k in list(edge_map2.keys() - edge_map1.keys())[:400]]
+        edges_removed = [edge_map1[k] for k in list(edge_map1.keys() - edge_map2.keys())[:400]]
+
+        structured_diff = {
+            "exposures": {
+                "added": exp_added,
+                "removed": exp_removed,
+                "changed": exp_changed,
+            },
+            "graph": {
+                "nodes_added": nodes_added,
+                "nodes_removed": nodes_removed,
+                "edges_added": edges_added,
+                "edges_removed": edges_removed,
+            },
+        }
+
+        # Optional: also append exposure changes into the legacy changes list
+        for e in exp_added[:50]:
+            changes.append({
+                "tool": "exposures",
+                "type": "exposure_added",
+                "new_value": e,
+                "severity": (e.get("severity") or "MEDIUM").lower(),
+            })
+        for e in exp_removed[:50]:
+            changes.append({
+                "tool": "exposures",
+                "type": "exposure_removed",
+                "old_value": e,
+                "severity": "low",
+            })
+        for c in exp_changed[:50]:
+            after = c.get("after") or {}
+            before = c.get("before") or {}
+            sev = (after.get("severity") or before.get("severity") or "MEDIUM").lower()
+            changes.append({
+                "tool": "exposures",
+                "type": "exposure_changed",
+                "old_value": before,
+                "new_value": after,
+                "severity": sev,
+            })
+
         # Construire le rapport de comparaison
         comparison_report = {
             "target": report1.target,
@@ -2379,7 +2465,8 @@ def compare_scans(
                 "tools_added": tools_added,
                 "tools_removed": tools_removed,
                 "changes": changes
-            }
+            },
+            "structured_diff": structured_diff,
         }
 
         return comparison_report
