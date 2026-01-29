@@ -70,9 +70,8 @@ class EntityReport(Base):
 
 
 class ScanJob(Base):
-    """
-    Modèle pour suivre l'état des scans OSINT asynchrones (Celery).
-    """
+    """Modèle pour suivre l'état des scans OSINT asynchrones (Celery)."""
+
     __tablename__ = "scan_jobs"
     __table_args__ = (
         Index('ix_scan_jobs_status', 'status'),
@@ -93,6 +92,42 @@ class ScanJob(Base):
 
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+
+class ScanJobArchive(Base):
+    """Archive des ScanJob terminés.
+
+    Objectif:
+    - Garder scan_jobs léger (UI rapide)
+    - Conserver l'historique (audit/forensics)
+
+    Remplie via `tools/maintenance.py jobs-archive`.
+    """
+
+    __tablename__ = "scan_jobs_archive"
+    __table_args__ = (
+        Index('ix_scan_jobs_archive_status', 'status'),
+        Index('ix_scan_jobs_archive_archived_at', 'archived_at'),
+        Index('ix_scan_jobs_archive_created_at', 'created_at'),
+        Index('ix_scan_jobs_archive_original_id', 'original_scan_job_id'),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+    original_scan_job_id = Column(Integer, nullable=False)
+
+    job_id = Column(String, index=True, nullable=False)
+    query = Column(String, nullable=False)
+    report_type = Column(String, default="osint")
+
+    status = Column(String, nullable=False)
+    progress = Column(Integer, default=0)
+
+    result = Column(Text, nullable=True)
+    error_message = Column(Text, nullable=True)
+
+    created_at = Column(DateTime(timezone=True), nullable=True)
+    updated_at = Column(DateTime(timezone=True), nullable=True)
+    archived_at = Column(DateTime(timezone=True), server_default=func.now())
 
 
 # ============================================================================
