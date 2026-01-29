@@ -47,7 +47,7 @@
 ### Tests
 - [x] **Tests unitaires** - Structure créée (`tests/`), tests pour `models.py`, `api`, `errors.py`
 - [x] **Tests d'intégration** - `test_integration.py` workflows complets (scan, export, monitoring)
-- [ ] **Tests de charge** - Benchmark avec Locust ou k6
+- [x] **Tests de charge** - Benchmark avec Locust (load_tests/locustfile.py + README.md)
 - [x] **CI/CD pipeline** - GitHub Actions (`.github/workflows/ci.yml`) avec lint, tests, security
 
 ### Outils OSINT (Layer 1-3)
