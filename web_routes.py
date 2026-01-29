@@ -503,6 +503,126 @@ def translate_cached_report(body: TranslateReportRequest, db: Session = Depends(
         raise HTTPException(status_code=500, detail="Erreur lors de la traduction")
 
 
+@router.get("/osint/report/view")
+def get_report_view(
+    target: str = Query(..., description="Cible (domaine/IP)"),
+    mode: str = Query("executive", description="executive|technical|evidence"),
+    db: Session = Depends(get_db),
+):
+    """Retourne une restitution multi-niveau à partir des données structurées.
+
+    - executive: décisionnel, risques majeurs, actions
+    - technical: détails exploitables (preuves, remédiations)
+    - evidence: données structurées brutes (structured_data/exposures/graph)
+
+    Pas de régénération LLM : c'est du rendu basé sur la mémoire du scan.
+    """
+    norm = validate_target(target)
+    report = (
+        db.query(EntityReport)
+        .filter(EntityReport.target.ilike(f"%{norm}%"))
+        .order_by(EntityReport.updated_at.desc(), EntityReport.created_at.desc())
+        .first()
+    )
+    if not report:
+        raise HTTPException(status_code=404, detail="Rapport non trouvé")
+
+    try:
+        payload = json.loads(report.raw_data) if report.raw_data else {}
+    except Exception:
+        payload = {}
+
+    structured = payload.get("structured_data") or {}
+    exposures = payload.get("exposures") or []
+    graph = payload.get("intel_graph") or {"nodes": [], "edges": []}
+    risk = payload.get("risk_analysis") or {}
+
+    mode = (mode or "executive").lower().strip()
+    if mode not in {"executive", "technical", "evidence"}:
+        raise HTTPException(status_code=400, detail="mode invalide (executive|technical|evidence)")
+
+    # Sort exposures by severity
+    sev_rank = {"CRITICAL": 5, "HIGH": 4, "MEDIUM": 3, "LOW": 2, "INFO": 1}
+
+    def _sev(e: dict) -> int:
+        if not isinstance(e, dict):
+            return 0
+        return sev_rank.get((e.get("severity") or "MEDIUM").upper(), 3)
+
+    exposures_sorted = sorted([e for e in exposures if isinstance(e, dict)], key=_sev, reverse=True)
+
+    if mode == "evidence":
+        return {
+            "target": report.target,
+            "report_id": report.id,
+            "mode": mode,
+            "risk_analysis": risk,
+            "structured_data": structured,
+            "exposures": exposures_sorted,
+            "graph": graph,
+        }
+
+    if mode == "executive":
+        top_exposures = exposures_sorted[:8]
+        actions = []
+        for e in top_exposures:
+            title = e.get("title")
+            if isinstance(title, str) and title:
+                actions.append(title)
+
+        return {
+            "target": report.target,
+            "report_id": report.id,
+            "mode": mode,
+            "summary": structured.get("executive_summary") or "",
+            "risk": {
+                "score": risk.get("score"),
+                "level": risk.get("level"),
+            },
+            "key_risks": top_exposures,
+            "priority_actions": actions[:8],
+            "limits": structured.get("limitations") or [],
+        }
+
+    # technical
+    findings = structured.get("top_findings") or []
+    if not isinstance(findings, list):
+        findings = []
+
+    tech_findings = []
+    for f in findings[:25]:
+        if not isinstance(f, dict):
+            continue
+        tech_findings.append({
+            "id": f.get("id"),
+            "title": f.get("title"),
+            "category": f.get("category"),
+            "severity": f.get("severity"),
+            "confidence": f.get("confidence"),
+            "claim": f.get("claim"),
+            "evidence": f.get("evidence"),
+            "impact": f.get("impact"),
+            "remediation": f.get("remediation"),
+            "sources": f.get("sources"),
+        })
+
+    return {
+        "target": report.target,
+        "report_id": report.id,
+        "mode": mode,
+        "risk": {
+            "score": risk.get("score"),
+            "level": risk.get("level"),
+        },
+        "exposures": exposures_sorted,
+        "findings": tech_findings,
+        "graph": {
+            "nodes": (graph.get("nodes") if isinstance(graph, dict) else []),
+            "edges": (graph.get("edges") if isinstance(graph, dict) else []),
+        },
+    }
+
+
 @router.get("/osint/report/legacy")
 def get_cached_report_legacy(
     target: str = Query(..., description="Cible du rapport à récupérer"),
