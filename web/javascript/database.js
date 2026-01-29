@@ -43,16 +43,36 @@ const API_BASE = (() => {
                       </span>
                   </td>
                   <td class="p-4 font-bold text-cyan-100">${escapeHtml(item.query)}</td>
-                  <td class="p-4 text-right">
-                      <button onclick="openPreview('${escapeHtml(item.query)}')" class="text-slate-400 hover:text-cyan-400 transition-colors mr-3" title="Voir">
-                          <i class="fas fa-eye"></i>
-                      </button>
-                      <button onclick="downloadPDF('${escapeHtml(item.query)}')" class="text-slate-400 hover:text-emerald-400 transition-colors mr-3" title="PDF">
-                          <i class="fas fa-file-pdf"></i>
-                      </button>
-                      <button onclick="deleteReport('${escapeHtml(item.query)}')" class="text-slate-400 hover:text-rose-400 transition-colors" title="Supprimer">
-                          <i class="fas fa-trash-alt"></i>
-                      </button>
+                  <td class="p-4">
+                      <div class="flex items-center justify-end gap-2">
+                          <button
+                              type="button"
+                              onclick="openPreview('${escapeHtml(item.query)}')"
+                              class="inline-flex items-center justify-center w-9 h-9 text-slate-400 hover:text-cyan-400 transition-colors"
+                              title="Voir"
+                              aria-label="Voir"
+                          >
+                              <i class="fas fa-eye"></i>
+                          </button>
+                          <button
+                              type="button"
+                              onclick="downloadPDF('${escapeHtml(item.query)}')"
+                              class="inline-flex items-center justify-center w-9 h-9 text-slate-400 hover:text-emerald-400 transition-colors"
+                              title="PDF"
+                              aria-label="Telecharger PDF"
+                          >
+                              <i class="fas fa-file-pdf"></i>
+                          </button>
+                          <button
+                              type="button"
+                              onclick="deleteReport('${escapeHtml(item.query)}')"
+                              class="inline-flex items-center justify-center w-9 h-9 text-slate-400 hover:text-rose-400 transition-colors"
+                              title="Supprimer"
+                              aria-label="Supprimer"
+                          >
+                              <i class="fas fa-trash-alt"></i>
+                          </button>
+                      </div>
                   </td>
               </tr>
           `).join("");

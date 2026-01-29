@@ -76,10 +76,10 @@
 - [x] **Détection auto de langue** - Basé sur le navigateur (detectBrowserLanguage())
 
 ### Rapports & Export
-- [x] **Templates de rapports** - Choisir entre plusieurs formats (détaillé, exécutif, technique, minimal)
-- [ ] **Rapports programmés** - Scheduler des scans récurrents avec alerte par email
+- [x] **Templates de rapports** - Choisir entre plusieurs formats (détaillé, exécutif, technique, minimal) 
+- [ ] **Rapports programmés** - Scheduler des scans récurrents avec alerte par notification
 - [x] **Export Excel (XLSX)** - En plus de CSV, JSON, XML, Markdown (openpyxl)
-- [ ] **Branding personnalisé** - Logo et couleurs custom dans les PDF
+- [ ] **Branding personnalisé** - Logo et couleurs custom dans les PDF, les icones sont dans img
 - [ ] **Comparaison de scans** - Améliorer la détection de changements
 - [ ] **Timeline visuelle** - Graphique de l'évolution d'une cible dans le temps
 
@@ -94,7 +94,7 @@
 
 ## Priorité BASSE (Nice-to-have)
 
-### Fonctionnalités avancées
+### Fonctionnalités avancées &
 - [ ] **Système de plugins** - Architecture extensible pour ajouter des outils custom
 - [ ] **Multi-tenant** - Support plusieurs organisations/équipes
 - [ ] **RBAC complet** - Rôles et permissions granulaires
@@ -105,10 +105,10 @@
 ### Monitoring & Observabilité
 - [ ] **Prometheus metrics** - Exporter des métriques pour monitoring
 - [ ] **Grafana dashboards** - Visualisation des performances
-- [ ] **Alerting** - Notifications Slack/Discord/Email sur erreurs critiques
+- [ ] & **Alerting** - Notifications Slack/Discord/Email sur erreurs critiques
 - [ ] **Distributed tracing** - OpenTelemetry pour debugger les requêtes lentes
 
-### DevOps
+### DevOps &
 - [ ] **Dockerfile** - Conteneurisation de l'application
 - [ ] **docker-compose.yml** - Orchestration locale complète
 - [ ] **Kubernetes manifests** - Déploiement cloud-native
@@ -124,15 +124,15 @@
 - [ ] **Changelog public** - Notes de version détaillées
 
 ### Intelligence Artificielle
-- [ ] **Fine-tuning du LLM** - Entraîner sur des rapports OSINT
-- [ ] **Multi-LLM support** - Switcher entre Mistral, Llama, etc.
+- [ ] & **Fine-tuning du LLM** - Entraîner sur des rapports OSINT
+- [ ] & **Multi-LLM support** - Switcher entre Mistral, Llama, etc.
 - [ ] **Résumé automatique** - Générer des executive summaries
 - [ ] **Détection d'anomalies** - Alerter sur des changements suspects
 - [ ] **Scoring de menace** - Calculer un score de risque automatique
 - [ ] **Recommandations** - Suggérer des actions basées sur les findings
 
 ### Intégrations externes
-- [ ] **Webhook outgoing** - Notifier des systèmes externes après un scan
+- [ ] & **Webhook outgoing** - Notifier des systèmes externes après un scan
 - [ ] **API publique** - Documenter et versionner l'API pour intégrations tierces
 - [ ] **Splunk/ELK** - Exporter les logs vers un SIEM
 - [ ] **MISP** - Intégration avec la plateforme de threat intelligence
@@ -144,7 +144,7 @@
 ## Tâches techniques (Dette technique)
 
 ### Refactoring
-- [ ] **Séparer `backend_logic.py`** - Fichier trop long (>2000 lignes), découper en modules
+- [ ] & c²²**Séparer `backend_logic.py`** - Fichier trop long (>2000 lignes), découper en modules
 - [ ] **Type hints complets** - Ajouter types Python partout
 - [ ] **Docstrings** - Documenter toutes les fonctions publiques
 - [ ] **Constantes centralisées** - Déplacer les magic numbers vers un fichier config

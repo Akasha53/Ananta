@@ -1,0 +1,2 @@
+# Development / QA tools
+locust>=2.22.0

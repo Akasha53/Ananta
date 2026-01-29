@@ -41,8 +41,7 @@
 </head>
 
 <body class="overflow-hidden">
-  <!-- Skip to main content link for keyboard/screen reader users -->
-  <a href="#chat-zone" class="skip-link">Aller au contenu principal</a>
+
 
   <div class="scanline" aria-hidden="true"></div>
 
@@ -78,6 +77,18 @@
         <a href="monitoring.html" class="w-full flex items-center justify-center md:justify-start gap-4 p-3 rounded-lg text-slate-500 hover:bg-slate-800 transition-all focus:outline-none focus:ring-2 focus:ring-cyan-500" role="menuitem" aria-label="Monitoring">
           <i class="fas fa-chart-line text-lg" aria-hidden="true"></i>
           <span class="hidden md:block text-sm font-medium uppercase">Monitoring</span>
+        </a>
+
+        <!-- Scan Comparison -->
+        <a href="timeline.html" class="w-full flex items-center justify-center md:justify-start gap-4 p-3 rounded-lg text-slate-500 hover:bg-slate-800 transition-all focus:outline-none focus:ring-2 focus:ring-cyan-500" role="menuitem" aria-label="Timeline des scans">
+          <i class="fas fa-chart-area text-lg" aria-hidden="true"></i>
+          <span class="hidden md:block text-sm font-medium uppercase">Timeline</span>
+        </a>
+
+        <!-- Scheduled Scans -->
+        <a href="scheduled.html" class="w-full flex items-center justify-center md:justify-start gap-4 p-3 rounded-lg text-slate-500 hover:bg-slate-800 transition-all focus:outline-none focus:ring-2 focus:ring-cyan-500" role="menuitem" aria-label="Scans programmés">
+          <i class="fas fa-calendar-alt text-lg" aria-hidden="true"></i>
+          <span class="hidden md:block text-sm font-medium uppercase">Scheduler</span>
         </a>
 
         <!-- Scan Comparison -->
@@ -310,6 +321,15 @@
           <div class="settings-field">
             <label for="setting-llm-timeout">Timeout (secondes)</label>
             <input type="number" id="setting-llm-timeout" min="30" max="600" value="180" class="settings-input" />
+          </div>
+
+          <div class="settings-field">
+            <label for="setting-llm-hard-limit">Hard limit (tokens)</label>
+            <div class="flex items-center gap-3">
+              <input type="range" id="setting-llm-hard-limit" min="200" max="5000" step="100" value="4000" class="settings-range flex-1" />
+              <span id="setting-llm-hard-limit-value" class="text-cyan-400 font-bold text-sm w-14 text-right">4000</span>
+            </div>
+            <p class="settings-hint">Plafond max_tokens pour la synthèse (plus haut = plus long, plus détaillé)</p>
           </div>
         </section>
 

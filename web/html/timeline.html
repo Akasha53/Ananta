@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="fr" class="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ANANTA // TIMELINE</title>
+
+  <meta name="description" content="ANANTA - Timeline des scans" />
+  <meta name="theme-color" content="#020617" />
+
+  <link rel="manifest" href="../manifest.json" />
+  <link rel="icon" type="image/svg+xml" href="../icons/icon.svg" />
+
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" />
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="../css/style.css" />
+</head>
+
+<body class="bg-[#020617] text-slate-300 font-mono h-screen flex flex-col overflow-hidden">
+
+  <header class="h-16 glass-panel flex items-center justify-between px-8 border-b border-slate-800 z-10">
+    <div class="flex items-center gap-4">
+      <a href="index.html" class="inline-flex items-center gap-2 text-slate-500 hover:text-cyan-400 transition-colors leading-none">
+        <i class="fas fa-arrow-left" aria-hidden="true"></i>
+        <span>Retour Console</span>
+      </a>
+      <div class="h-6 w-[1px] bg-slate-800"></div>
+      <h1 class="text-lg font-bold text-cyan-400 tracking-widest uppercase">
+        <i class="fas fa-chart-area mr-2"></i>Timeline
+      </h1>
+    </div>
+    <button id="btn-refresh" class="px-4 py-2 bg-cyan-500/10 border border-cyan-500/30 text-cyan-400 rounded hover:bg-cyan-500/20 transition-all text-xs font-bold">
+      <i class="fas fa-sync mr-2"></i>ACTUALISER
+    </button>
+  </header>
+
+  <main class="flex-1 overflow-y-auto p-8">
+    <div class="max-w-6xl mx-auto">
+      <section class="glass-panel p-6 mb-6">
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div class="md:col-span-2">
+            <label class="block text-xs text-slate-400 mb-2">Cible</label>
+            <input id="input-target" type="text" placeholder="example.com ou 1.1.1.1"
+              class="w-full bg-slate-900 border border-slate-700 rounded px-4 py-2 text-sm" />
+          </div>
+          <div>
+            <label class="block text-xs text-slate-400 mb-2">Limite</label>
+            <input id="input-limit" type="number" min="1" max="200" value="50"
+              class="w-full bg-slate-900 border border-slate-700 rounded px-4 py-2 text-sm" />
+          </div>
+        </div>
+        <button id="btn-load" class="mt-4 w-full px-6 py-3 bg-cyan-500 text-slate-900 font-bold rounded-lg hover:bg-cyan-400 transition-all">
+          <i class="fas fa-chart-line mr-2"></i>CHARGER LA TIMELINE
+        </button>
+        <p class="text-xs text-slate-500 mt-3">
+          Source: historique des ScanJob (jobs async). Les scores sont extraits du texte du rapport quand disponibles.
+        </p>
+      </section>
+
+      <section class="glass-panel p-6 mb-6">
+        <div class="flex items-center justify-between mb-4">
+          <h2 class="text-sm font-bold uppercase tracking-widest text-slate-500">
+            <i class="fas fa-wave-square mr-2"></i>Évolution du risque (0-100)
+          </h2>
+          <div class="text-xs text-slate-500" id="timeline-meta">--</div>
+        </div>
+
+        <div class="bg-slate-950/40 border border-slate-800 rounded-lg p-4 overflow-hidden">
+          <svg id="timeline-chart" viewBox="0 0 1000 260" preserveAspectRatio="none" class="w-full h-[260px]">
+            <rect x="0" y="0" width="1000" height="260" fill="transparent" />
+            <line x1="40" y1="20" x2="40" y2="220" stroke="#1e293b" stroke-width="2" />
+            <line x1="40" y1="220" x2="980" y2="220" stroke="#1e293b" stroke-width="2" />
+            <polyline id="timeline-line" fill="none" stroke="#22d3ee" stroke-width="3" points="" />
+            <g id="timeline-points"></g>
+          </svg>
+        </div>
+      </section>
+
+      <section class="glass-panel p-6">
+        <h2 class="text-sm font-bold uppercase tracking-widest text-slate-500 mb-4">
+          <i class="fas fa-list mr-2"></i>Événements
+        </h2>
+        <div class="overflow-x-auto">
+          <table class="w-full text-left text-sm">
+            <thead class="text-slate-500 uppercase text-xs font-bold border-b border-slate-800">
+              <tr>
+                <th class="py-3 pr-3">Date</th>
+                <th class="py-3 pr-3">Statut</th>
+                <th class="py-3 pr-3">Durée</th>
+                <th class="py-3 pr-3">Score</th>
+                <th class="py-3 pr-3">Niveau</th>
+                <th class="py-3 pr-3">Sources</th>
+                <th class="py-3">Job</th>
+              </tr>
+            </thead>
+            <tbody id="timeline-body" class="divide-y divide-slate-800/50"></tbody>
+          </table>
+        </div>
+      </section>
+    </div>
+  </main>
+
+  <script src="../javascript/theme.js"></script>
+  <script src="../javascript/timeline.js"></script>
+</body>
+</html>

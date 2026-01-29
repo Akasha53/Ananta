@@ -74,7 +74,7 @@ def task_failure_handler(sender=None, task_id=None, exception=None, args=None, k
 # ==================== TÂCHES ====================
 
 @app.task(bind=True, name="ananta.scan_osint")
-def scan_osint_task(self, query: str, report_type: str = "osint", language: str = "fr"):
+def scan_osint_task(self, query: str, report_type: str = "osint", language: str = "fr", llm_hard_limit: int = None):
     """
     Tâche Celery pour exécuter un scan OSINT complet en arrière-plan.
 
@@ -113,7 +113,7 @@ def scan_osint_task(self, query: str, report_type: str = "osint", language: str 
             db.commit()
 
         # Exécuter le scan OSINT avec callback de progression
-        result = logic_run_report(query, db, report_type=report_type, progress_callback=update_progress, language=language)
+        result = logic_run_report(query, db, report_type=report_type, progress_callback=update_progress, language=language, llm_hard_limit=llm_hard_limit)
 
         # Mettre à jour le statut à "COMPLETED"
         job = db.query(ScanJob).filter_by(job_id=self.request.id).first()
@@ -174,10 +174,46 @@ def cleanup_old_jobs_task(self, days: int = 7):
         db.close()
 
 
+@app.task(bind=True, name="ananta.cleanup_logs")
+def cleanup_logs_task(self, retention_days: int = 14):
+    """Supprime les fichiers de logs vieux de X jours (dossier logs/)."""
+    log_dir = os.path.join(PROJECT_DIR, "logs")
+    if not os.path.isdir(log_dir):
+        return {"deleted": 0, "reason": "logs dir missing"}
+
+    cutoff_ts = (datetime.now(timezone.utc) - timedelta(days=retention_days)).timestamp()
+    deleted = 0
+    errors = 0
+
+    for name in os.listdir(log_dir):
+        path = os.path.join(log_dir, name)
+        if not os.path.isfile(path):
+            continue
+
+        # Only target log files (rotated or base)
+        if not (
+            name.endswith((".log", ".json"))
+            or ".log." in name
+            or ".json." in name
+        ):
+            continue
+
+        try:
+            if os.path.getmtime(path) < cutoff_ts:
+                os.remove(path)
+                deleted += 1
+        except Exception as e:
+            errors += 1
+            logger.warning(f"[LOG CLEANUP] Failed to delete {name}: {e}")
+
+    logger.info(f"[LOG CLEANUP] Deleted={deleted}, Errors={errors}, RetentionDays={retention_days}")
+    return {"deleted": deleted, "errors": errors, "retention_days": retention_days}
+
+
 # ==================== TÂCHES SPÉCIALISÉES PAR LAYER ====================
 
 @app.task(bind=True, name="ananta.scan_osint_layer1")
-def scan_osint_layer1_task(self, query: str, tools: list = None):
+def scan_osint_layer1_task(self, query: str, llm_hard_limit: int = None, tools: list = None):
     """
     Tâche optimisée pour scans Layer 1 (rapides, passifs).
     Exécute uniquement les outils WHOIS, DNS, HTTP headers, etc.
@@ -220,7 +256,8 @@ def scan_osint_layer1_task(self, query: str, tools: list = None):
             query, db,
             report_type="osint",
             progress_callback=update_progress,
-            layer_filter=[1]  # Seulement les outils Layer 1 (WHOIS, DNS, headers)
+            layer_filter=[1],  # Seulement les outils Layer 1 (WHOIS, DNS, headers)
+            llm_hard_limit=llm_hard_limit,
         )
 
         job = db.query(ScanJob).filter_by(job_id=self.request.id).first()
@@ -247,7 +284,7 @@ def scan_osint_layer1_task(self, query: str, tools: list = None):
 
 
 @app.task(bind=True, name="ananta.scan_osint_layer2")
-def scan_osint_layer2_task(self, query: str):
+def scan_osint_layer2_task(self, query: str, llm_hard_limit: int = None):
     """
     Tâche pour scans Layer 2 (moyens, conditionnels).
     Inclut Censys, crt.sh, recherches web, etc.
@@ -289,7 +326,8 @@ def scan_osint_layer2_task(self, query: str):
             query, db,
             report_type="osint",
             progress_callback=update_progress,
-            layer_filter=[1, 2]  # Layer 1 + Layer 2 (Censys, crt.sh, etc.)
+            layer_filter=[1, 2],  # Layer 1 + Layer 2 (Censys, crt.sh, etc.)
+            llm_hard_limit=llm_hard_limit,
         )
 
         job = db.query(ScanJob).filter_by(job_id=self.request.id).first()
@@ -316,7 +354,7 @@ def scan_osint_layer2_task(self, query: str):
 
 
 @app.task(bind=True, name="ananta.scan_osint_layer3")
-def scan_osint_layer3_task(self, query: str, approved_tools: list):
+def scan_osint_layer3_task(self, query: str, approved_tools: list, llm_hard_limit: int = None):
     """
     Tâche pour scans Layer 3 (critiques, nécessitent approbation).
     IMPORTANT: Exécute d'abord les scans Layer 1+2 pour collecter les données de base,
@@ -372,7 +410,8 @@ def scan_osint_layer3_task(self, query: str, approved_tools: list):
             query, db,
             report_type="osint",
             progress_callback=base_progress_callback,
-            layer_filter=[1, 2]  # Layer 1 (passif) + Layer 2 (conditionnel)
+            layer_filter=[1, 2],  # Layer 1 (passif) + Layer 2 (conditionnel)
+            llm_hard_limit=llm_hard_limit,
         )
 
         # Extraire les données collectées des scans de base
@@ -506,7 +545,7 @@ def scan_osint_layer3_task(self, query: str, approved_tools: list):
 
 
 @app.task(bind=True, name="ananta.priority_scan")
-def priority_scan_task(self, query: str, user_id: str = "ANALYSTE_01"):
+def priority_scan_task(self, query: str, llm_hard_limit: int = None, user_id: str = "ANALYSTE_01"):
     """
     Tâche prioritaire pour scans urgents.
     Bypass la queue normale et s'exécute immédiatement.
@@ -543,7 +582,7 @@ def priority_scan_task(self, query: str, user_id: str = "ANALYSTE_01"):
             job.progress = 5
             db.commit()
 
-        result = logic_run_report(query, db, report_type="osint", progress_callback=update_progress)
+        result = logic_run_report(query, db, report_type="osint", progress_callback=update_progress, llm_hard_limit=llm_hard_limit)
         result["priority"] = True
         result["requested_by"] = user_id
 
@@ -718,7 +757,7 @@ def aggregate_parallel_results_task(self, results: list, target: str, target_typ
 
 
 @app.task(bind=True, name="ananta.scan_parallel")
-def scan_parallel_task(self, query: str):
+def scan_parallel_task(self, query: str, llm_hard_limit: int = None):
     """
     Coordinateur pour scan OSINT parallèle.
     Lance Layer 1 et Layer 2 en parallèle sur différents workers,
@@ -894,7 +933,8 @@ def execute_scheduled_scan_task(self, scheduled_scan_id: int):
             scan.target,
             db,
             report_type="osint",
-            language=scan.language
+            language=scan.language,
+            llm_hard_limit=getattr(scan, "llm_hard_limit", None),
         )
 
         # Mise à jour du statut
@@ -1057,6 +1097,10 @@ def send_scheduled_scan_notification(
         return False
 
     try:
+        import smtplib
+        from email.mime.text import MIMEText
+        from email.mime.multipart import MIMEMultipart
+
         # Construire le message
         msg = MIMEMultipart("alternative")
         msg["Subject"] = f"[Ananta] Scan programmé: {scan_name} - {'OK' if status == 'success' else 'ERREUR'}"
@@ -1124,6 +1168,11 @@ app.conf.beat_schedule = {
         'task': 'ananta.check_scheduled_scans',
         'schedule': 60.0,  # Toutes les minutes
         'args': ()
+    },
+    'cleanup-logs-daily': {
+        'task': 'ananta.cleanup_logs',
+        'schedule': 86400.0,  # Toutes les 24h
+        'args': (14,)  # Rétention logs en jours
     },
 }
 

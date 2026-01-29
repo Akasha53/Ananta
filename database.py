@@ -17,6 +17,12 @@ is_postgres = bool(DATABASE_URL and DATABASE_URL.startswith("postgresql"))
 
 if is_postgres:
     logger.info("🔌 Connexion Base de Données : POSTGRESQL détecté.")
+    # Connection pooling (PostgreSQL)
+    # Defaults are conservative for local/dev.
+    POOL_SIZE = int(os.getenv("DB_POOL_SIZE", "5"))
+    MAX_OVERFLOW = int(os.getenv("DB_MAX_OVERFLOW", "10"))
+    POOL_RECYCLE = int(os.getenv("DB_POOL_RECYCLE", "1800"))
+    POOL_PRE_PING = os.getenv("DB_POOL_PRE_PING", "true").lower() in {"1", "true", "yes", "on"}
 else:
     if not DATABASE_URL:
         DATABASE_URL = "sqlite:///./ananta.db"
@@ -24,7 +30,17 @@ else:
     connect_args = {"check_same_thread": False}
 
 try:
-    engine = create_engine(DATABASE_URL, connect_args=connect_args)
+    engine_kwargs = {"connect_args": connect_args}
+    if is_postgres:
+        engine_kwargs.update(
+            {
+                "pool_size": POOL_SIZE,
+                "max_overflow": MAX_OVERFLOW,
+                "pool_recycle": POOL_RECYCLE,
+                "pool_pre_ping": POOL_PRE_PING,
+            }
+        )
+    engine = create_engine(DATABASE_URL, **engine_kwargs)
 
     # ✅ Vérif DB uniquement si Postgres
     if is_postgres:
@@ -300,6 +316,9 @@ class ScheduledScan(Base):
     scan_mode = Column(String, default="full")  # fast, standard, full
     report_template = Column(String, default="detailed")  # detailed, executive, technical, minimal
     language = Column(String, default="fr")  # fr, en, es, de
+
+    # LLM tuning
+    llm_hard_limit = Column(Integer, nullable=True)  # Override max_tokens (<= 5000)
 
     # Planification (cron-like)
     schedule_type = Column(String, nullable=False)  # daily, weekly, monthly, custom

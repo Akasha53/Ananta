@@ -123,6 +123,13 @@ class ScanRequest(BaseModel):
         description="Langue du rapport généré: fr (Français), en (English), es (Español), de (Deutsch)"
     )
 
+    llm_hard_limit: Optional[int] = Field(
+        default=None,
+        ge=200,
+        le=5000,
+        description="Override du hard_limit LLM (max_tokens plafond) pour la génération du rapport (max 5000)"
+    )
+
     @field_validator("query")
     @classmethod
     def validate_query_field(cls, v: str) -> str:
@@ -229,6 +236,19 @@ class ExportRequest(BaseModel):
         return validate_target(v)
 
 
+class TranslateReportRequest(BaseModel):
+    """Traduction d'un rapport existant (sans régénération des outils)."""
+
+    target: str = Field(..., min_length=1, max_length=253)
+    to_language: Literal["fr", "en", "es", "de"] = Field(...)
+    llm_hard_limit: Optional[int] = Field(default=2000, ge=200, le=5000)
+
+    @field_validator("target")
+    @classmethod
+    def validate_target_field(cls, v: str) -> str:
+        return validate_target(v)
+
+
 # ==================== FILTER MODELS ====================
 
 class LogFilter(BaseModel):
@@ -295,6 +315,51 @@ class CompareRequest(BaseModel):
     @classmethod
     def validate_target_field(cls, v: str) -> str:
         return validate_target(v)
+
+
+# ==================== SCHEDULED SCANS ====================
+
+
+class ScheduledScanCreate(BaseModel):
+    """Création d'un scan programmé."""
+
+    name: str = Field(..., min_length=1, max_length=100)
+    target: str = Field(..., min_length=1, max_length=253)
+
+    scan_mode: Literal["fast", "standard", "full"] = Field(default="full")
+    report_template: Literal["detailed", "executive", "technical", "minimal"] = Field(default="detailed")
+    language: Literal["fr", "en", "es", "de"] = Field(default="fr")
+
+    schedule_type: Literal["daily", "weekly", "monthly", "custom"] = Field(default="daily")
+    cron_expression: Optional[str] = Field(default=None, max_length=100)
+    hour: int = Field(default=8, ge=0, le=23)
+    day_of_week: Optional[int] = Field(default=None, ge=0, le=6)
+    day_of_month: Optional[int] = Field(default=None, ge=1, le=31)
+
+    notify_email: Optional[str] = Field(default=None, max_length=254)
+    notify_on_change: bool = Field(default=True)
+    notify_on_error: bool = Field(default=True)
+
+    created_by: Optional[str] = Field(default=None, max_length=100)
+
+    llm_hard_limit: Optional[int] = Field(default=None, ge=200, le=5000)
+
+    @field_validator("target")
+    @classmethod
+    def validate_target_field(cls, v: str) -> str:
+        return validate_target(v)
+
+
+class ScheduledScanUpdate(BaseModel):
+    """Mise à jour partielle d'un scan programmé."""
+
+    name: Optional[str] = Field(default=None, min_length=1, max_length=100)
+    is_active: Optional[bool] = None
+    notify_email: Optional[str] = Field(default=None, max_length=254)
+    notify_on_change: Optional[bool] = None
+    notify_on_error: Optional[bool] = None
+
+    llm_hard_limit: Optional[int] = Field(default=None, ge=200, le=5000)
 
     @model_validator(mode="after")
     def validate_different_reports(self):

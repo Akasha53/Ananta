@@ -1,6 +1,34 @@
 @echo off
 title ANANTA OSINT - Launcher
 
+echo ========================================
+echo   ANANTA OSINT - NETTOYAGE AVANT DEMARRAGE
+echo ========================================
+
+REM --- Kill FastAPI / Uvicorn (port 8010)
+for /f "tokens=5" %%a in ('netstat -ano ^| findstr :8010 ^| findstr LISTENING') do (
+    echo Kill process on port 8010 - PID %%a
+    taskkill /PID %%a /F >nul 2>&1
+)
+
+REM --- Kill LLM / text-generation-webui (port 5000)
+for /f "tokens=5" %%a in ('netstat -ano ^| findstr :5000 ^| findstr LISTENING') do (
+    echo Kill process on port 5000 - PID %%a
+    taskkill /PID %%a /F >nul 2>&1
+)
+
+REM --- Kill Celery workers
+taskkill /F /IM celery.exe >nul 2>&1
+
+REM --- (Optionnel mais recommandé en dev) Kill python restants liés au projet
+REM ATTENTION : commente cette ligne si tu as d'autres python importants ouverts
+REM taskkill /F /IM python.exe >nul 2>&1
+
+timeout /t 2 /nobreak >nul
+
+echo Nettoyage termine.
+echo.
+
 REM Utiliser des chemins relatifs (basé sur l'emplacement du script)
 set "FASTAPI_DIR=%~dp0"
 set "FASTAPI_DIR=%FASTAPI_DIR:~0,-1%"

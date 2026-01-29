@@ -113,6 +113,17 @@ def logic_generate_pdf(report_markdown: str, target: str, raw_data: dict = None)
 - `reportlab` : Génération PDF
 - `markdown` : Parsing Markdown (optionnel)
 
+## Branding (env)
+
+Variables (optionnelles):
+
+```env
+PDF_REPORT_TITLE=RAPPORT D'ANALYSE OSINT
+PDF_BRAND_PRIMARY_COLOR=#2c5aa0
+PDF_BRAND_FOOTER=ANANTA OSINT - Confidentiel
+PDF_BRAND_LOGO_PATH=img/logo.png
+```
+
 ## Endpoint API
 
 ```

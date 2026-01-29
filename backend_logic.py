@@ -12,7 +12,6 @@ import time
 from datetime import datetime, timedelta, timezone
 from typing import List, Dict, Any, Optional
 from urllib.parse import urlparse
-
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
@@ -29,11 +28,33 @@ try:
     from reportlab.lib import colors
     from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
     from reportlab.lib.units import inch
-    from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, PageBreak, Table, TableStyle
+    from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, PageBreak, Table, TableStyle, Image
     from reportlab.lib.enums import TA_LEFT, TA_CENTER, TA_JUSTIFY
     HAS_REPORTLAB = True
 except ImportError:
     pass
+
+
+def _get_pdf_branding_config() -> Dict[str, Any]:
+    """PDF branding overrides via env vars."""
+    primary_color = os.getenv("PDF_BRAND_PRIMARY_COLOR", "#2c5aa0").strip() or "#2c5aa0"
+    report_title = os.getenv("PDF_REPORT_TITLE", "RAPPORT D'ANALYSE OSINT").strip() or "RAPPORT D'ANALYSE OSINT"
+    footer_text = os.getenv("PDF_BRAND_FOOTER", "ANANTA OSINT - Confidentiel").strip() or "ANANTA OSINT - Confidentiel"
+
+    logo_path = os.getenv("PDF_BRAND_LOGO_PATH", "").strip()
+    if logo_path:
+        logo_path = os.path.expanduser(logo_path)
+        if not os.path.isabs(logo_path):
+            logo_path = os.path.join(os.getcwd(), logo_path)
+        if not os.path.exists(logo_path):
+            logo_path = ""
+
+    return {
+        "primary_color": primary_color,
+        "report_title": report_title,
+        "footer_text": footer_text,
+        "logo_path": logo_path,
+    }
 
 # Import du NOUVEAU modèle EntityReport
 from database import EntityReport, SessionLocal, ToolExecutionLog
@@ -53,7 +74,8 @@ LLM_CONFIG = {
     "api_url": "http://localhost:5000/v1/chat/completions",
     "model_name": "mistral-7b-instruct",  # Nom utilisé dans l'API
     "context_window": 32768,               # 32k tokens (vs 4k pour DeepSeek)
-    "timeout": 180,                        # Timeout en secondes
+    # Timeout long: Mistral local peut etre lent (VRAM/CPU). Surcharge possible via env.
+    "timeout": int(os.getenv("LLM_TIMEOUT", "420")),  # Timeout en secondes
     "temperature": 0.5,
     # Plafonds de génération par phase (augmentés grâce au contexte 32k)
     "hard_limits": {
@@ -583,7 +605,9 @@ def llm_phase2_generate_report(structured_data: dict, target: str,
     """
     logger.info(f"[LLM PHASE 2] Génération rapport pour {target} (lang={language})")
 
-    return generate_report_from_structured(target, target_type, structured_data, report_type, language)
+    return generate_report_from_structured(
+        target, target_type, structured_data, report_type, language, llm_hard_limit=None
+    )
 
 
 # ================== PARALLEL AGGREGATION ==================
@@ -1375,7 +1399,7 @@ Réponds en JSON."""
         return True, "Erreur du planner, exécution par défaut"
 
 
-def ask_llm(system_prompt: str, user_prompt: str, phase: str = "default") -> str:
+def ask_llm(system_prompt: str, user_prompt: str, phase: str = "default", hard_limit_override: Optional[int] = None) -> str:
     """
     Interroge le LLM local (Mistral 7B) avec budget tokens calculé dynamiquement.
     Inclut retry logic pour gérer les déconnexions du serveur.
@@ -1392,6 +1416,13 @@ def ask_llm(system_prompt: str, user_prompt: str, phase: str = "default") -> str
 
     # Récupérer le hard limit depuis la config centralisée
     hard_limit = LLM_CONFIG["hard_limits"].get(phase, LLM_CONFIG["hard_limits"]["default"])
+    if hard_limit_override is not None and phase in {"default", "phase2"}:
+        try:
+            override = int(hard_limit_override)
+            override = max(200, min(5000, override))
+            hard_limit = override
+        except Exception:
+            pass
 
     # Calculer budget dynamique
     full_prompt = system_prompt + "\n\n" + user_prompt
@@ -1418,7 +1449,15 @@ def ask_llm(system_prompt: str, user_prompt: str, phase: str = "default") -> str
 
     for attempt in range(max_retries):
         try:
-            response = requests.post(LLM_API_URL, json=payload, timeout=LLM_CONFIG["timeout"])
+            # Timeout tuple: (connect_timeout, read_timeout)
+            # - Connect should fail fast if LLM is down (WinError 10061)
+            # - Read can be long because local generation is slow
+            connect_timeout = float(os.getenv("LLM_CONNECT_TIMEOUT", "5"))
+            response = requests.post(
+                LLM_API_URL,
+                json=payload,
+                timeout=(connect_timeout, LLM_CONFIG["timeout"]),
+            )
 
             if response.status_code == 200:
                 return response.json()["choices"][0]["message"]["content"]
@@ -1440,6 +1479,37 @@ def ask_llm(system_prompt: str, user_prompt: str, phase: str = "default") -> str
             return f"Erreur interne IA : {str(e)}"
 
     return f"Erreur LLM après {max_retries} tentatives: {last_error}"
+
+
+def translate_report_markdown(report_markdown: str, to_language: str, llm_hard_limit: Optional[int] = 2000) -> str:
+    """Traduit un rapport Markdown sans ajouter de nouvelles informations."""
+    lang_names = {
+        "fr": "French",
+        "en": "English",
+        "es": "Spanish",
+        "de": "German",
+    }
+    to_language = (to_language or "fr").lower().strip()
+    if to_language not in lang_names:
+        to_language = "fr"
+
+    system_prompt = (
+        "You are a professional translator for cybersecurity OSINT reports. "
+        "Translate the report to "
+        + lang_names[to_language]
+        + ". "
+        "Rules: preserve Markdown structure, keep technical terms/acronyms as-is, do NOT add, remove, or infer facts, "
+        "do NOT change numbers, dates, header values, CVE IDs, domains/IPs, and keep severity labels unchanged. "
+        "Return ONLY the translated Markdown."
+    )
+
+    user_prompt = """Translate this Markdown report:
+
+```markdown
+{report}
+```""".format(report=report_markdown or "")
+
+    return ask_llm(system_prompt, user_prompt, phase="phase2", hard_limit_override=llm_hard_limit)
 
 
 # ================== FIX #1 : LLM CONTEXT BUILDER ==================
@@ -3234,7 +3304,8 @@ def generate_report_from_structured(
     target_type: str,
     structured_data: dict,
     report_type: str = "osint",
-    language: str = "fr"
+    language: str = "fr",
+    llm_hard_limit: Optional[int] = None,
 ) -> str:
     """
     PHASE 2 : Génération du rapport Markdown à partir du JSON structuré.
@@ -3368,7 +3439,7 @@ Structured data (JSON):
 Generate a complete OSINT report in Markdown."""
 
     logger.info("[PHASE 2] Génération du rapport Markdown...")
-    report = ask_llm(system_prompt, user_prompt, phase="phase2")
+    report = ask_llm(system_prompt, user_prompt, phase="phase2", hard_limit_override=llm_hard_limit)
 
     # Sanitize le rapport pour enlever les sections vides
     report = sanitize_llm_report(report)
@@ -3558,7 +3629,7 @@ The report should give a complete picture of the target's security posture."""
     logger.info(f"[LAYER 3 REPORT] Génération du rapport pour {target}...")
 
     try:
-        report = ask_llm(system_prompt, user_prompt, phase="phase2")
+        report = ask_llm(system_prompt, user_prompt, phase="phase2", hard_limit_override=llm_hard_limit)
         report = sanitize_llm_report(report)
         logger.info(f"[LAYER 3 REPORT] ✅ Rapport généré: {len(report)} caractères")
         return report
@@ -3778,7 +3849,7 @@ Total: {len(tool_cards)} outils
 
 # ================== ORCHESTRATEUR CENTRAL (AVEC CACHE BDD) ==================
 
-def logic_run_report(query: str, db: Session, report_type: str = "osint", progress_callback: callable = None, layer_filter: Optional[List[int]] = None, language: str = "fr") -> Dict[str, Any]:
+def logic_run_report(query: str, db: Session, report_type: str = "osint", progress_callback: callable = None, layer_filter: Optional[List[int]] = None, language: str = "fr", llm_hard_limit: Optional[int] = None) -> Dict[str, Any]:
     """
     1. Identifie la cible.
     2. Vérifie le cache BDD (< 10 jours).
@@ -3848,6 +3919,8 @@ def logic_run_report(query: str, db: Session, report_type: str = "osint", progre
             if age.days < 10:
                 logger.info(f"[CACHE HIT] Rapport pour '{target}' valide ({age.days} jours). Régénération du rapport avec prompt actuel.")
 
+                update_progress(10, "CACHE HIT")
+
                 sources = []
                 try:
                     raw = json.loads(cached.raw_data)
@@ -3862,6 +3935,7 @@ def logic_run_report(query: str, db: Session, report_type: str = "osint", progre
 
                     # ✅ OPTION A : Régénérer le rapport avec le prompt actuel
                     # Reconstruire collected_data à partir du cache
+                    update_progress(15, "Reconstruction contexte (cache)")
                     collected_data_cached = []
                     tools_cached = raw.get("tools", {})
 
@@ -4017,7 +4091,10 @@ Données collectées:
 
                     # Régénérer le rapport avec le prompt actuel
                     logger.info(f"[CACHE] Régénération du rapport avec prompt actuel pour {target}")
-                    fresh_report = ask_llm(sys_prompt, user_prompt)
+                    update_progress(30, "Synthèse IA (cache)")
+                    fresh_report = ask_llm(sys_prompt, user_prompt, hard_limit_override=llm_hard_limit)
+
+                    update_progress(80, "Sauvegarde rapport")
 
                     # Mettre à jour le rapport en BDD
                     try:
@@ -4791,7 +4868,7 @@ Données collectées:
         context_str = "\n\n".join(collected_data)
         sys_prompt = "Tu es un assistant utile. Synthétise les infos suivantes."
         user_prompt = f"""Cible: {target}\n\nDonnées collectées:\n{context_str}"""
-        final_report = ask_llm(sys_prompt, user_prompt, phase="default")
+        final_report = ask_llm(sys_prompt, user_prompt, phase="default", hard_limit_override=llm_hard_limit)
 
     # Mode OSINT - HYBRID PIPELINE (2-3 appels LLM adaptatifs)
     else:
@@ -4821,7 +4898,8 @@ Données collectées:
                 target_type=target_type,
                 structured_data=structured_data,
                 report_type=report_type,
-                language=language
+                language=language,
+                llm_hard_limit=llm_hard_limit,
             )
 
             logger.info(f"[HYBRID PIPELINE] ✅ Rapport complet généré ({len(final_report)} caractères, lang={language})")
@@ -4909,8 +4987,28 @@ def markdown_to_reportlab(text: str) -> str:
     text = re.sub(r'(?<!\*)\*(?!\*)(.+?)(?<!\*)\*(?!\*)', r'<i>\1</i>', text)
     text = re.sub(r'(?<!_)_(?!_)(.+?)(?<!_)_(?!_)', r'<i>\1</i>', text)
     # Inline code: `code`
-    text = re.sub(r'`(.+?)`', r'<font name="Courier" size="8">\1</font>', text)
+    text = re.sub(r'`(.+?)`', r'<font name="Courier">\1</font>', text)
     return text
+
+def sanitize_reportlab_markup(text: str) -> str:
+    if not text:
+        return text
+    # remove nested para
+    text = re.sub(r"</?para\b[^>]*>", "", text, flags=re.IGNORECASE)
+    # collapse backslash-escaped quotes if any
+    text = re.sub(r'\\+"', '"', text)
+    text = re.sub(r"\\+'", "'", text)
+    # drop/normalize font size attributes (defensive)
+    def _fix_size(m: re.Match) -> str:
+        raw = (m.group(1) or m.group(2) or m.group(3) or "").strip()
+        raw = raw.strip('"').strip("'").replace('"', "").replace("'", "")
+        mm = re.search(r"\d+(?:\.\d+)?", raw)
+        return f' size="{mm.group(0)}"' if mm else ""
+    text = re.sub(r"\s+size\s*=\s*(?:\"([^\"]*)\"|'([^']*)'|([^ >]+))", _fix_size, text, flags=re.IGNORECASE)
+    return text
+
+def safe_paragraph(text: str, style):
+    return Paragraph(sanitize_reportlab_markup(text), style)
 
 
 def convert_markdown_headings_for_pdf(text: str) -> list:
@@ -5008,12 +5106,13 @@ def parse_markdown_tables(text: str) -> list:
 
 def _pdf_footer(canvas, doc):
     """Ajoute numéro de page et footer à chaque page du PDF."""
+    brand = _get_pdf_branding_config()
     canvas.saveState()
     canvas.setStrokeColor(colors.HexColor("#cccccc"))
     canvas.line(50, 45, letter[0] - 50, 45)
     canvas.setFont('Helvetica', 8)
     canvas.setFillColor(colors.HexColor("#888888"))
-    canvas.drawString(50, 30, "ANANTA OSINT - Confidentiel")
+    canvas.drawString(50, 30, brand.get("footer_text", "ANANTA OSINT - Confidentiel"))
     canvas.drawRightString(letter[0] - 50, 30, f"Page {doc.page}")
     canvas.restoreState()
 
@@ -5037,6 +5136,8 @@ def logic_generate_pdf(query: str, db: Session):
         rightMargin=50, leftMargin=50, topMargin=50, bottomMargin=65
     )
 
+    brand = _get_pdf_branding_config()
+
     styles = getSampleStyleSheet()
 
     # === STYLES ===
@@ -5047,7 +5148,7 @@ def logic_generate_pdf(query: str, db: Session):
         textColor=colors.HexColor("#666666"), spaceAfter=20, alignment=TA_CENTER)
 
     section_style = ParagraphStyle('Section', parent=styles['Heading2'], fontSize=13,
-        textColor=colors.HexColor("#2c5aa0"), spaceAfter=10, spaceBefore=15, fontName='Helvetica-Bold')
+        textColor=colors.HexColor(brand.get("primary_color", "#2c5aa0")), spaceAfter=10, spaceBefore=15, fontName='Helvetica-Bold')
 
     subsection_style = ParagraphStyle('SubSection', fontSize=11, textColor=colors.HexColor("#444444"),
         spaceAfter=8, spaceBefore=12, fontName='Helvetica-Bold')
@@ -5072,7 +5173,15 @@ def logic_generate_pdf(query: str, db: Session):
     # =========================================================================
     # HEADER
     # =========================================================================
-    story.append(Paragraph("RAPPORT D'ANALYSE OSINT", title_style))
+    if brand.get("logo_path"):
+        try:
+            story.append(Image(brand["logo_path"], width=72, height=72, hAlign="CENTER"))
+            story.append(Spacer(1, 0.10 * inch))
+        except Exception:
+            # Non-blocking: ignore broken logo
+            pass
+
+    story.append(Paragraph(brand.get("report_title", "RAPPORT D'ANALYSE OSINT"), title_style))
 
     if not report_entry:
         story.append(Paragraph(f"Cible: {query.upper()}", subtitle_style))

@@ -12,11 +12,11 @@ import uuid
 import hashlib
 import json
 import asyncio
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from email.utils import formatdate, parsedate_to_datetime
 logger = logging.getLogger(__name__)
 # Imports locaux
-from database import get_db, EntityReport, ScanJob, PendingApproval, ToolExecutionLog, APIKey
+from database import get_db, EntityReport, ScanJob, PendingApproval, ToolExecutionLog, APIKey, ScheduledScan
 import backend_logic as logic
 from middleware import get_full_health_status
 from models import (
@@ -25,6 +25,9 @@ from models import (
     DomainRequest,
     APIKeyCreate,
     ExportRequest,
+    TranslateReportRequest,
+    ScheduledScanCreate,
+    ScheduledScanUpdate,
     LogFilter,
     CompareRequest,
     ErrorResponse,
@@ -42,7 +45,8 @@ try:
         scan_osint_layer2_task,
         scan_osint_layer3_task,
         priority_scan_task,
-        scan_parallel_task  # Architecture parallèle (chord)
+        scan_parallel_task,  # Architecture parallèle (chord)
+        execute_scheduled_scan_task,
     )
     HAS_CELERY = True
 except ImportError:
@@ -52,6 +56,7 @@ except ImportError:
     scan_osint_layer3_task = None
     priority_scan_task = None
     scan_parallel_task = None
+    execute_scheduled_scan_task = None
     HAS_CELERY = False
     logger.warning("⚠️ Celery non disponible - Mode synchrone uniquement")
 
@@ -375,6 +380,33 @@ def get_cached_report(
             status_code=500,
             detail="Erreur lors de la récupération du rapport"
         )
+
+
+@router.post("/osint/translate")
+def translate_cached_report(body: TranslateReportRequest, db: Session = Depends(get_db)):
+    """Traduit un rapport en cache via le LLM (sans ré-exécuter les outils)."""
+    normalized = logic.normalize_target(body.target)
+    report = db.query(EntityReport).filter(EntityReport.target.ilike(f"%{normalized}%")).first()
+    if not report:
+        raise HTTPException(status_code=404, detail="Rapport non trouvé")
+
+    try:
+        translated = logic.translate_report_markdown(
+            report.final_report or "",
+            to_language=body.to_language,
+            llm_hard_limit=body.llm_hard_limit,
+        )
+        return {
+            "target": report.target,
+            "type": report.target_type,
+            "to_language": body.to_language,
+            "report": translated,
+            "cached": True,
+            "translated": True,
+        }
+    except Exception as e:
+        logger.exception(f"[/osint/translate] ERREUR: {e}")
+        raise HTTPException(status_code=500, detail="Erreur lors de la traduction")
 
 
 @router.get("/osint/report/legacy")
@@ -969,6 +1001,166 @@ def get_cache_stats(db: Session = Depends(get_db)):
         raise HTTPException(status_code=500, detail="Erreur lors de la récupération des stats cache")
 
 
+# ==================== SCHEDULED SCANS ====================
+
+
+def _compute_next_run_at(scan: ScheduledScan) -> datetime:
+    now = datetime.now(timezone.utc)
+
+    if scan.schedule_type == "daily":
+        next_run = now.replace(hour=scan.hour, minute=0, second=0, microsecond=0)
+        if next_run <= now:
+            next_run = next_run + timedelta(days=1)
+        return next_run
+
+    if scan.schedule_type == "weekly":
+        # 0=lundi ... 6=dimanche
+        dow = scan.day_of_week if scan.day_of_week is not None else 0
+        base = now.replace(hour=scan.hour, minute=0, second=0, microsecond=0)
+        days_ahead = (dow - base.weekday()) % 7
+        next_run = base + timedelta(days=days_ahead)
+        if next_run <= now:
+            next_run = next_run + timedelta(days=7)
+        return next_run
+
+    if scan.schedule_type == "monthly":
+        day = min(int(scan.day_of_month or 1), 28)
+        next_run = now.replace(day=day, hour=scan.hour, minute=0, second=0, microsecond=0)
+        if next_run <= now:
+            # month rollover
+            if next_run.month == 12:
+                next_run = next_run.replace(year=next_run.year + 1, month=1)
+            else:
+                next_run = next_run.replace(month=next_run.month + 1)
+        return next_run
+
+    if scan.schedule_type == "custom" and scan.cron_expression:
+        try:
+            from croniter import croniter
+
+            cron = croniter(scan.cron_expression, now)
+            return cron.get_next(datetime)
+        except Exception:
+            return now + timedelta(days=1)
+
+    return now + timedelta(days=1)
+
+
+@router.get("/scheduled-scans/list")
+def list_scheduled_scans(db: Session = Depends(get_db)):
+    scans = db.query(ScheduledScan).order_by(ScheduledScan.created_at.desc()).all()
+    return [
+        {
+            "id": s.id,
+            "name": s.name,
+            "target": s.target,
+            "scan_mode": s.scan_mode,
+            "report_template": s.report_template,
+            "language": s.language,
+            "llm_hard_limit": s.llm_hard_limit,
+            "schedule_type": s.schedule_type,
+            "cron_expression": s.cron_expression,
+            "hour": s.hour,
+            "day_of_week": s.day_of_week,
+            "day_of_month": s.day_of_month,
+            "is_active": s.is_active,
+            "last_run_at": s.last_run_at.isoformat() if s.last_run_at else None,
+            "next_run_at": s.next_run_at.isoformat() if s.next_run_at else None,
+            "last_run_status": s.last_run_status,
+            "last_error": s.last_error,
+            "run_count": s.run_count,
+            "notify_email": s.notify_email,
+            "notify_on_change": s.notify_on_change,
+            "notify_on_error": s.notify_on_error,
+            "created_at": s.created_at.isoformat() if s.created_at else None,
+        }
+        for s in scans
+    ]
+
+
+@router.post("/scheduled-scans/create")
+def create_scheduled_scan(body: ScheduledScanCreate, db: Session = Depends(get_db)):
+    scan = ScheduledScan(
+        name=body.name.strip(),
+        target=body.target,
+        scan_mode=body.scan_mode,
+        report_template=body.report_template,
+        language=body.language,
+        llm_hard_limit=body.llm_hard_limit,
+        schedule_type=body.schedule_type,
+        cron_expression=body.cron_expression,
+        hour=body.hour,
+        day_of_week=body.day_of_week,
+        day_of_month=body.day_of_month,
+        notify_email=body.notify_email,
+        notify_on_change=body.notify_on_change,
+        notify_on_error=body.notify_on_error,
+        created_by=body.created_by,
+        is_active=True,
+    )
+    scan.next_run_at = _compute_next_run_at(scan)
+
+    db.add(scan)
+    db.commit()
+    db.refresh(scan)
+
+    return {"status": "ok", "id": scan.id, "next_run_at": scan.next_run_at.isoformat()}
+
+
+@router.post("/scheduled-scans/{scan_id}")
+def update_scheduled_scan(scan_id: int, body: ScheduledScanUpdate, db: Session = Depends(get_db)):
+    scan = db.query(ScheduledScan).filter_by(id=scan_id).first()
+    if not scan:
+        raise HTTPException(status_code=404, detail="Scheduled scan not found")
+
+    if body.name is not None:
+        scan.name = body.name.strip()
+    if body.is_active is not None:
+        scan.is_active = body.is_active
+    if body.notify_email is not None:
+        scan.notify_email = body.notify_email
+    if body.notify_on_change is not None:
+        scan.notify_on_change = body.notify_on_change
+    if body.notify_on_error is not None:
+        scan.notify_on_error = body.notify_on_error
+
+    if body.llm_hard_limit is not None:
+        scan.llm_hard_limit = body.llm_hard_limit
+
+    # Recompute next run when (re)activating
+    if scan.is_active:
+        scan.next_run_at = _compute_next_run_at(scan)
+    else:
+        scan.next_run_at = None
+
+    db.commit()
+    return {"status": "ok"}
+
+
+@router.delete("/scheduled-scans/{scan_id}")
+def delete_scheduled_scan(scan_id: int, db: Session = Depends(get_db)):
+    scan = db.query(ScheduledScan).filter_by(id=scan_id).first()
+    if not scan:
+        raise HTTPException(status_code=404, detail="Scheduled scan not found")
+
+    db.delete(scan)
+    db.commit()
+    return {"status": "ok"}
+
+
+@router.post("/scheduled-scans/{scan_id}/run")
+def run_scheduled_scan_now(scan_id: int, db: Session = Depends(get_db)):
+    if not HAS_CELERY or execute_scheduled_scan_task is None:
+        raise HTTPException(status_code=503, detail="Celery not configured")
+
+    scan = db.query(ScheduledScan).filter_by(id=scan_id).first()
+    if not scan:
+        raise HTTPException(status_code=404, detail="Scheduled scan not found")
+
+    task = execute_scheduled_scan_task.delay(scan_id)
+    return {"status": "queued", "task_id": task.id}
+
+
 @router.post("/cache/clear")
 def clear_cache(db: Session = Depends(get_db)):
     """Supprime tous les rapports en cache."""
@@ -1010,7 +1202,12 @@ def agent_ask(body: AskBody, db: Session = Depends(get_db)):
         logger.info(f"[ANALYZE] Commande explicite détectée pour : {target}")
 
         # Lance le rapport OSINT complet (WHOIS + Censys + Web Enrichment)
-        report = logic.logic_run_report(target, db, report_type="osint")
+        report = logic.logic_run_report(
+            target,
+            db,
+            report_type="osint",
+            llm_hard_limit=getattr(body, "llm_hard_limit", None),
+        )
 
         return {
             "type": "osint",
@@ -1048,15 +1245,32 @@ def agent_ask(body: AskBody, db: Session = Depends(get_db)):
     is_long_text = len(q.split()) > 8
 
     if (has_ip or has_domain) and not is_long_text:
-        report = logic.logic_run_report(q, db, report_type="osint")
+        report = logic.logic_run_report(q, db, report_type="osint", llm_hard_limit=getattr(body, "llm_hard_limit", None))
         return {"type": "osint", "results": report.get("sources", []), "answer": report.get("report", "")}
 
     # 3) DÉTECTION BESOIN RECHERCHE GÉNÉRALE
     if any(trig in q_lower for trig in GENERAL_SEARCH_TRIGGERS):
-        report = logic.logic_run_report(q, db, report_type="general")
+        report = logic.logic_run_report(q, db, report_type="general", llm_hard_limit=getattr(body, "llm_hard_limit", None))
         return {"type": "osint", "results": report.get("sources", []), "answer": report.get("report", "")}
 
     # 4) PAR DÉFAUT -> CHAT (messages simples comme "salut", "bonjour", etc.)
+    # Fast-path: réponses instantanées pour les salutations (évite un appel LLM lent)
+    greetings = {
+        "salut",
+        "bonjour",
+        "bonsoir",
+        "hello",
+        "hi",
+        "yo",
+        "coucou",
+        "hey",
+    }
+    if q_lower in greetings or (len(q.split()) <= 3 and q_lower.rstrip("!?.") in greetings):
+        return {
+            "type": "chat",
+            "answer": "Bonjour. Donnez-moi une IP, un domaine ou une URL (ex: 'analyze example.com') et je lance l'analyse OSINT passive.",
+        }
+
     logger.info(f"[CHAT] Message simple détecté: '{q[:50]}...' -> appel LLM")
     try:
         answer = logic.ask_llm(SYSTEM_PROMPT_UNIVERSAL, q)
@@ -1116,6 +1330,7 @@ def agent_ask_async(body: AskBody, db: Session = Depends(get_db)):
     approved_tools = getattr(body, 'approved_tools', None) or []
     # Récupérer la langue (défaut: "fr")
     language = getattr(body, 'language', 'fr') or 'fr'
+    llm_hard_limit = getattr(body, 'llm_hard_limit', None)
 
     logger.info(f"[ASYNC] Langue du rapport: {language}")
 
@@ -1125,25 +1340,25 @@ def agent_ask_async(body: AskBody, db: Session = Depends(get_db)):
 
     if scan_mode == "fast":
         # Layer 1 uniquement: WHOIS, DNS, headers (rapide, ~30s)
-        task = scan_osint_layer1_task.delay(query_to_scan)
+        task = scan_osint_layer1_task.delay(query_to_scan, llm_hard_limit)
         task_queue = "osint_fast"
         logger.info(f"[ASYNC] Mode FAST -> queue osint_fast")
 
     elif scan_mode == "standard":
         # Layer 1 + 2: inclut Censys, crt.sh (~2-3min)
-        task = scan_osint_layer2_task.delay(query_to_scan)
+        task = scan_osint_layer2_task.delay(query_to_scan, llm_hard_limit)
         task_queue = "osint_medium"
         logger.info(f"[ASYNC] Mode STANDARD -> queue osint_medium")
 
     elif scan_mode == "critical" and approved_tools:
         # Layer 3: port_scan, vuln_scan (nécessite approbation)
-        task = scan_osint_layer3_task.delay(query_to_scan, approved_tools)
+        task = scan_osint_layer3_task.delay(query_to_scan, approved_tools, llm_hard_limit)
         task_queue = "osint_critical"
         logger.warning(f"[ASYNC] Mode CRITICAL -> queue osint_critical | Tools: {approved_tools}")
 
     elif scan_mode == "priority":
         # Scan prioritaire (bypass les autres queues)
-        task = priority_scan_task.delay(query_to_scan)
+        task = priority_scan_task.delay(query_to_scan, llm_hard_limit)
         task_queue = "priority"
         logger.warning(f"[ASYNC] Mode PRIORITY -> queue priority 🚨")
 
@@ -1151,13 +1366,13 @@ def agent_ask_async(body: AskBody, db: Session = Depends(get_db)):
         # Architecture parallèle: Layer 1 + Layer 2 en chord
         # Layer 1 (FAST) et Layer 2 (MEDIUM) s'exécutent en parallèle
         # puis aggregate_results génère le rapport final
-        task = scan_parallel_task.delay(query_to_scan)
+        task = scan_parallel_task.delay(query_to_scan, llm_hard_limit)
         task_queue = "osint_fast + osint_medium (parallel)"
         logger.info(f"[ASYNC] Mode PARALLEL -> chord architecture (Layer1 || Layer2 -> Aggregate)")
 
     else:
         # Mode "full" par défaut: scan séquentiel complet (stable)
-        task = scan_osint_task.delay(query_to_scan, report_type, language)
+        task = scan_osint_task.delay(query_to_scan, report_type, language, llm_hard_limit)
         task_queue = "osint_medium"
         logger.info(f"[ASYNC] Mode FULL -> queue osint_medium (lang={language})")
 
@@ -1624,6 +1839,80 @@ def revoke_api_key(key_id: int, db: Session = Depends(get_db)):
 
 # ==================== SCAN COMPARISON ====================
 
+
+# ==================== TIMELINE ====================
+
+
+@router.get("/osint/timeline")
+def osint_timeline(
+    target: str = Query(..., description="Cible (domaine/IP)"),
+    limit: int = Query(50, ge=1, le=200),
+    db: Session = Depends(get_db),
+):
+    """Timeline basée sur l'historique ScanJob (OSINT async)."""
+    norm = validate_target(target)
+
+    jobs = (
+        db.query(ScanJob)
+        .filter(ScanJob.query.ilike(norm))
+        .order_by(ScanJob.created_at.desc())
+        .limit(limit)
+        .all()
+    )
+
+    score_re = re.compile(r"Score de risque global:\s*(\d{1,3})/100\s*\(Niveau:\s*([^\)]+)\)", re.IGNORECASE)
+    level_re = re.compile(r"\((FAIBLE|MOYEN|ÉLEVÉ|ELEV|CRITIQUE)\)", re.IGNORECASE)
+
+    items = []
+    for j in reversed(jobs):
+        report = ""
+        sources_count = 0
+        if j.result:
+            try:
+                payload = json.loads(j.result)
+                report = payload.get("report") or ""
+                sources = payload.get("sources") or payload.get("results") or []
+                if isinstance(sources, list):
+                    sources_count = len(sources)
+            except Exception:
+                report = ""
+
+        risk_score = None
+        risk_level = None
+        m = score_re.search(report or "")
+        if m:
+            try:
+                risk_score = int(m.group(1))
+            except Exception:
+                risk_score = None
+            risk_level = (m.group(2) or "").strip()
+        else:
+            m2 = level_re.search(report or "")
+            if m2:
+                risk_level = m2.group(1).upper()
+
+        created = j.created_at.isoformat() if j.created_at else None
+        updated = j.updated_at.isoformat() if j.updated_at else None
+        duration_s = None
+        if j.created_at and j.updated_at:
+            duration_s = round((j.updated_at - j.created_at).total_seconds(), 2)
+
+        items.append(
+            {
+                "job_id": j.job_id,
+                "created_at": created,
+                "updated_at": updated,
+                "status": j.status,
+                "progress": j.progress,
+                "duration_seconds": duration_s,
+                "risk_score": risk_score,
+                "risk_level": risk_level,
+                "sources_count": sources_count,
+            }
+        )
+
+    return {"target": norm, "count": len(items), "items": items}
+
 @router.get("/osint/compare")
 def compare_scans(
     target: str = Query(..., description="Cible à comparer"),
@@ -1654,6 +1943,41 @@ def compare_scans(
         import json
         data1 = json.loads(report1.raw_data) if report1.raw_data else {}
         data2 = json.loads(report2.raw_data) if report2.raw_data else {}
+
+        # Risk score changes (if present)
+        risk1 = data1.get("risk_analysis") or {}
+        risk2 = data2.get("risk_analysis") or {}
+        if isinstance(risk1, dict) and isinstance(risk2, dict):
+            score1 = risk1.get("score")
+            score2 = risk2.get("score")
+            level1 = (risk1.get("level") or "").upper()
+            level2 = (risk2.get("level") or "").upper()
+            level_rank = {"FAIBLE": 1, "LOW": 1, "MOYEN": 2, "MEDIUM": 2, "ELEV": 3, "ÉLEV": 3, "HIGH": 3, "CRIT": 4, "CRITIQUE": 4, "CRITICAL": 4}
+
+            if score1 is not None and score2 is not None and score1 != score2:
+                changes.append(
+                    {
+                        "tool": "risk_analysis",
+                        "type": "risk_score_change",
+                        "old_value": score1,
+                        "new_value": score2,
+                        "severity": "high" if score2 > score1 else "medium",
+                    }
+                )
+
+            if level1 and level2 and level1 != level2:
+                sev = "medium"
+                if level_rank.get(level2, 0) > level_rank.get(level1, 0):
+                    sev = "high"
+                changes.append(
+                    {
+                        "tool": "risk_analysis",
+                        "type": "risk_level_change",
+                        "old_value": level1,
+                        "new_value": level2,
+                        "severity": sev,
+                    }
+                )
 
         # Comparer les outils exécutés
         tools1 = set(data1.get("tools", {}).keys())
@@ -1697,17 +2021,38 @@ def compare_scans(
                         "description": "L'adresse IP a changé"
                     })
 
+            elif tool_name == "http_headers" and both_ok(tool1_data, tool2_data):
+                compare_http_headers_data(tool1_data.get("data"), tool2_data.get("data"), changes)
+
+            elif tool_name == "ssl_analysis" and both_ok(tool1_data, tool2_data):
+                compare_ssl_analysis_data(tool1_data.get("data"), tool2_data.get("data"), changes)
+
+            elif tool_name == "redirect_chain" and both_ok(tool1_data, tool2_data):
+                compare_redirect_chain_data(tool1_data.get("data"), tool2_data.get("data"), changes)
+
+            elif tool_name == "tls_ciphers" and both_ok(tool1_data, tool2_data):
+                compare_tls_ciphers_data(tool1_data.get("data"), tool2_data.get("data"), changes)
+
+            elif tool_name == "email_config" and both_ok(tool1_data, tool2_data):
+                compare_email_config_data(tool1_data.get("data"), tool2_data.get("data"), changes)
+
+            elif tool_name == "security_txt" and both_ok(tool1_data, tool2_data):
+                compare_security_txt_data(tool1_data.get("data"), tool2_data.get("data"), changes)
+
+            elif tool_name == "robots_txt" and both_ok(tool1_data, tool2_data):
+                compare_robots_txt_data(tool1_data.get("data"), tool2_data.get("data"), changes)
+
         # Construire le rapport de comparaison
         comparison_report = {
             "target": report1.target,
             "report1": {
                 "id": report1.id,
-                "date": report1.created_at.isoformat() if report1.created_at else None,
+                "date": (report1.updated_at or report1.created_at).isoformat() if (report1.updated_at or report1.created_at) else None,
                 "tools_count": len(tools1)
             },
             "report2": {
                 "id": report2.id,
-                "date": report2.created_at.isoformat() if report2.created_at else None,
+                "date": (report2.updated_at or report2.created_at).isoformat() if (report2.updated_at or report2.created_at) else None,
                 "tools_count": len(tools2)
             },
             "summary": {
@@ -1757,6 +2102,212 @@ def compare_whois_data(data1: any, data2: any, changes: list):
                 "new_value": str(val2)[:100] if val2 else None,
                 "severity": "medium" if field in ["registrar", "org"] else "low"
             })
+
+
+def compare_http_headers_data(data1: any, data2: any, changes: list):
+    if not isinstance(data1, dict) or not isinstance(data2, dict):
+        return
+
+    sec1 = data1.get("security_headers") or {}
+    sec2 = data2.get("security_headers") or {}
+    if not isinstance(sec1, dict) or not isinstance(sec2, dict):
+        return
+
+    fields = [
+        ("Strict-Transport-Security", "high"),
+        ("Content-Security-Policy", "medium"),
+        ("X-Frame-Options", "medium"),
+        ("X-Content-Type-Options", "low"),
+    ]
+    for header, severity in fields:
+        v1 = sec1.get(header)
+        v2 = sec2.get(header)
+        if v1 != v2:
+            changes.append(
+                {
+                    "tool": "http_headers",
+                    "type": "security_header_change",
+                    "field": header,
+                    "old_value": v1,
+                    "new_value": v2,
+                    "severity": severity,
+                }
+            )
+
+
+def compare_ssl_analysis_data(data1: any, data2: any, changes: list):
+    if not isinstance(data1, dict) or not isinstance(data2, dict):
+        return
+
+    issuer1 = (data1.get("issuer") or {}).get("organizationName") if isinstance(data1.get("issuer"), dict) else None
+    issuer2 = (data2.get("issuer") or {}).get("organizationName") if isinstance(data2.get("issuer"), dict) else None
+    if issuer1 != issuer2:
+        changes.append(
+            {
+                "tool": "ssl_analysis",
+                "type": "issuer_change",
+                "old_value": issuer1,
+                "new_value": issuer2,
+                "severity": "medium",
+            }
+        )
+
+    na1 = data1.get("not_after")
+    na2 = data2.get("not_after")
+    if na1 != na2:
+        changes.append(
+            {
+                "tool": "ssl_analysis",
+                "type": "certificate_expiry_change",
+                "old_value": na1,
+                "new_value": na2,
+                "severity": "medium",
+            }
+        )
+
+
+def compare_redirect_chain_data(data1: any, data2: any, changes: list):
+    if not isinstance(data1, dict) or not isinstance(data2, dict):
+        return
+
+    f1 = data1.get("final_url")
+    f2 = data2.get("final_url")
+    if f1 != f2:
+        changes.append(
+            {
+                "tool": "redirect_chain",
+                "type": "final_url_change",
+                "old_value": f1,
+                "new_value": f2,
+                "severity": "medium",
+            }
+        )
+
+    l1 = data1.get("chain_length")
+    l2 = data2.get("chain_length")
+    if l1 != l2:
+        changes.append(
+            {
+                "tool": "redirect_chain",
+                "type": "redirect_count_change",
+                "old_value": l1,
+                "new_value": l2,
+                "severity": "low",
+            }
+        )
+
+
+def compare_tls_ciphers_data(data1: any, data2: any, changes: list):
+    if not isinstance(data1, dict) or not isinstance(data2, dict):
+        return
+
+    p1 = data1.get("protocol_version")
+    p2 = data2.get("protocol_version")
+    if p1 != p2:
+        changes.append(
+            {
+                "tool": "tls_ciphers",
+                "type": "tls_version_change",
+                "old_value": p1,
+                "new_value": p2,
+                "severity": "high",
+            }
+        )
+
+    c1 = (data1.get("current_cipher") or {}).get("name") if isinstance(data1.get("current_cipher"), dict) else None
+    c2 = (data2.get("current_cipher") or {}).get("name") if isinstance(data2.get("current_cipher"), dict) else None
+    if c1 != c2:
+        changes.append(
+            {
+                "tool": "tls_ciphers",
+                "type": "cipher_change",
+                "old_value": c1,
+                "new_value": c2,
+                "severity": "medium",
+            }
+        )
+
+
+def compare_email_config_data(data1: any, data2: any, changes: list):
+    if not isinstance(data1, dict) or not isinstance(data2, dict):
+        return
+
+    for field, severity in [("spf", "medium"), ("dmarc", "medium")]:
+        v1 = data1.get(field)
+        v2 = data2.get(field)
+        if v1 != v2:
+            changes.append(
+                {
+                    "tool": "email_config",
+                    "type": "email_policy_change",
+                    "field": field,
+                    "old_value": v1,
+                    "new_value": v2,
+                    "severity": severity,
+                }
+            )
+
+    mx1 = data1.get("mx_records")
+    mx2 = data2.get("mx_records")
+    if mx1 != mx2:
+        changes.append(
+            {
+                "tool": "email_config",
+                "type": "mx_change",
+                "old_value": mx1,
+                "new_value": mx2,
+                "severity": "medium",
+            }
+        )
+
+
+def compare_security_txt_data(data1: any, data2: any, changes: list):
+    if not isinstance(data1, dict) or not isinstance(data2, dict):
+        return
+
+    e1 = data1.get("exists")
+    e2 = data2.get("exists")
+    if e1 != e2:
+        changes.append(
+            {
+                "tool": "security_txt",
+                "type": "exists_change",
+                "old_value": e1,
+                "new_value": e2,
+                "severity": "low",
+            }
+        )
+
+
+def compare_robots_txt_data(data1: any, data2: any, changes: list):
+    if not isinstance(data1, dict) or not isinstance(data2, dict):
+        return
+
+    e1 = data1.get("exists")
+    e2 = data2.get("exists")
+    if e1 != e2:
+        changes.append(
+            {
+                "tool": "robots_txt",
+                "type": "exists_change",
+                "old_value": e1,
+                "new_value": e2,
+                "severity": "low",
+            }
+        )
+
+    d1 = data1.get("disallowed_paths")
+    d2 = data2.get("disallowed_paths")
+    if isinstance(d1, list) and isinstance(d2, list) and d1 != d2:
+        changes.append(
+            {
+                "tool": "robots_txt",
+                "type": "disallowed_paths_change",
+                "old_value": len(d1),
+                "new_value": len(d2),
+                "severity": "low",
+            }
+        )
 
 
 # ==================== CELERY WORKERS MONITORING ====================

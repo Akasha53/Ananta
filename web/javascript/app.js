@@ -131,6 +131,7 @@ const DEFAULT_SETTINGS = {
     apiUrl: '',
     llmTemperature: 0.7,
     llmTimeout: 180,
+    llmHardLimit: 4000,
     cacheTtl: 10,
     exportFormat: 'pdf',
     scanMode: 'standard',  // "fast" (Layer 1), "standard" (Layer 1+2), "full" (all)
@@ -1234,10 +1235,11 @@ async function updateSystemPulse() {
 
 // --- ACTIONS BACKEND ---
 async function askBackend(query) {
+    const llmHardLimit = Math.max(200, Math.min(5000, Number(appSettings.llmHardLimit || 4000)));
     const res = await fetch(`${API_BASE}/agent/ask`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ query })
+        body: JSON.stringify({ query, llm_hard_limit: llmHardLimit })
     });
 
     if (!res.ok) {
@@ -1254,13 +1256,15 @@ async function askBackendAsync(query) {
     const language = appSettings.language || 'fr';
     // Récupérer le template de rapport (défaut: "detailed")
     const reportTemplate = appSettings.reportTemplate || 'detailed';
+    const llmHardLimit = Math.max(200, Math.min(5000, Number(appSettings.llmHardLimit || 4000)));
 
     // Build request payload
     const payload = {
         query: query,
         scan_mode: scanMode,
         language: language,
-        report_template: reportTemplate
+        report_template: reportTemplate,
+        llm_hard_limit: llmHardLimit
     };
 
     // Si mode critique, vérifier le consentement et récupérer les outils approuvés
@@ -1731,6 +1735,15 @@ function populateSettingsForm() {
     const timeoutInput = document.getElementById("setting-llm-timeout");
     if (timeoutInput) timeoutInput.value = appSettings.llmTimeout;
 
+    // LLM Hard Limit
+    const hardLimitSlider = document.getElementById("setting-llm-hard-limit");
+    const hardLimitValue = document.getElementById("setting-llm-hard-limit-value");
+    if (hardLimitSlider) {
+        const v = Math.max(200, Math.min(5000, Number(appSettings.llmHardLimit || 4000)));
+        hardLimitSlider.value = v;
+        if (hardLimitValue) hardLimitValue.textContent = String(v);
+    }
+
     // Cache TTL
     const cacheTtlInput = document.getElementById("setting-cache-ttl");
     if (cacheTtlInput) cacheTtlInput.value = appSettings.cacheTtl;
@@ -1808,6 +1821,15 @@ function initSettingsListeners() {
     if (tempSlider && tempValue) {
         tempSlider.addEventListener("input", () => {
             tempValue.textContent = (tempSlider.value / 100).toFixed(1);
+        });
+    }
+
+    // Hard limit slider
+    const hardLimitSlider = document.getElementById("setting-llm-hard-limit");
+    const hardLimitValue = document.getElementById("setting-llm-hard-limit-value");
+    if (hardLimitSlider && hardLimitValue) {
+        hardLimitSlider.addEventListener("input", () => {
+            hardLimitValue.textContent = String(hardLimitSlider.value);
         });
     }
 
@@ -1989,6 +2011,7 @@ function saveSettings() {
     const apiUrlInput = document.getElementById("setting-api-url");
     const tempSlider = document.getElementById("setting-llm-temperature");
     const timeoutInput = document.getElementById("setting-llm-timeout");
+    const hardLimitSlider = document.getElementById("setting-llm-hard-limit");
     const cacheTtlInput = document.getElementById("setting-cache-ttl");
     const compactCheckbox = document.getElementById("setting-compact-mode");
     const fontSizeSelect = document.getElementById("setting-font-size");
@@ -2020,6 +2043,7 @@ function saveSettings() {
         apiUrl: apiUrlInput?.value || '',
         llmTemperature: tempSlider ? tempSlider.value / 100 : 0.7,
         llmTimeout: parseInt(timeoutInput?.value) || 180,
+        llmHardLimit: Math.max(200, Math.min(5000, parseInt(hardLimitSlider?.value) || 4000)),
         cacheTtl: parseInt(cacheTtlInput?.value) || 10,
         exportFormat,
         scanMode,

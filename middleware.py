@@ -17,6 +17,7 @@ import logging
 from typing import Callable, Dict, Optional
 from collections import defaultdict
 from datetime import datetime, timedelta
+from urllib.parse import urlparse
 
 from fastapi import Request, Response, HTTPException
 from fastapi.responses import JSONResponse
@@ -289,6 +290,50 @@ def check_redis_health() -> Dict:
         import redis
         redis_url = os.getenv("REDIS_URL", "redis://localhost:6379/0")
 
+        # Redis cluster support (optional)
+        cluster_nodes = os.getenv("REDIS_CLUSTER_NODES", "").strip()
+        is_cluster_url = redis_url.startswith("redis+cluster://")
+
+        if cluster_nodes or is_cluster_url:
+            try:
+                # redis-py 4.x
+                from redis.cluster import RedisCluster
+
+                nodes = []
+                if cluster_nodes:
+                    for raw in cluster_nodes.split(","):
+                        raw = raw.strip()
+                        if not raw:
+                            continue
+                        host, _, port = raw.partition(":")
+                        nodes.append({"host": host, "port": int(port or "6379")})
+                else:
+                    parsed = urlparse(redis_url.replace("redis+cluster://", "redis://", 1))
+                    if parsed.hostname:
+                        nodes.append({"host": parsed.hostname, "port": int(parsed.port or 6379)})
+
+                if not nodes:
+                    return {"status": "error", "latency_ms": -1, "message": "redis cluster nodes not configured"}
+
+                start = time.time()
+                client = RedisCluster(startup_nodes=nodes, socket_timeout=2, decode_responses=False)
+                client.ping()
+                latency_ms = round((time.time() - start) * 1000, 2)
+
+                return {
+                    "status": "ok",
+                    "latency_ms": latency_ms,
+                    "mode": "cluster",
+                    "nodes": len(nodes),
+                }
+            except Exception as e:
+                return {
+                    "status": "error",
+                    "latency_ms": -1,
+                    "mode": "cluster",
+                    "message": str(e),
+                }
+
         start = time.time()
         client = redis.from_url(redis_url, socket_timeout=2)
         client.ping()
@@ -302,6 +347,7 @@ def check_redis_health() -> Dict:
             "status": "ok",
             "latency_ms": latency_ms,
             "used_memory_mb": used_memory_mb,
+            "mode": "single",
         }
     except ImportError:
         return {
