@@ -1,5 +1,8 @@
 # Development / QA tools
 pytest>=8.0.0
+pytest-cov>=4.1.0
+pytest-asyncio>=0.23.0
+httpx>=0.25.0
 
 # Load testing
 # NOTE (Windows / user-site): locust pulls deps that may conflict with httpx/httpcore (h11 pinning).
