@@ -167,11 +167,19 @@
   <!-- Modal Aperçu (Caché par défaut) -->
   <div id="preview-modal" class="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 hidden flex items-center justify-center p-4">
     <div class="bg-[#0f172a] border border-slate-700 w-full max-w-4xl h-[80vh] rounded-xl flex flex-col shadow-2xl">
-        <div class="flex justify-between items-center p-4 border-b border-slate-800 bg-slate-900/50">
-            <h3 class="text-cyan-400 font-bold uppercase tracking-wider" id="modal-title">Aperçu Rapport</h3>
-            <button onclick="closeModal()" class="text-slate-500 hover:text-white"><i class="fas fa-times text-xl"></i></button>
+        <div class="flex flex-col gap-3 p-4 border-b border-slate-800 bg-slate-900/50">
+            <div class="flex justify-between items-center">
+                <h3 class="text-cyan-400 font-bold uppercase tracking-wider" id="modal-title">Aperçu Rapport</h3>
+                <button onclick="closeModal()" class="text-slate-500 hover:text-white"><i class="fas fa-times text-xl"></i></button>
+            </div>
+
+            <div class="flex flex-wrap gap-2" id="modal-modes">
+                <button type="button" data-mode="executive" class="report-mode-btn px-3 py-1 rounded bg-cyan-600/20 border border-cyan-500/30 text-cyan-300 text-[11px] font-bold uppercase tracking-wider">Executive</button>
+                <button type="button" data-mode="technical" class="report-mode-btn px-3 py-1 rounded bg-slate-800 border border-slate-700 text-slate-300 text-[11px] font-bold uppercase tracking-wider">Tech</button>
+                <button type="button" data-mode="evidence" class="report-mode-btn px-3 py-1 rounded bg-slate-800 border border-slate-700 text-slate-300 text-[11px] font-bold uppercase tracking-wider">Evidence</button>
+            </div>
         </div>
-        <div class="flex-1 overflow-y-auto p-6 text-sm leading-relaxed text-slate-300 font-sans whitespace-pre-wrap" id="modal-content"></div>
+        <div class="flex-1 overflow-y-auto p-6 text-sm leading-relaxed text-slate-300 font-sans" id="modal-content"></div>
         <div class="p-4 border-t border-slate-800 flex justify-end gap-3 bg-slate-900/50">
             <button onclick="closeModal()" class="px-4 py-2 rounded border border-slate-700 hover:bg-slate-800 text-slate-300 text-xs font-bold uppercase">Fermer</button>
             <button id="modal-pdf-btn" class="px-4 py-2 rounded bg-cyan-600 hover:bg-cyan-500 text-slate-900 text-xs font-bold uppercase">

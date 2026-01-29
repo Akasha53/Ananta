@@ -137,46 +137,148 @@ const API_BASE = (() => {
 
   // --- PREVIEW MODAL ---
 
-  // Récupération directe depuis le cache BDD (sans régénération LLM)
-  async function openPreview(target) {
-      const modal = document.getElementById("preview-modal");
+  function setActiveModeButton(mode) {
+      const btns = document.querySelectorAll(".report-mode-btn");
+      btns.forEach(b => {
+          const isActive = (b.getAttribute("data-mode") === mode);
+          b.classList.toggle("bg-cyan-600/20", isActive);
+          b.classList.toggle("border-cyan-500/30", isActive);
+          b.classList.toggle("text-cyan-300", isActive);
+          b.classList.toggle("bg-slate-800", !isActive);
+          b.classList.toggle("border-slate-700", !isActive);
+          b.classList.toggle("text-slate-300", !isActive);
+      });
+  }
+
+  function renderJson(obj) {
+      const json = escapeHtml(JSON.stringify(obj, null, 2));
+      return `<pre class="whitespace-pre-wrap font-mono text-xs leading-relaxed text-slate-200">${json}</pre>`;
+  }
+
+  function renderExecutive(data) {
+      const summary = escapeHtml(data.summary || "").replace(/\n/g, "<br>");
+      const risk = data.risk || {};
+      const keyRisks = Array.isArray(data.key_risks) ? data.key_risks : [];
+
+      const risksHtml = keyRisks.map(r => {
+          const sev = String(r.severity || "MEDIUM").toUpperCase();
+          const title = escapeHtml(r.title || r.type || "");
+          return `<div class="p-3 rounded border border-slate-700 bg-slate-900/40">
+            <div class="flex items-center justify-between gap-3">
+              <div class="font-bold text-slate-200">${title}</div>
+              <span class="text-[10px] font-bold uppercase px-2 py-1 rounded border border-slate-700">${sev}</span>
+            </div>
+          </div>`;
+      }).join("");
+
+      return `
+        <div class="space-y-5">
+          <div class="p-4 rounded border border-slate-700 bg-slate-900/40">
+            <div class="text-xs text-slate-500 uppercase font-bold mb-2">Risque</div>
+            <div class="text-sm text-slate-200">
+              Score: <span class="font-bold text-cyan-300">${risk.score ?? "--"}</span> / 100
+              • Niveau: <span class="font-bold text-emerald-300">${escapeHtml(risk.level ?? "--")}</span>
+            </div>
+          </div>
+
+          <div class="p-4 rounded border border-slate-700 bg-slate-900/40">
+            <div class="text-xs text-slate-500 uppercase font-bold mb-2">Résumé exécutif</div>
+            <div class="text-sm leading-relaxed text-slate-200">${summary || "--"}</div>
+          </div>
+
+          <div class="p-4 rounded border border-slate-700 bg-slate-900/40">
+            <div class="text-xs text-slate-500 uppercase font-bold mb-2">Risques clés</div>
+            <div class="grid grid-cols-1 gap-2">${risksHtml || '<div class="text-slate-500 italic">Aucun</div>'}</div>
+          </div>
+        </div>
+      `;
+  }
+
+  function renderTechnical(data) {
+      const exposures = Array.isArray(data.exposures) ? data.exposures : [];
+      const findings = Array.isArray(data.findings) ? data.findings : [];
+
+      const expHtml = exposures.slice(0, 30).map(e => {
+          const sev = String(e.severity || "MEDIUM").toUpperCase();
+          const title = escapeHtml(e.title || e.type || "");
+          const evidence = Array.isArray(e.evidence) ? e.evidence : [];
+          return `<div class="p-3 rounded border border-slate-700 bg-slate-900/40">
+            <div class="flex items-center justify-between gap-3">
+              <div class="font-bold text-slate-200">${title}</div>
+              <span class="text-[10px] font-bold uppercase px-2 py-1 rounded border border-slate-700">${sev}</span>
+            </div>
+            ${evidence.length ? `<div class="mt-2 text-xs text-slate-400">Preuves: ${escapeHtml(evidence[0])}</div>` : ""}
+          </div>`;
+      }).join("");
+
+      const findHtml = findings.slice(0, 25).map(f => {
+          const sev = escapeHtml(String(f.severity || "INFO").toUpperCase());
+          const title = escapeHtml(f.title || f.id || "Finding");
+          const claim = escapeHtml(f.claim || "");
+          return `<div class="p-3 rounded border border-slate-700 bg-slate-900/40">
+            <div class="flex items-center justify-between gap-3">
+              <div class="font-bold text-slate-200">${title}</div>
+              <span class="text-[10px] font-bold uppercase px-2 py-1 rounded border border-slate-700">${sev}</span>
+            </div>
+            <div class="mt-2 text-sm text-slate-200">${claim}</div>
+            ${f.remediation ? `<div class="mt-2 text-xs text-emerald-300">Remédiation: ${escapeHtml(f.remediation)}</div>` : ""}
+          </div>`;
+      }).join("");
+
+      return `
+        <div class="space-y-6">
+          <div>
+            <div class="text-xs text-slate-500 uppercase font-bold mb-2">Exposures</div>
+            <div class="grid grid-cols-1 gap-2">${expHtml || '<div class="text-slate-500 italic">Aucune</div>'}</div>
+          </div>
+          <div>
+            <div class="text-xs text-slate-500 uppercase font-bold mb-2">Findings</div>
+            <div class="grid grid-cols-1 gap-2">${findHtml || '<div class="text-slate-500 italic">Aucun</div>'}</div>
+          </div>
+        </div>
+      `;
+  }
+
+  async function fetchReportView(target, mode) {
+      const res = await fetch(`${API_BASE}/osint/report/view?target=${encodeURIComponent(target)}&mode=${encodeURIComponent(mode)}`);
+      if (!res.ok) {
+          throw new Error(`Erreur ${res.status}: ${await res.text()}`);
+      }
+      return await res.json();
+  }
+
+  async function loadPreviewMode(target, mode) {
       const title = document.getElementById("modal-title");
       const content = document.getElementById("modal-content");
-      const btnPdf = document.getElementById("modal-pdf-btn");
 
-      modal.classList.remove("hidden");
-      title.textContent = `CHARGEMENT : ${target}`;
+      setActiveModeButton(mode);
+      title.textContent = `RAPPORT (${mode.toUpperCase()}) : ${target}`;
       content.innerHTML = '<div class="flex items-center justify-center h-full"><i class="fas fa-circle-notch animate-spin text-4xl text-cyan-500"></i></div>';
 
-      // Setup bouton PDF du modal
-      btnPdf.onclick = () => downloadPDF(target);
-
       try {
-          // Utiliser le nouvel endpoint GET qui récupère le cache directement
-          const res = await fetch(`${API_BASE}/osint/report/?target=${encodeURIComponent(target)}`);
-
-          if (!res.ok) {
-              throw new Error(`Erreur ${res.status}: ${await res.text()}`);
-          }
-
-          const data = await res.json();
-          title.textContent = `RAPPORT : ${target}`;
-
-          if (data.report) {
-              // Convertir Markdown basique en HTML propre pour l'affichage
-              let html = escapeHtml(data.report)
-                  .replace(/## (.*)/g, '<h2 class="text-xl font-bold text-cyan-400 mt-6 mb-2 border-b border-slate-700 pb-1">$1</h2>')
-                  .replace(/=== (.*) ===/g, '<h3 class="text-sm font-bold text-slate-500 uppercase tracking-widest mt-4 mb-1">$1</h3>')
-                  .replace(/\n/g, '<br>');
-
-              content.innerHTML = html;
-          } else {
-              content.textContent = "Aucune donnée disponible.";
-          }
-
+          const data = await fetchReportView(target, mode);
+          if (mode === "executive") content.innerHTML = renderExecutive(data);
+          else if (mode === "technical") content.innerHTML = renderTechnical(data);
+          else content.innerHTML = renderJson(data);
       } catch (e) {
           content.textContent = "Erreur lors du chargement : " + e.message;
       }
+  }
+
+  // Récupération depuis le cache BDD, multi-niveau
+  async function openPreview(target) {
+      const modal = document.getElementById("preview-modal");
+      const btnPdf = document.getElementById("modal-pdf-btn");
+
+      modal.classList.remove("hidden");
+      btnPdf.onclick = () => downloadPDF(target);
+
+      // Mode buttons
+      document.querySelectorAll(".report-mode-btn").forEach(btn => {
+          btn.onclick = () => loadPreviewMode(target, btn.getAttribute("data-mode") || "executive");
+      });
+
+      return loadPreviewMode(target, "executive");
   }
 
   function closeModal() {
