@@ -17,6 +17,22 @@ def test_summarize_tool_output_vuln_scan_is_compact():
     assert len(s) <= 200
 
 
+def test_summarize_tool_output_web_enrichment_includes_org_intel_counts():
+    data = {
+        "text": "x" * 1000,
+        "sources": [{"title": "t", "url": "https://example.com", "summary": "..."}] * 3,
+        "people": [{"name": "Jane Doe", "role": "CEO", "email": "jane@example.com", "source_url": "https://example.com/team"}],
+        "public_emails": ["contact@example.com"],
+        "social_links": ["https://www.linkedin.com/company/example"],
+    }
+    s = summarize_tool_output("web_enrichment", data)
+    assert "Web intel" in s
+    assert "people=" in s
+    assert "emails=" in s
+    assert "socials=" in s
+    assert len(s) <= 200
+
+
 def test_postprocess_structured_findings_dedupes_similar_claims():
     structured = {
         "executive_summary": "test",

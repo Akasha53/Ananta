@@ -1702,10 +1702,31 @@ def summarize_tool_output(tool_name: str, data: Any) -> str:
 
     elif tool_name == "web_enrichment":
         if isinstance(data, dict):
-            text = data.get('text', '')
-            sources = data.get('sources', [])
-            if text or sources:
-                return f"Web intel: {len(sources)} sources, {len(text)} chars of context"
+            text = data.get("text", "") or ""
+            sources = data.get("sources", []) or []
+            people = data.get("people", []) or []
+            emails = data.get("public_emails", []) or data.get("emails", []) or []
+            socials = data.get("social_links", []) or []
+
+            if text or sources or people or emails or socials:
+                # include a tiny sample of people to help Phase 1 produce OSINT findings w/o hallucination
+                sample = []
+                if isinstance(people, list):
+                    for p in people[:2]:
+                        if isinstance(p, dict) and p.get("name"):
+                            r = p.get("role")
+                            sample.append(f"{p.get('name')}{(' (' + r + ')') if r else ''}")
+                sample_s = ("; ".join(sample))
+                if sample_s:
+                    sample_s = " | people: " + sample_s
+
+                return (
+                    f"Web intel: {len(sources)} sources, {len(text)} chars"
+                    f", people={len(people) if isinstance(people, list) else 0}"
+                    f", emails={len(emails) if isinstance(emails, list) else 0}"
+                    f", socials={len(socials) if isinstance(socials, list) else 0}"
+                    f"{sample_s}"
+                )[:200]
             return "No web enrichment data found"
         return "Web enrichment data available"
 
@@ -1760,12 +1781,28 @@ def build_llm_context(raw_data_storage: dict, risk_analysis: dict) -> dict:
 
         tool_cards.append(card)
 
+    # Extract org/people intel from passive web tools (kept separate from tool_cards).
+    org_intel = {"people": [], "public_emails": [], "social_links": [], "org_hints": [], "sources": []}
+    try:
+        we = (tools_data.get("web_enrichment") or {}).get("data") or {}
+        if isinstance(we, dict):
+            org_intel = {
+                "people": we.get("people") or [],
+                "public_emails": we.get("public_emails") or we.get("emails") or [],
+                "social_links": we.get("social_links") or [],
+                "org_hints": we.get("org_hints") or [],
+                "sources": we.get("org_sources") or [s.get("url") for s in (we.get("sources") or []) if isinstance(s, dict) and s.get("url")],
+            }
+    except Exception:
+        org_intel = {"people": [], "public_emails": [], "social_links": [], "org_hints": [], "sources": []}
+
     return {
         "tool_cards": tool_cards,
         "risk_analysis": risk_analysis,
         "total_tools": len(tool_cards),
         "successful_tools": sum(1 for c in tool_cards if c.get("status") == "ok"),
-        "scan_metadata": raw_data_storage.get("scan_metadata", {})
+        "scan_metadata": raw_data_storage.get("scan_metadata", {}),
+        "org_intel": postprocess_org_intel(org_intel),
     }
 
 
@@ -1860,6 +1897,166 @@ def normalize_query_for_search(raw: str) -> str:
     for w in STOPWORDS:
         q = re.sub(r"\b" + re.escape(w) + r"\b", " ", q)
     return re.sub(r"\s+", " ", q).strip() or raw.strip()
+
+
+# ================== ORG/PEOPLE OSINT (PASSIVE) ==================
+
+_DOMAIN_LIKE = re.compile(r"^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,}$", re.I)
+_EMAIL_RE = re.compile(r"[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}", re.I)
+
+_ROLE_KEYWORDS = [
+    # EN
+    "ceo", "cto", "cfo", "coo", "founder", "co-founder", "cofounder", "president",
+    "vp", "vice president", "head of", "director", "manager", "lead", "principal",
+    # FR
+    "pdg", "dg", "directeur", "directrice", "responsable", "chef", "cheffe",
+    "fondateur", "fondatrice", "président", "présidente", "vice-président", "vp",
+]
+
+
+def _is_domain_like(s: str) -> bool:
+    s = (s or "").strip().lower()
+    s = re.sub(r"^https?://", "", s)
+    s = s.split("/")[0]
+    return bool(_DOMAIN_LIKE.match(s))
+
+
+def _ensure_http(url: str) -> str:
+    url = (url or "").strip()
+    if not url:
+        return url
+    if url.startswith("http://") or url.startswith("https://"):
+        return url
+    return "https://" + url
+
+
+def _cap_list(xs, n: int):
+    if not isinstance(xs, list):
+        return []
+    return xs[:n]
+
+
+def extract_public_people_from_text(text: str, source_url: str) -> list[dict]:
+    """Heuristic extraction of publicly listed people from visible page text.
+
+    Conservative rules to reduce false positives:
+    - require 2-4 TitleCase words for the name
+    - require a role keyword on the same line (or a strong separator pattern)
+
+    Returns: [{name, role, email, source_url}]
+    """
+    if not text:
+        return []
+
+    people: list[dict] = []
+    seen = set()
+
+    # normalize line breaks for line-based heuristics
+    lines = [ln.strip() for ln in re.split(r"[\r\n]+", text) if ln and ln.strip()]
+
+    # Patterns like: "Jane Doe — CEO" or "Jane Doe - Founder"
+    name_pat = r"([A-ZÀ-ÖØ-Ý][\w'’\-]+(?:\s+[A-ZÀ-ÖØ-Ý][\w'’\-]+){1,3})"
+    sep_pat = r"(?:\s*[-–—|,·•:]\s*)"
+    role_pat = r"([A-Za-zÀ-ÖØ-öø-ÿ][A-Za-zÀ-ÖØ-öø-ÿ\s/,&().-]{2,80})"
+    combined = re.compile(name_pat + sep_pat + role_pat)
+
+    for ln in lines:
+        low = ln.lower()
+        if not any(k in low for k in _ROLE_KEYWORDS):
+            continue
+
+        m = combined.search(ln)
+        if not m:
+            continue
+
+        name = m.group(1).strip()
+        role = m.group(2).strip()
+
+        # Optional email in same line
+        email_m = _EMAIL_RE.search(ln)
+        email = email_m.group(0) if email_m else None
+
+        key = (name.lower(), role.lower(), (email or "").lower())
+        if key in seen:
+            continue
+        seen.add(key)
+
+        people.append({
+            "name": name,
+            "role": role,
+            "email": email,
+            "source_url": source_url,
+        })
+
+        if len(people) >= 25:
+            break
+
+    return people
+
+
+def postprocess_org_intel(org_intel: dict) -> dict:
+    """Hard cap org intel fields (for report token budgets) + enforce schema."""
+    if not isinstance(org_intel, dict):
+        return {"people": [], "public_emails": [], "social_links": [], "org_hints": [], "sources": []}
+
+    people = org_intel.get("people") or []
+    if not isinstance(people, list):
+        people = []
+
+    cleaned_people = []
+    seen = set()
+    for p in people:
+        if not isinstance(p, dict):
+            continue
+        name = _norm_text(p.get("name"))[:80]
+        role = _norm_text(p.get("role"))[:120]
+        email = _norm_text(p.get("email"))[:120] or None
+        src = _norm_text(p.get("source_url"))[:240]
+        if not name:
+            continue
+        key = (name.lower(), role.lower(), (email or "").lower(), src)
+        if key in seen:
+            continue
+        seen.add(key)
+        cleaned_people.append({"name": name, "role": role, "email": email, "source_url": src})
+        if len(cleaned_people) >= 30:
+            break
+
+    public_emails = org_intel.get("public_emails") or []
+    if isinstance(public_emails, str):
+        public_emails = [public_emails]
+    if not isinstance(public_emails, list):
+        public_emails = []
+    public_emails = [_norm_text(e)[:120] for e in public_emails if _norm_text(e)][:30]
+
+    social_links = org_intel.get("social_links") or []
+    if isinstance(social_links, str):
+        social_links = [social_links]
+    if not isinstance(social_links, list):
+        social_links = []
+    social_links = [_norm_text(u)[:240] for u in social_links if _norm_text(u)][:40]
+
+    org_hints = org_intel.get("org_hints") or []
+    if isinstance(org_hints, str):
+        org_hints = [org_hints]
+    if not isinstance(org_hints, list):
+        org_hints = []
+    org_hints = [_norm_text(h)[:200] for h in org_hints if _norm_text(h)][:20]
+
+    sources = org_intel.get("sources") or []
+    if isinstance(sources, str):
+        sources = [sources]
+    if not isinstance(sources, list):
+        sources = []
+    sources = [_norm_text(s)[:240] for s in sources if _norm_text(s)][:30]
+
+    return {
+        "people": cleaned_people,
+        "public_emails": public_emails,
+        "social_links": social_links,
+        "org_hints": org_hints,
+        "sources": sources,
+    }
 
 def scrape_url_with_scrapy(url: str) -> Dict[str, Any]:
     try:
@@ -2245,31 +2442,129 @@ def logic_securitytrails(target: str):
 
 
 def logic_web_enrichment(query: str):
-    """Fait une recherche web LIVE et résume les résultats (sans BDD)."""
+    """Fait une recherche web LIVE et résume les résultats (sans BDD).
+
+    Extension (passive OSINT): si la requête ressemble à un domaine, tente aussi des pages
+    standard d'un site d'entreprise (/about, /team, /contact, ...), et extrait:
+    - personnes publiques (nom/role/email si affiché)
+    - emails publics
+    - liens sociaux
+    - indices d'organigramme / structure
+
+    AUCUNE inférence: uniquement ce qui est présent dans le texte scrapé.
+    """
     try:
         urls = web_search_urls(query, max_results=3)
-        summaries = []
-        raw_results = []
+        summaries: list[str] = []
+        raw_results: list[dict] = []
 
+        # Org/people intel (conservative)
+        people: list[dict] = []
+        public_emails: set[str] = set()
+        social_links: set[str] = set()
+        org_hints: set[str] = set()
+        org_sources: set[str] = set()
+
+        # 1) Web search sources (context)
         for url in urls:
             try:
                 data = scrape_url_with_scrapy(url)
-                txt = data.get("text", "")[:1500]
+                txt_full = data.get("text", "") or ""
+                txt = txt_full[:1500]
                 title = data.get("title", "Sans titre")
 
                 if txt:
                     summaries.append(f"Source: {title} ({url})\nContenu: {txt}")
                     raw_results.append({"title": title, "url": url, "summary": txt[:200] + "..."})
+
+                # add any passive intel from the scraper output
+                for e in (data.get("emails") or []):
+                    if isinstance(e, str) and e.strip():
+                        public_emails.add(e.strip())
+                for u in (data.get("social_links") or []):
+                    if isinstance(u, str) and u.strip():
+                        social_links.add(u.strip())
             except Exception as scrape_error:
                 logger.warning(f"[WEB_ENRICHMENT] Échec scraping {url}: {scrape_error}")
                 continue
 
+        # 2) If domain-like, probe standard company pages directly
+        if _is_domain_like(query):
+            base = _ensure_http(query)
+            base = base.rstrip("/")
+            candidate_paths = [
+                "",
+                "/about", "/about-us", "/company", "/leadership", "/management",
+                "/team", "/equipe", "/a-propos", "/qui-sommes-nous",
+                "/contact", "/contact-us",
+                "/careers", "/jobs", "/recrutement",
+                "/legal", "/mentions-legales",
+            ]
+            direct_urls = []
+            for p in candidate_paths:
+                u = base + p
+                if u not in direct_urls:
+                    direct_urls.append(u)
+
+            for u in direct_urls[:10]:
+                try:
+                    data = scrape_url_with_scrapy(u)
+                    txt_full = data.get("text", "") or ""
+                    if not txt_full.strip():
+                        continue
+
+                    org_sources.add(u)
+
+                    # People extraction from page text
+                    people.extend(extract_public_people_from_text(txt_full, u))
+
+                    # Reuse scraped lists if present
+                    for e in (data.get("emails") or []):
+                        if isinstance(e, str) and e.strip():
+                            public_emails.add(e.strip())
+                    for sl in (data.get("social_links") or []):
+                        if isinstance(sl, str) and sl.strip():
+                            social_links.add(sl.strip())
+
+                    # Hints based on page type + common headings
+                    low = txt_full.lower()
+                    if any(k in low for k in ["leadership", "management", "direction", "comité", "executive team"]):
+                        org_hints.add(f"Page suggests leadership/management section (source: {u})")
+                    if any(k in low for k in ["team", "équipe", "our people", "staff"]):
+                        org_hints.add(f"Page suggests team/staff section (source: {u})")
+
+                except Exception as scrape_error:
+                    logger.warning(f"[WEB_ENRICHMENT] Échec scraping direct {u}: {scrape_error}")
+                    continue
+
+        # Deduplicate people
+        dedup_people = []
+        seen = set()
+        for p in people:
+            if not isinstance(p, dict):
+                continue
+            key = (
+                (p.get("name") or "").strip().lower(),
+                (p.get("role") or "").strip().lower(),
+                (p.get("email") or "").strip().lower(),
+                (p.get("source_url") or "").strip(),
+            )
+            if key in seen:
+                continue
+            seen.add(key)
+            dedup_people.append(p)
+
         # Si aucun résultat, marquer comme "no_data" plutôt que "ok" avec données vides
-        if not summaries and not raw_results:
+        if not summaries and not raw_results and not dedup_people and not public_emails and not social_links:
             return {
                 "raw": {
                     "text": "",
                     "sources": [],
+                    "people": [],
+                    "public_emails": [],
+                    "social_links": [],
+                    "org_hints": [],
+                    "org_sources": [],
                     "no_data_reason": "Aucune source web n'a pu être scrapée ou la recherche n'a retourné aucun résultat"
                 }
             }
@@ -2277,7 +2572,12 @@ def logic_web_enrichment(query: str):
         return {
             "raw": {
                 "text": "\n\n".join(summaries),
-                "sources": raw_results
+                "sources": raw_results,
+                "people": dedup_people[:50],
+                "public_emails": sorted(list(public_emails))[:50],
+                "social_links": sorted(list(social_links))[:80],
+                "org_hints": sorted(list(org_hints))[:30],
+                "org_sources": sorted(list(org_sources))[:30],
             }
         }
     except Exception as e:
@@ -3379,6 +3679,12 @@ Extract structured findings as JSON. Include positive_findings from the indicato
 
     structured_data = postprocess_structured_findings(structured_data)
 
+    # Attach passive org/people intel extracted deterministically from public pages (no hallucination).
+    try:
+        structured_data["org_intel"] = postprocess_org_intel(llm_context.get("org_intel") or {})
+    except Exception:
+        structured_data["org_intel"] = postprocess_org_intel({})
+
     logger.info(f"[PHASE 1] ✅ Findings extraits: {len(structured_data.get('top_findings', []))} findings")
 
     return structured_data
@@ -3546,6 +3852,7 @@ def generate_report_from_structured(
 
 ## 3. Synthèse OSINT (Identité & Infrastructure)
 - Points factuels: WHOIS/DNS/ASN/CDN/empreinte web (uniquement si présent)
+- **Personnes & organisation (public)**: utiliser le champ JSON `org_intel` (people/emails/social_links) et citer les URLs sources (pas d'inférence)
 
 ## 4. Vulnérabilités & Risques Observés
 - Regrouper par sévérité (CRITICAL/HIGH/MEDIUM/LOW/INFO)
@@ -3583,6 +3890,7 @@ Pour CHAQUE finding de top_findings, respecter exactement les champs suivants (p
 
 ## 2. Identity & Infrastructure
 (WHOIS info, IP location, CDN - ONLY what's available in data)
+- **People & organization (public)**: use JSON field `org_intel` (people/emails/social_links) and always cite source URLs; do not infer
 
 ## 3. Risk Analysis
 (Based on top_findings - categorize by severity)
