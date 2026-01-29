@@ -169,13 +169,85 @@ GENERAL_SEARCH_TRIGGERS = [
     "resultat", "info", "date", "quand"
 ]
 
-# Prompt système "Couteau Suisse"
+# Prompt système "Couteau Suisse" (chat + OSINT)
+# Objectifs:
+# - Réponses courtes et naturelles en français (éviter le blabla / "assistant" corporate)
+# - Petites discussions (ex: "ça va ?") -> 1–2 phrases max + relance
+# - Si une demande OSINT/technique nécessite une cible et qu'elle manque -> demander la cible (URL/domaine/IP/etc.)
 SYSTEM_PROMPT_UNIVERSAL = (
-    "Tu es Ananta, une IA avancée. "
-    "Ton rôle principal est l'OSINT, mais tu es aussi un assistant généraliste compétent. "
-    "Si l'utilisateur veut discuter, discute. S'il veut de l'aide technique, sois technique. "
-    "S'il demande la météo ou une info générale, ne refuse jamais : utilise tes connaissances ou le contexte fourni."
+    "Tu es Ananta. Réponds en français, avec un ton direct, poli et naturel. "
+    "Sois concis par défaut (2–6 lignes max). "
+    "Évite les formules creuses (ex: 'Je suis là pour vous aider', 'en tant qu'IA', etc.) et les longs préambules. "
+    "Pour les salutations et le small talk (ex: 'salut', 'bonjour', 'ça va ?'), réponds en 1–2 phrases maximum puis pose une question courte. "
+    "Quand l'utilisateur demande une action d'analyse/OSINT (ex: whois, scan, analyse, rapport, 'check', 'investigue') "
+    "sans fournir de cible exploitable, demande clairement la cible attendue (URL, domaine, IP, email, username) et ne fais rien d'autre."
 )
+
+
+def _normalize_chat_text(s: str) -> str:
+    s = (s or "").strip().lower()
+    # Ponctuation simple (on évite regex lourde ici)
+    for ch in ["!", "?", ".", ",", ";", ":", "\n", "\t", "\r"]:
+        s = s.replace(ch, " ")
+    s = " ".join(s.split())
+    return s
+
+
+def _is_small_talk(q: str) -> bool:
+    """Heuristique légère: messages très courts / salutations / 'ça va' etc."""
+    norm = _normalize_chat_text(q)
+    if not norm:
+        return False
+
+    greetings = {
+        "salut",
+        "bonjour",
+        "bonsoir",
+        "hello",
+        "hi",
+        "yo",
+        "coucou",
+        "hey",
+        "slt",
+    }
+    small_talk = {
+        "ca va",
+        "ça va",
+        "comment ca va",
+        "comment ça va",
+        "tu vas bien",
+        "cv",
+        "merci",
+        "ok",
+    }
+
+    if norm in greetings or norm in small_talk:
+        return True
+
+    # Cas type: "ça va ?" / "salut!" / "bonjour ananta"
+    if len(norm.split()) <= 4 and any(norm.startswith(g) for g in greetings):
+        return True
+    if norm.startswith("ca va") or norm.startswith("ça va"):
+        return True
+
+    return False
+
+
+def _truncate_answer(text: str, max_chars: int = 260) -> str:
+    """Tronque proprement une réponse trop longue (pour small talk)."""
+    t = (text or "").strip()
+    if len(t) <= max_chars:
+        return t
+
+    cut = t[:max_chars]
+    # Essayer de couper sur une fin de phrase
+    last_punct = max(cut.rfind("."), cut.rfind("!"), cut.rfind("?"))
+    if last_punct >= int(max_chars * 0.6):
+        cut = cut[: last_punct + 1]
+    else:
+        cut = cut.rstrip()
+        cut += "…"
+    return cut
 
 
 @router.get("/health")
@@ -1254,23 +1326,7 @@ def agent_ask(body: AskBody, db: Session = Depends(get_db)):
         return {"type": "osint", "results": report.get("sources", []), "answer": report.get("report", "")}
 
     # 4) PAR DÉFAUT -> CHAT (messages simples comme "salut", "bonjour", etc.)
-    # Fast-path: réponses instantanées pour les salutations (évite un appel LLM lent)
-    greetings = {
-        "salut",
-        "bonjour",
-        "bonsoir",
-        "hello",
-        "hi",
-        "yo",
-        "coucou",
-        "hey",
-    }
-    if q_lower in greetings or (len(q.split()) <= 3 and q_lower.rstrip("!?.") in greetings):
-        return {
-            "type": "chat",
-            "answer": "Bonjour. Donnez-moi une IP, un domaine ou une URL (ex: 'analyze example.com') et je lance l'analyse OSINT passive.",
-        }
-
+    # IMPORTANT: pas de fast-path "salutations" -> on garde ces messages routés vers le LLM
     logger.info(f"[CHAT] Message simple détecté: '{q[:50]}...' -> appel LLM")
     try:
         answer = logic.ask_llm(SYSTEM_PROMPT_UNIVERSAL, q)
@@ -1278,7 +1334,11 @@ def agent_ask(body: AskBody, db: Session = Depends(get_db)):
         # Vérifier que la réponse n'est pas vide
         if not answer or answer.strip() == "":
             logger.warning(f"[CHAT] LLM a retourné une réponse vide pour: '{q}'")
-            answer = "Je suis Ananta, votre assistant OSINT. Comment puis-je vous aider ?"
+            answer = "Que voulez-vous faire (discussion, question, ou analyse OSINT) ?"
+
+        # Garder les réponses de small talk très courtes (post-traitement léger)
+        if _is_small_talk(q):
+            answer = _truncate_answer(answer, max_chars=260)
 
         logger.info(f"[CHAT] Réponse LLM ({len(answer)} chars): '{answer[:100]}...'")
         return {"type": "chat", "answer": answer}
