@@ -805,7 +805,58 @@ def execute_tool_with_audit(
             }
         }
 
-    # 3. Exécution de l'outil avec gestion d'erreur
+    # 3. Check dépendances (ex: API keys) AVANT d'appeler l'outil
+    # Objectif: si la clé manque, on ne fait aucune requête réseau inutile.
+    try:
+        deps = list(getattr(tool_spec, "dependencies", []) or [])
+    except Exception:
+        deps = []
+
+    missing_env = []
+    for d in deps:
+        # Convention: les variables d'env finissent par _API_KEY
+        if isinstance(d, str) and d.endswith("_API_KEY"):
+            if not os.getenv(d):
+                missing_env.append(d)
+
+    if missing_env:
+        msg = f"Missing env dependencies: {', '.join(missing_env)}"
+        logger.info(f"[TOOL SKIPPED] {tool_name} - {msg}")
+
+        # audit trail
+        if db_session:
+            try:
+                audit_log = ToolExecutionLog(
+                    run_id=run_id,
+                    tool_name=tool_name,
+                    tool_layer=tool_spec.layer.value,
+                    legal_risk_level=tool_spec.legal_risk_level.value,
+                    context_declared=context_declared,
+                    user_consent=user_consent,
+                    target=target,
+                    hypothesis=hypothesis,
+                    status="skipped",
+                    duration_seconds=0.0,
+                    error_message=msg,
+                    executed_at=datetime.now(timezone.utc),
+                )
+                db_session.add(audit_log)
+                db_session.commit()
+            except Exception as e:
+                logger.error(f"Erreur lors du logging d'audit (skipped deps): {e}")
+
+        return {
+            "status": "skipped",
+            "error": msg,
+            "duration": 0.0,
+            "tool_metadata": {
+                "layer": tool_spec.layer.name,
+                "risk_level": tool_spec.legal_risk_level.name,
+                "capabilities": tool_spec.capabilities,
+            },
+        }
+
+    # 4. Exécution de l'outil avec gestion d'erreur
     logger.info(f"[TOOL EXEC START] {tool_name} sur {target} (contexte: {context_declared})")
 
     result_data = None
