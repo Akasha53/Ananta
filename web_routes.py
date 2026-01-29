@@ -2025,6 +2025,57 @@ def revoke_api_key(key_id: int, db: Session = Depends(get_db)):
 # ==================== TIMELINE ====================
 
 
+@router.get("/osint/graph")
+def osint_graph(
+    target: str = Query(..., description="Cible (domaine/IP)"),
+    db: Session = Depends(get_db),
+):
+    """Retourne le graph relationnel (dernier rapport en base) pour une cible."""
+    norm = validate_target(target)
+
+    report = (
+        db.query(EntityReport)
+        .filter(EntityReport.target.ilike(f"%{norm}%"))
+        .order_by(EntityReport.updated_at.desc(), EntityReport.created_at.desc())
+        .first()
+    )
+    if not report:
+        raise HTTPException(status_code=404, detail="Rapport non trouvé")
+
+    try:
+        payload = json.loads(report.raw_data) if report.raw_data else {}
+    except Exception:
+        payload = {}
+
+    graph = payload.get("intel_graph") or {"version": 1, "root": None, "nodes": [], "edges": []}
+    return {"target": norm, "report_id": report.id, "graph": graph}
+
+
+@router.get("/osint/structured")
+def osint_structured(
+    target: str = Query(..., description="Cible (domaine/IP)"),
+    db: Session = Depends(get_db),
+):
+    """Retourne les findings structurés (Phase 1) du dernier rapport pour une cible."""
+    norm = validate_target(target)
+
+    report = (
+        db.query(EntityReport)
+        .filter(EntityReport.target.ilike(f"%{norm}%"))
+        .order_by(EntityReport.updated_at.desc(), EntityReport.created_at.desc())
+        .first()
+    )
+    if not report:
+        raise HTTPException(status_code=404, detail="Rapport non trouvé")
+
+    try:
+        payload = json.loads(report.raw_data) if report.raw_data else {}
+    except Exception:
+        payload = {}
+
+    return {"target": norm, "report_id": report.id, "structured_data": payload.get("structured_data") or {}}
+
+
 @router.get("/osint/timeline")
 def osint_timeline(
     target: str = Query(..., description="Cible (domaine/IP)"),

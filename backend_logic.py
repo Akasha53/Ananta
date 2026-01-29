@@ -670,6 +670,17 @@ def aggregate_parallel_results(layer1_results: Dict, layer2_results: Dict,
     # Phase 1: Extraction structurée (utilise les wrappers)
     phase1_result = llm_phase1_extract_findings(raw_data_storage, risk_result, target, target_type)
 
+    # Persist structured + derived intel for history/comparison/UI
+    raw_data_storage["structured_data"] = phase1_result
+    try:
+        raw_data_storage["intel_graph"] = build_intel_graph(target, target_type, raw_data_storage, phase1_result)
+    except Exception:
+        raw_data_storage["intel_graph"] = {"version": 1, "root": f"target:{target_type.lower()}:{target}", "nodes": [], "edges": []}
+    try:
+        raw_data_storage["timeline_events"] = build_timeline_events(raw_data_storage)
+    except Exception:
+        raw_data_storage["timeline_events"] = []
+
     # Phase 2: Rapport final
     final_report = llm_phase2_generate_report(phase1_result, target, target_type)
 
@@ -3815,6 +3826,152 @@ def postprocess_structured_findings(structured_data: dict) -> dict:
     return structured_data
 
 
+def build_intel_graph(target: str, target_type: str, raw_data_storage: dict, structured_data: dict | None = None) -> dict:
+    """Build a lightweight relationship graph (nodes/edges) from collected OSINT.
+
+    Goal: create a usable graph for UI + future correlation, without hallucination.
+    """
+    nodes: dict[str, dict] = {}
+    edges: list[dict] = []
+
+    def add_node(node_id: str, ntype: str, label: str, **attrs):
+        if not node_id:
+            return
+        if node_id not in nodes:
+            nodes[node_id] = {"id": node_id, "type": ntype, "label": label, "attrs": attrs or {}}
+        else:
+            # merge attrs (do not overwrite existing keys with empty values)
+            for k, v in (attrs or {}).items():
+                if v is not None and v != "":
+                    nodes[node_id]["attrs"][k] = v
+
+    def add_edge(src: str, dst: str, etype: str, **attrs):
+        if not src or not dst:
+            return
+        edges.append({"source": src, "target": dst, "type": etype, "attrs": attrs or {}})
+
+    # Root target
+    root_id = f"target:{target_type.lower()}:{target}"
+    add_node(root_id, target_type.upper(), target, normalized=raw_data_storage.get("target") or target)
+
+    tools = (raw_data_storage.get("tools") or {})
+
+    # DNS -> IP
+    dns = tools.get("dns_resolution") or {}
+    dns_data = (dns.get("data") or {}) if isinstance(dns.get("data"), dict) else dns.get("data")
+    ip = None
+    if dns.get("status") == "ok":
+        if isinstance(dns_data, dict):
+            ip = dns_data.get("raw")
+        elif isinstance(dns_data, str):
+            ip = dns_data
+    if isinstance(ip, str) and ip:
+        ip_id = f"ip:{ip}"
+        add_node(ip_id, "IP", ip)
+        add_edge(root_id, ip_id, "resolves_to")
+
+    # WHOIS -> org / registrar / emails
+    whois = tools.get("whois") or {}
+    whois_raw = None
+    if whois.get("status") == "ok":
+        data = whois.get("data")
+        if isinstance(data, dict):
+            whois_raw = data.get("raw") if isinstance(data.get("raw"), dict) else data
+    if isinstance(whois_raw, dict):
+        org = whois_raw.get("org") or whois_raw.get("organization") or whois_raw.get("registrant_organization")
+        registrar = whois_raw.get("registrar")
+        emails = whois_raw.get("emails")
+        if isinstance(org, str) and org.strip():
+            org_name = org.strip()
+            org_id = f"org:{org_name.lower()}"
+            add_node(org_id, "ORG", org_name)
+            add_edge(root_id, org_id, "registered_to")
+        if isinstance(registrar, str) and registrar.strip():
+            reg = registrar.strip()
+            reg_id = f"registrar:{reg.lower()}"
+            add_node(reg_id, "REGISTRAR", reg)
+            add_edge(root_id, reg_id, "registrar")
+        if isinstance(emails, str):
+            emails = [emails]
+        if isinstance(emails, list):
+            for e in emails[:8]:
+                if isinstance(e, str) and "@" in e:
+                    eid = f"email:{e.lower()}"
+                    add_node(eid, "EMAIL", e.lower())
+                    add_edge(root_id, eid, "whois_email")
+
+    # HTTP headers -> tech
+    headers = tools.get("http_headers") or {}
+    hdr_raw = None
+    if headers.get("status") == "ok":
+        data = headers.get("data")
+        if isinstance(data, dict):
+            hdr_raw = data.get("raw") if isinstance(data.get("raw"), dict) else data
+    if isinstance(hdr_raw, dict):
+        techs = hdr_raw.get("technologies_detected")
+        if isinstance(techs, list):
+            for t in techs[:10]:
+                if isinstance(t, str) and t.strip():
+                    tid = f"tech:{t.strip().lower()}"
+                    add_node(tid, "TECH", t.strip())
+                    add_edge(root_id, tid, "uses")
+
+    # Structured org_intel (if present)
+    if isinstance(structured_data, dict):
+        org_intel = structured_data.get("org_intel")
+        if isinstance(org_intel, dict):
+            company = org_intel.get("company") or org_intel.get("name")
+            if isinstance(company, str) and company.strip():
+                cid = f"org:{company.strip().lower()}"
+                add_node(cid, "ORG", company.strip())
+                add_edge(root_id, cid, "associated_with")
+
+            socials = org_intel.get("social_profiles") or org_intel.get("socials")
+            if isinstance(socials, list):
+                for s in socials[:12]:
+                    if isinstance(s, str) and s.strip():
+                        sid = f"social:{s.strip().lower()}"
+                        add_node(sid, "SOCIAL", s.strip())
+                        add_edge(root_id, sid, "has_profile")
+
+    return {"version": 1, "root": root_id, "nodes": list(nodes.values()), "edges": edges}
+
+
+def build_timeline_events(raw_data_storage: dict) -> list[dict]:
+    """Build simple timeline events from scan metadata and tool execution results."""
+    events: list[dict] = []
+    meta = raw_data_storage.get("scan_metadata") or {}
+    ts = meta.get("timestamp") or meta.get("started_at") or meta.get("scanned_at")
+    if ts:
+        events.append({"ts": ts, "type": "scan_start", "detail": "Scan started"})
+
+    tools = raw_data_storage.get("tools") or {}
+    for tool_name, payload in tools.items():
+        if not isinstance(payload, dict):
+            continue
+        status = payload.get("status")
+        duration = payload.get("duration")
+        events.append({
+            "ts": ts,
+            "type": "tool_result",
+            "tool": tool_name,
+            "status": status,
+            "duration": duration,
+        })
+
+    # Risk snapshot
+    risk = raw_data_storage.get("risk_analysis")
+    if isinstance(risk, dict):
+        events.append({
+            "ts": ts,
+            "type": "risk_snapshot",
+            "score": risk.get("score"),
+            "level": risk.get("level"),
+        })
+
+    return events
+
+
 def generate_report_from_structured(
     target: str,
     target_type: str,
@@ -5433,6 +5590,17 @@ Données collectées:
                 target_type=target_type,
                 llm_context=llm_context
             )
+
+            # Persist structured + derived intel for history/comparison/UI
+            raw_data_storage["structured_data"] = structured_data
+            try:
+                raw_data_storage["intel_graph"] = build_intel_graph(target, target_type, raw_data_storage, structured_data)
+            except Exception:
+                raw_data_storage["intel_graph"] = {"version": 1, "root": f"target:{target_type.lower()}:{target}", "nodes": [], "edges": []}
+            try:
+                raw_data_storage["timeline_events"] = build_timeline_events(raw_data_storage)
+            except Exception:
+                raw_data_storage["timeline_events"] = []
 
             # Étape 3 : Phase 2 - Génération rapport Markdown
             logger.info("[HYBRID PIPELINE] Étape 3/3 : Génération rapport Markdown (Phase 2)...")
