@@ -2158,6 +2158,51 @@ def osint_exposures_by_report(
     return {"target": report.target, "report_id": report.id, "count": len(exposures), "exposures": exposures}
 
 
+@router.get("/osint/timeline_events")
+def osint_timeline_events(
+    target: str = Query(..., description="Cible (domaine/IP)"),
+    db: Session = Depends(get_db),
+):
+    """Retourne les timeline_events du dernier report pour une cible."""
+    norm = validate_target(target)
+
+    report = (
+        db.query(EntityReport)
+        .filter(EntityReport.target.ilike(f"%{norm}%"))
+        .order_by(EntityReport.updated_at.desc(), EntityReport.created_at.desc())
+        .first()
+    )
+    if not report:
+        raise HTTPException(status_code=404, detail="Rapport non trouvé")
+
+    try:
+        payload = json.loads(report.raw_data) if report.raw_data else {}
+    except Exception:
+        payload = {}
+
+    events = payload.get("timeline_events") or []
+    return {"target": norm, "report_id": report.id, "count": len(events), "events": events}
+
+
+@router.get("/osint/timeline_events/{report_id}")
+def osint_timeline_events_by_report(
+    report_id: int,
+    db: Session = Depends(get_db),
+):
+    """Retourne les timeline_events pour un report_id."""
+    report = db.query(EntityReport).filter(EntityReport.id == report_id).first()
+    if not report:
+        raise HTTPException(status_code=404, detail="Rapport non trouvé")
+
+    try:
+        payload = json.loads(report.raw_data) if report.raw_data else {}
+    except Exception:
+        payload = {}
+
+    events = payload.get("timeline_events") or []
+    return {"target": report.target, "report_id": report.id, "count": len(events), "events": events}
+
+
 @router.get("/osint/timeline")
 def osint_timeline(
     target: str = Query(..., description="Cible (domaine/IP)"),
