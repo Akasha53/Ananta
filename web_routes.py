@@ -2228,6 +2228,113 @@ def osint_timeline(
 
     return {"target": norm, "count": len(items), "items": items}
 
+@router.get("/osint/diff")
+def diff_reports(
+    report_id_1: int = Query(..., description="ID du premier rapport"),
+    report_id_2: int = Query(..., description="ID du second rapport"),
+    db: Session = Depends(get_db)
+):
+    """Diff structuré entre deux rapports.
+
+    Renvoie uniquement les changements utiles pour le "renseignement": exposures + graph.
+    """
+    try:
+        report1 = db.query(EntityReport).filter(EntityReport.id == report_id_1).first()
+        report2 = db.query(EntityReport).filter(EntityReport.id == report_id_2).first()
+
+        if not report1 or not report2:
+            raise HTTPException(status_code=404, detail="Un ou plusieurs rapports introuvables")
+
+        if report1.target.lower() != report2.target.lower():
+            raise HTTPException(
+                status_code=400,
+                detail=f"Les rapports concernent des cibles différentes: {report1.target} vs {report2.target}"
+            )
+
+        data1 = json.loads(report1.raw_data) if report1.raw_data else {}
+        data2 = json.loads(report2.raw_data) if report2.raw_data else {}
+
+        exp1 = data1.get("exposures") or []
+        exp2 = data2.get("exposures") or []
+
+        def _exp_key(e: dict) -> str:
+            if not isinstance(e, dict):
+                return ""
+            return f"{e.get('type','')}|{e.get('id','')}|{e.get('title','')}"
+
+        exp_map1 = {k: e for e in exp1 if (k := _exp_key(e))}
+        exp_map2 = {k: e for e in exp2 if (k := _exp_key(e))}
+
+        exp_added = [exp_map2[k] for k in exp_map2.keys() - exp_map1.keys()]
+        exp_removed = [exp_map1[k] for k in exp_map1.keys() - exp_map2.keys()]
+
+        exp_changed = []
+        for k in exp_map1.keys() & exp_map2.keys():
+            a = exp_map1[k]
+            b = exp_map2[k]
+            if (a.get("severity") != b.get("severity")) or (a.get("confidence") != b.get("confidence")):
+                exp_changed.append({"before": a, "after": b})
+
+        g1 = (data1.get("intel_graph") or {})
+        g2 = (data2.get("intel_graph") or {})
+
+        def _node_key(n: dict) -> str:
+            if not isinstance(n, dict):
+                return ""
+            return n.get("id") or ""
+
+        def _edge_key(ed: dict) -> str:
+            if not isinstance(ed, dict):
+                return ""
+            return f"{ed.get('source')}|{ed.get('type')}|{ed.get('target')}"
+
+        node_map1 = {k: x for x in ((g1.get("nodes") or []) if isinstance(g1, dict) else []) if (k := _node_key(x))}
+        node_map2 = {k: x for x in ((g2.get("nodes") or []) if isinstance(g2, dict) else []) if (k := _node_key(x))}
+        edge_map1 = {k: x for x in ((g1.get("edges") or []) if isinstance(g1, dict) else []) if (k := _edge_key(x))}
+        edge_map2 = {k: x for x in ((g2.get("edges") or []) if isinstance(g2, dict) else []) if (k := _edge_key(x))}
+
+        nodes_added = [node_map2[k] for k in list(node_map2.keys() - node_map1.keys())[:200]]
+        nodes_removed = [node_map1[k] for k in list(node_map1.keys() - node_map2.keys())[:200]]
+        edges_added = [edge_map2[k] for k in list(edge_map2.keys() - edge_map1.keys())[:400]]
+        edges_removed = [edge_map1[k] for k in list(edge_map1.keys() - edge_map2.keys())[:400]]
+
+        structured_diff = {
+            "exposures": {
+                "added": exp_added,
+                "removed": exp_removed,
+                "changed": exp_changed,
+            },
+            "graph": {
+                "nodes_added": nodes_added,
+                "nodes_removed": nodes_removed,
+                "edges_added": edges_added,
+                "edges_removed": edges_removed,
+            },
+        }
+
+        return {
+            "target": report1.target,
+            "report_id_1": report1.id,
+            "report_id_2": report2.id,
+            "structured_diff": structured_diff,
+            "summary": {
+                "exposures_added": len(exp_added),
+                "exposures_removed": len(exp_removed),
+                "exposures_changed": len(exp_changed),
+                "graph_nodes_added": len(nodes_added),
+                "graph_nodes_removed": len(nodes_removed),
+                "graph_edges_added": len(edges_added),
+                "graph_edges_removed": len(edges_removed),
+            },
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception(f"[/osint/diff] ERREUR: {e}")
+        raise HTTPException(status_code=500, detail="Erreur lors du diff")
+
+
 @router.get("/osint/compare")
 def compare_scans(
     target: str = Query(..., description="Cible à comparer"),
