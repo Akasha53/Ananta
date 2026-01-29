@@ -75,7 +75,7 @@
     <!-- Results Section -->
     <section id="results-section" class="max-w-6xl mx-auto hidden">
       <!-- Summary Cards -->
-      <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
+      <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
         <div class="glass-panel p-6 border-l-4 border-emerald-500">
           <div class="text-[10px] uppercase tracking-widest text-slate-500 mb-2">Outils Ajoutés</div>
           <div class="text-3xl font-bold text-emerald-400" id="stat-tools-added">0</div>
@@ -89,6 +89,26 @@
         <div class="glass-panel p-6 border-l-4 border-amber-500">
           <div class="text-[10px] uppercase tracking-widest text-slate-500 mb-2">Changements Détectés</div>
           <div class="text-3xl font-bold text-amber-400" id="stat-changes">0</div>
+        </div>
+      </div>
+
+      <!-- Structured Summary Cards (Intel) -->
+      <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
+        <div class="glass-panel p-5 border-l-4 border-cyan-500">
+          <div class="text-[10px] uppercase tracking-widest text-slate-500 mb-2">Exposures +</div>
+          <div class="text-2xl font-bold text-cyan-300" id="stat-exp-added">0</div>
+        </div>
+        <div class="glass-panel p-5 border-l-4 border-slate-500">
+          <div class="text-[10px] uppercase tracking-widest text-slate-500 mb-2">Exposures -</div>
+          <div class="text-2xl font-bold text-slate-200" id="stat-exp-removed">0</div>
+        </div>
+        <div class="glass-panel p-5 border-l-4 border-indigo-500">
+          <div class="text-[10px] uppercase tracking-widest text-slate-500 mb-2">Edges +</div>
+          <div class="text-2xl font-bold text-indigo-300" id="stat-edges-added">0</div>
+        </div>
+        <div class="glass-panel p-5 border-l-4 border-slate-500">
+          <div class="text-[10px] uppercase tracking-widest text-slate-500 mb-2">Edges -</div>
+          <div class="text-2xl font-bold text-slate-200" id="stat-edges-removed">0</div>
         </div>
       </div>
 
@@ -192,6 +212,16 @@
       document.getElementById('stat-tools-removed').textContent = data.summary.tools_removed;
       document.getElementById('stat-changes').textContent = data.summary.changes_detected;
 
+      // Structured (intel) stats
+      const sd = data.structured_diff || {};
+      const exp = sd.exposures || {};
+      const graph = sd.graph || {};
+
+      document.getElementById('stat-exp-added').textContent = Array.isArray(exp.added) ? exp.added.length : 0;
+      document.getElementById('stat-exp-removed').textContent = Array.isArray(exp.removed) ? exp.removed.length : 0;
+      document.getElementById('stat-edges-added').textContent = Array.isArray(graph.edges_added) ? graph.edges_added.length : 0;
+      document.getElementById('stat-edges-removed').textContent = Array.isArray(graph.edges_removed) ? graph.edges_removed.length : 0;
+
       // Display changes
       const changesList = document.getElementById('changes-list');
 
@@ -203,6 +233,51 @@
       }
 
       let html = '';
+
+      // Structured diff (Intel)
+      if (data.structured_diff) {
+        const sd = data.structured_diff;
+        const exp = sd.exposures || {};
+        const graph = sd.graph || {};
+
+        const expAdded = Array.isArray(exp.added) ? exp.added : [];
+        const expRemoved = Array.isArray(exp.removed) ? exp.removed : [];
+
+        if (expAdded.length > 0 || expRemoved.length > 0) {
+          html += '<div class="glass-panel p-4 border-l-4 border-cyan-500">';
+          html += '<h3 class="text-xs font-bold text-cyan-300 mb-2">Exposures (renseignement)</h3>';
+
+          if (expAdded.length > 0) {
+            html += '<div class="text-[11px] text-emerald-300 font-bold uppercase mb-1">Ajoutées</div>';
+            html += '<ul class="list-disc list-inside text-sm text-slate-300 space-y-1">';
+            expAdded.slice(0, 20).forEach(e => {
+              html += `<li>${escapeHtml(e.title || e.type || 'Exposure')}</li>`;
+            });
+            html += '</ul>';
+          }
+
+          if (expRemoved.length > 0) {
+            html += '<div class="mt-3 text-[11px] text-rose-300 font-bold uppercase mb-1">Supprimées</div>';
+            html += '<ul class="list-disc list-inside text-sm text-slate-300 space-y-1">';
+            expRemoved.slice(0, 20).forEach(e => {
+              html += `<li>${escapeHtml(e.title || e.type || 'Exposure')}</li>`;
+            });
+            html += '</ul>';
+          }
+
+          html += '</div>';
+        }
+
+        const edgesAdded = Array.isArray(graph.edges_added) ? graph.edges_added : [];
+        const edgesRemoved = Array.isArray(graph.edges_removed) ? graph.edges_removed : [];
+
+        if (edgesAdded.length > 0 || edgesRemoved.length > 0) {
+          html += '<div class="glass-panel p-4 border-l-4 border-indigo-500">';
+          html += '<h3 class="text-xs font-bold text-indigo-300 mb-2">Graph (relations)</h3>';
+          html += `<div class="text-sm text-slate-300">Edges +: <span class="font-bold">${edgesAdded.length}</span> • Edges -: <span class="font-bold">${edgesRemoved.length}</span></div>`;
+          html += '</div>';
+        }
+      }
 
       // Tools added
       if (data.details.tools_added.length > 0) {
