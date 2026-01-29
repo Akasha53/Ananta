@@ -9,7 +9,9 @@ import logging
 from datetime import datetime, timezone
 from fastapi import Header, HTTPException, Depends
 from sqlalchemy.orm import Session
+
 from database import get_db, APIKey
+from errors import ErrorCode, create_error_response
 
 logger = logging.getLogger(__name__)
 
@@ -55,7 +57,10 @@ def verify_api_key(
     if not x_api_key:
         raise HTTPException(
             status_code=401,
-            detail="API Key manquante. Fournissez une clé via le header X-API-Key.",
+            detail=create_error_response(
+                ErrorCode.AUTH_MISSING_KEY,
+                message="API Key manquante. Fournissez une clé via le header X-API-Key.",
+            ),
             headers={"WWW-Authenticate": "ApiKey"}
         )
 
@@ -63,7 +68,11 @@ def verify_api_key(
     if not x_api_key.startswith(API_KEY_PREFIX):
         raise HTTPException(
             status_code=401,
-            detail="Format d'API Key invalide.",
+            detail=create_error_response(
+                ErrorCode.AUTH_INVALID_KEY,
+                message="Format d'API Key invalide.",
+                details={"expected_prefix": API_KEY_PREFIX},
+            ),
             headers={"WWW-Authenticate": "ApiKey"}
         )
 
@@ -80,7 +89,10 @@ def verify_api_key(
         logger.warning(f"[AUTH] Tentative d'accès avec une API Key invalide ou révoquée: {x_api_key[:20]}...")
         raise HTTPException(
             status_code=401,
-            detail="API Key invalide ou révoquée.",
+            detail=create_error_response(
+                ErrorCode.AUTH_INVALID_KEY,
+                message="API Key invalide ou révoquée.",
+            ),
             headers={"WWW-Authenticate": "ApiKey"}
         )
 

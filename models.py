@@ -316,6 +316,12 @@ class CompareRequest(BaseModel):
     def validate_target_field(cls, v: str) -> str:
         return validate_target(v)
 
+    @model_validator(mode="after")
+    def validate_report_ids_are_different(self):
+        if self.report_id_1 == self.report_id_2:
+            raise ValueError("Les IDs de rapports doivent être différents")
+        return self
+
 
 # ==================== SCHEDULED SCANS ====================
 

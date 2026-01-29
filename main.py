@@ -1,4 +1,5 @@
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, HTTPException
+from fastapi.exceptions import RequestValidationError
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
@@ -9,6 +10,8 @@ import asyncio
 import logging
 import traceback
 import os
+
+from errors import ErrorCode, create_error_response, AnantaException
 
 # Imports de nos modules divisés
 from database import init_db
@@ -114,19 +117,77 @@ Créez une clé via `POST /api-keys/create`.
     debug=os.getenv("ENVIRONMENT", "development") == "development",
 )
 
-# --- GLOBAL EXCEPTION HANDLER (DEV) ---
+# --- ERROR HANDLERS (STANDARDIZED) ---
+
+def _is_dev() -> bool:
+    return os.getenv("ENVIRONMENT", "development") == "development"
+
+
+@app.exception_handler(AnantaException)
+async def ananta_exception_handler(request: Request, exc: AnantaException):
+    # The exception already knows its code/message/suggestion.
+    # Keep details, but add request context.
+    payload = exc.to_response().model_dump()
+    if payload.get("details") is None:
+        payload["details"] = {}
+    payload["details"].update({
+        "path": str(request.url.path),
+        "method": request.method,
+    })
+    return JSONResponse(status_code=500, content=payload)
+
+
+@app.exception_handler(HTTPException)
+async def http_exception_handler(request: Request, exc: HTTPException):
+    # If the route already returns our standardized dict, pass it through.
+    if isinstance(exc.detail, dict) and "code" in exc.detail and "message" in exc.detail:
+        payload = exc.detail
+    else:
+        payload = create_error_response(
+            ErrorCode.SYS_INTERNAL_ERROR,
+            message=str(exc.detail) if exc.detail else "HTTP error",
+        )
+
+    # Add request context
+    if payload.get("details") is None:
+        payload["details"] = {}
+    if isinstance(payload.get("details"), dict):
+        payload["details"].update({
+            "path": str(request.url.path),
+            "method": request.method,
+            "status_code": exc.status_code,
+        })
+
+    return JSONResponse(status_code=exc.status_code, content=payload, headers=getattr(exc, "headers", None))
+
+
+@app.exception_handler(RequestValidationError)
+async def request_validation_exception_handler(request: Request, exc: RequestValidationError):
+    payload = create_error_response(
+        ErrorCode.VAL_INVALID_QUERY,
+        message="Requête invalide (validation).",
+        details={"errors": exc.errors()},
+    )
+    payload["details"].update({"path": str(request.url.path), "method": request.method})
+    return JSONResponse(status_code=422, content=payload)
+
+
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
     tb = traceback.format_exc()
     logger.error("❌ UNHANDLED EXCEPTION on %s %s\n%s", request.method, request.url.path, tb)
-    return JSONResponse(
-        status_code=500,
-        content={
-            "detail": str(exc),
-            "path": str(request.url.path),
-            "traceback": tb,  # DEV ONLY
-        },
+
+    payload = create_error_response(
+        ErrorCode.SYS_INTERNAL_ERROR,
+        message="Erreur interne.",
+        details={"path": str(request.url.path), "method": request.method},
     )
+
+    if _is_dev():
+        payload["details"]["traceback"] = tb
+        payload["details"]["exception"] = str(exc)
+
+    return JSONResponse(status_code=500, content=payload)
 
 # --- MIDDLEWARES ---
 # Ordre important: le premier ajouté est le dernier exécuté

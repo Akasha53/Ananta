@@ -23,6 +23,8 @@ from fastapi import Request, Response, HTTPException
 from fastapi.responses import JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware
 
+from errors import ErrorCode, create_error_response
+
 logger = logging.getLogger(__name__)
 
 # ==================== REQUEST ID MIDDLEWARE ====================
@@ -137,6 +139,12 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
             return await call_next(request)
 
         client_ip = self._get_client_ip(request)
+
+        # Le Starlette/FastAPI TestClient utilise "testclient" comme host.
+        # On ne rate-limit pas les tests (sinon flakiness + faux 429).
+        if client_ip == "testclient":
+            return await call_next(request)
+
         self._cleanup_old_requests(client_ip)
 
         limit = self._get_limit_for_path(request.url.path)
@@ -152,11 +160,15 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
             retry_after = self.window_seconds
             return JSONResponse(
                 status_code=429,
-                content={
-                    "error": "rate_limit_exceeded",
-                    "message": f"Trop de requêtes. Limite: {limit} requêtes par minute.",
-                    "retry_after_seconds": retry_after,
-                },
+                content=create_error_response(
+                    ErrorCode.AUTH_RATE_LIMITED,
+                    message=f"Trop de requêtes. Limite: {limit} requêtes par minute.",
+                    details={
+                        "retry_after_seconds": retry_after,
+                        "limit_per_minute": limit,
+                        "path": request.url.path,
+                    },
+                ),
                 headers={
                     "Retry-After": str(retry_after),
                     "X-RateLimit-Limit": str(limit),

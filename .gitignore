@@ -72,6 +72,8 @@ secrets.json
 # Project-specific
 CLAUDE.md
 .claude/
+# Local run checklist (ignored on purpose)
+RUN_CHECKLIST_LOCAL.md
 nul
 tmpclaude-*
 text-generation-webui_BACKUP/

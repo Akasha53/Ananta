@@ -1,3 +1,7 @@
 # Development / QA tools
 pytest>=8.0.0
-locust>=2.22.0
+
+# Load testing
+# NOTE (Windows / user-site): locust pulls deps that may conflict with httpx/httpcore (h11 pinning).
+# Install only when you need it:
+#   pip install "locust>=2.22.0"
