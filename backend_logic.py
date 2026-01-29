@@ -677,6 +677,11 @@ def aggregate_parallel_results(layer1_results: Dict, layer2_results: Dict,
     except Exception:
         raw_data_storage["intel_graph"] = {"version": 1, "root": f"target:{target_type.lower()}:{target}", "nodes": [], "edges": []}
     try:
+        raw_data_storage["exposures"] = build_exposures(raw_data_storage)
+    except Exception:
+        raw_data_storage["exposures"] = []
+
+    try:
         raw_data_storage["timeline_events"] = build_timeline_events(raw_data_storage)
     except Exception:
         raw_data_storage["timeline_events"] = []
@@ -3970,6 +3975,124 @@ def build_intel_graph(target: str, target_type: str, raw_data_storage: dict, str
     return {"version": 1, "root": root_id, "nodes": list(nodes.values()), "edges": edges}
 
 
+def build_exposures(raw_data_storage: dict) -> list[dict]:
+    """Derive normalized exposures from risk_analysis + key tool outputs.
+
+    Exposures are deterministic (no LLM), designed for comparison over time.
+    """
+    exposures: list[dict] = []
+
+    def add(exp_id: str, exp_type: str, severity: str, title: str, evidence=None, confidence: str = "MEDIUM", meta=None):
+        exposures.append({
+            "id": exp_id,
+            "type": exp_type,
+            "severity": severity,
+            "confidence": confidence,
+            "title": title,
+            "evidence": evidence or [],
+            "meta": meta or {},
+        })
+
+    tools = raw_data_storage.get("tools") or {}
+
+    # Risk indicators -> exposures
+    risk = raw_data_storage.get("risk_analysis") or {}
+    indicators = (risk.get("indicators") or {}) if isinstance(risk, dict) else {}
+    neg = indicators.get("negative") if isinstance(indicators, dict) else None
+    if isinstance(neg, list):
+        for idx, txt in enumerate(neg[:20], start=1):
+            if not isinstance(txt, str) or not txt.strip():
+                continue
+            tid = f"risk-neg-{idx:02d}"
+            add(
+                exp_id=tid,
+                exp_type="RISK_INDICATOR_NEGATIVE",
+                severity="MEDIUM",
+                title=txt.strip()[:140],
+                evidence=[txt.strip()[:180]],
+                confidence="MEDIUM",
+            )
+
+    # HTTP headers -> missing security headers
+    headers = tools.get("http_headers") or {}
+    hdr_raw = None
+    if headers.get("status") == "ok":
+        data = headers.get("data")
+        if isinstance(data, dict):
+            hdr_raw = data.get("raw") if isinstance(data.get("raw"), dict) else data
+    if isinstance(hdr_raw, dict):
+        sec = hdr_raw.get("security_headers")
+        if isinstance(sec, dict):
+            for hname in ["Strict-Transport-Security", "Content-Security-Policy", "X-Frame-Options", "X-Content-Type-Options"]:
+                val = sec.get(hname)
+                if isinstance(val, str) and "non présent" in val.lower():
+                    add(
+                        exp_id=f"missing-header:{hname}",
+                        exp_type="HTTP_SECURITY_HEADER_MISSING",
+                        severity="MEDIUM" if hname != "Strict-Transport-Security" else "HIGH",
+                        title=f"Header de sécurité manquant: {hname}",
+                        evidence=[f"{hname}: {val}"],
+                        confidence="HIGH",
+                    )
+
+    # Layer 3 port scan results -> open ports
+    port_scan = tools.get("port_scan") or {}
+    ps_raw = None
+    if port_scan.get("status") == "ok":
+        data = port_scan.get("data")
+        if isinstance(data, dict):
+            ps_raw = data.get("raw") if isinstance(data.get("raw"), dict) else data
+    if isinstance(ps_raw, dict):
+        open_ports = ps_raw.get("open_ports")
+        if isinstance(open_ports, list):
+            for p in open_ports[:50]:
+                if not isinstance(p, dict):
+                    continue
+                port = p.get("port")
+                service = p.get("service")
+                if port is None:
+                    continue
+                add(
+                    exp_id=f"open-port:{port}",
+                    exp_type="OPEN_PORT",
+                    severity="HIGH" if int(port) in (22, 23, 3389) else "MEDIUM",
+                    title=f"Port ouvert: {port} ({service or 'unknown'})",
+                    evidence=[json.dumps(p, ensure_ascii=False)[:200]],
+                    confidence="HIGH",
+                    meta={"port": port, "service": service},
+                )
+
+    # Layer 3 vuln scan -> CVE-like findings
+    vuln_scan = tools.get("vuln_scan") or {}
+    vs_raw = None
+    if vuln_scan.get("status") == "ok":
+        data = vuln_scan.get("data")
+        if isinstance(data, dict):
+            vs_raw = data.get("raw") if isinstance(data.get("raw"), dict) else data
+    if isinstance(vs_raw, dict):
+        vulns = vs_raw.get("vulnerabilities")
+        if isinstance(vulns, list):
+            for i, v in enumerate(vulns[:50], start=1):
+                if not isinstance(v, dict):
+                    continue
+                sev = (v.get("severity") or "MEDIUM").upper()
+                if sev not in {"CRITICAL", "HIGH", "MEDIUM", "LOW", "INFO"}:
+                    sev = "MEDIUM"
+                vtype = (v.get("type") or f"vuln_{i}").strip()
+                desc = (v.get("description") or "").strip()
+                add(
+                    exp_id=f"vuln:{vtype.lower()}:{i:02d}",
+                    exp_type="VULNERABILITY",
+                    severity=sev,
+                    title=f"Vulnérabilité détectée: {vtype}"[:160],
+                    evidence=[desc[:220]] if desc else [],
+                    confidence="MEDIUM",
+                    meta=v,
+                )
+
+    return exposures
+
+
 def build_timeline_events(raw_data_storage: dict) -> list[dict]:
     """Build simple timeline events from scan metadata and tool execution results."""
     events: list[dict] = []
@@ -5630,6 +5753,11 @@ Données collectées:
                 raw_data_storage["intel_graph"] = build_intel_graph(target, target_type, raw_data_storage, structured_data)
             except Exception:
                 raw_data_storage["intel_graph"] = {"version": 1, "root": f"target:{target_type.lower()}:{target}", "nodes": [], "edges": []}
+            try:
+                raw_data_storage["exposures"] = build_exposures(raw_data_storage)
+            except Exception:
+                raw_data_storage["exposures"] = []
+
             try:
                 raw_data_storage["timeline_events"] = build_timeline_events(raw_data_storage)
             except Exception:
