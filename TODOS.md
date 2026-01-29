@@ -21,7 +21,7 @@
 - [x] **Logging structuré** - Request ID unique (`X-Request-ID`) + durée (`X-Response-Time`)
 - [x] **Changer les chemins de variables** - Variables WEBUI_DIR et FASTAPI_DIR en chemin relatif (`%~dp0`)
 - [x] **Ananta ne répond plus aux messages simples** - Ajout logging + error handling + fallback dans `/agent/ask`
-  - [ ] **Temps de réponse trop long** - temps de réponse pour un salut : 47.85 s
+  - [x] **Temps de réponse trop long** - fix perf (fast-path + lazy-load embedding) : "salut" ~80ms mesuré sur /agent/ask
 - [x] **Mode critique incomplet** - Layer 3 exécute maintenant Layer 1+2 d'abord pour le contexte complet
 - [x] **Rapports trop courts** - Ajout VirusTotal, Shodan, SecurityTrails au flux principal de scan
 
