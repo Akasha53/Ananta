@@ -1630,6 +1630,68 @@ def summarize_tool_output(tool_name: str, data: Any) -> str:
             return f"Social tags - {has_og}, {has_tw}"
         return "Social tags data available"
 
+    elif tool_name == "virustotal":
+        if isinstance(data, dict):
+            stats = data.get("last_analysis_stats", {})
+            if isinstance(stats, dict):
+                mal = stats.get("malicious", 0)
+                susp = stats.get("suspicious", 0)
+                harmless = stats.get("harmless", 0)
+                return f"VT: malicious={mal}, suspicious={susp}, harmless={harmless}"
+            return "VT: analysis stats available"
+        return "VirusTotal data available"
+
+    elif tool_name == "shodan":
+        if isinstance(data, dict):
+            ports = data.get("ports", [])
+            port_count = len(ports) if isinstance(ports, list) else 0
+            vulns = data.get("vulns", [])
+            vuln_count = len(vulns) if isinstance(vulns, list) else 0
+            org = str(data.get("org", ""))[:30]
+            return f"Shodan: {port_count} ports, {vuln_count} CVE, Org: {org or 'N/A'}"
+        return "Shodan data available"
+
+    elif tool_name == "securitytrails":
+        if isinstance(data, dict):
+            dns_history = data.get("dns_history", [])
+            hist_count = len(dns_history) if isinstance(dns_history, list) else 0
+            subdomains = data.get("subdomains", [])
+            sub_count = len(subdomains) if isinstance(subdomains, list) else 0
+            return f"SecurityTrails: DNS history={hist_count}, subdomains={sub_count}"
+        return "SecurityTrails data available"
+
+    elif tool_name == "subdomains":
+        if isinstance(data, dict):
+            subs = data.get("subdomains", [])
+            sub_count = len(subs) if isinstance(subs, list) else 0
+            sample = ", ".join(map(str, subs[:3])) if isinstance(subs, list) else ""
+            return f"Subdomains: {sub_count} ({sample})"
+        return "Subdomains data available"
+
+    elif tool_name == "port_scan":
+        if isinstance(data, dict):
+            ports = data.get("open_ports", [])
+            port_count = len(ports) if isinstance(ports, list) else 0
+            services = []
+            if isinstance(ports, list):
+                for p in ports[:5]:
+                    if isinstance(p, dict):
+                        svc = p.get("service") or p.get("name")
+                        if svc:
+                            services.append(str(svc))
+            svc_str = ", ".join(dict.fromkeys(services))
+            return f"Port scan: {port_count} open ports ({svc_str or 'services N/A'})"
+        return "Port scan data available"
+
+    elif tool_name == "vuln_scan":
+        if isinstance(data, dict):
+            found = data.get("vulnerabilities_found", 0)
+            risk = data.get("risk_level", "N/A")
+            cve = data.get("cve_findings", [])
+            cve_count = len(cve) if isinstance(cve, list) else 0
+            return f"Vuln scan: {found} findings, CVE={cve_count}, Risk={risk}"
+        return "Vulnerability scan data available"
+
     elif tool_name == "web_enrichment":
         if isinstance(data, dict):
             text = data.get('text', '')
@@ -3225,41 +3287,54 @@ def extract_structured_findings(
 CRITICAL RULES:
 1. Return ONLY valid JSON. No markdown. No prose.
 2. Extract ONLY information present in tool results - NEVER invent data.
-3. Valid SSL certificates (Cloudflare, Let's Encrypt) = POSITIVE, not vulnerabilities.
-4. Missing security headers = LOW severity (best practices), NOT critical vulnerabilities.
-5. If CDN detected (Cloudflare, AWS, Akamai), note that infrastructure info = CDN, not target.
-6. Focus on ACTIONABLE findings that affect the business.
+3. Use ONLY the tool_cards summaries as evidence (never reproduce raw tool outputs).
+4. Avoid duplicates: merge similar findings and keep the strongest evidence.
+5. Valid SSL certificates (Cloudflare, Let's Encrypt) = POSITIVE, not vulnerabilities.
+6. Missing security headers = LOW severity (best practices), NOT critical vulnerabilities.
+7. If CDN detected (Cloudflare, AWS, Akamai), note that infrastructure info = CDN, not target.
+8. Focus on ACTIONABLE findings that affect the business.
 
 Output format:
 {
-  "executive_summary": "Brief factual overview (max 3 lines) with key risk and action",
+  "executive_summary": "Résumé factuel (max 3 lignes) orienté décision",
   "risk_score": 0-100,
   "risk_level": "FAIBLE|MOYEN|ÉLEVÉ|CRITIQUE",
   "cdn_detected": true/false,
   "cdn_provider": "name or null",
   "top_findings": [
     {
-      "claim": "Finding description - factual and specific",
+      "id": "F-001",
+      "category": "OSINT|INFRA|VULN|REPUTATION|HYGIENE|OTHER",
+      "title": "Titre court (max ~12 mots)",
+      "claim": "Constat factuel et spécifique (1-2 phrases)",
       "severity": "CRITICAL|HIGH|MEDIUM|LOW|INFO",
-      "source": "tool_name",
-      "business_impact": "What can the client LOSE? (data, money, reputation)",
-      "exploitability": "EASY|MEDIUM|HARD - how hard is it to exploit?",
-      "action": "Specific remediation step"
+      "confidence": "HIGH|MEDIUM|LOW",
+      "evidence": ["Preuve(s) courte(s), directement issues des tool_cards"],
+      "impact": "Impact technique + impact business (données/argent/réputation)",
+      "remediation": "Mesure corrective concrète (actionnable)",
+      "sources": [
+        {"tool": "tool_name", "reference": "ex: 'HTTP 200 + headers manquants (CSP, HSTS)'"}
+      ]
     }
   ],
-  "positive_findings": ["Security positives (TLS 1.3, CDN protection, SPF/DMARC, etc.)"],
+  "positive_findings": ["Points positifs sécurité (TLS 1.3, CDN, SPF/DMARC, etc.)"],
   "attack_scenarios": [
     {
-      "scenario": "Brief attack scenario description",
+      "scenario": "Scénario d'attaque réaliste (2-3 lignes)",
       "likelihood": "HIGH|MEDIUM|LOW",
-      "prerequisites": "What attacker needs"
+      "prerequisites": "Pré-requis attaquant"
     }
   ],
   "priority_actions": [
     {"priority": 1, "action": "...", "effort": "LOW|MEDIUM|HIGH", "impact": "..."}
   ],
-  "limitations": ["Tool errors or skipped tools"],
-  "sources_used": ["List tools with ok status"]
+  "limitations": ["Outils en erreur/skippés + limites de couverture"],
+  "sources_used": ["Liste des tools en status=ok"],
+  "methodology": {
+    "approach": "OSINT passive + corrélation + scoring",
+    "danger_layers_used": [1,2,3],
+    "notes": "Si Layer 3 absent, l'indiquer. Ne pas inventer."
+  }
 }"""
 
     # Construire le contexte
@@ -3274,7 +3349,7 @@ Output format:
     user_prompt = f"""Target: {target} ({target_type})
 {partial_warning}
 Tool results summary (status="ok" means data was collected):
-{json.dumps(tool_cards, indent=2)}
+{json.dumps(tool_cards, ensure_ascii=False, separators=(',', ':'))}
 
 Automated Risk Analysis:
 - Risk Score: {risk_analysis.get('score', 'N/A')}/100
@@ -3294,7 +3369,134 @@ Extract structured findings as JSON. Include positive_findings from the indicato
     # Parse avec repair automatique (Fix #2)
     structured_data = parse_json_strict(llm_output)
 
+    structured_data = postprocess_structured_findings(structured_data)
+
     logger.info(f"[PHASE 1] ✅ Findings extraits: {len(structured_data.get('top_findings', []))} findings")
+
+    return structured_data
+
+
+def _norm_text(s: Any) -> str:
+    s = "" if s is None else str(s)
+    s = re.sub(r"\s+", " ", s).strip()
+    return s
+
+
+def _similar(a: str, b: str) -> float:
+    """Cheap similarity metric for de-duplication (0..1)."""
+    try:
+        from difflib import SequenceMatcher
+        return SequenceMatcher(None, a, b).ratio()
+    except Exception:
+        return 0.0
+
+
+def postprocess_structured_findings(structured_data: dict) -> dict:
+    """Harden Phase 1 output.
+
+    Goals:
+    - ensure schema stability (keys exist)
+    - cap field lengths to keep Phase 2 within token budget
+    - deduplicate near-identical findings
+    """
+    if not isinstance(structured_data, dict):
+        return {"executive_summary": "", "top_findings": [], "limitations": ["Invalid structured_data"], "sources_used": []}
+
+    findings = structured_data.get("top_findings") or []
+    if not isinstance(findings, list):
+        findings = []
+
+    # Normalize & cap
+    cleaned = []
+    for i, f in enumerate(findings[:25], start=1):  # hard cap to avoid prompt bloat
+        if not isinstance(f, dict):
+            continue
+        fid = _norm_text(f.get("id") or f"F-{i:03d}")
+        title = _norm_text(f.get("title") or f.get("claim") or "Constat")[:120]
+        claim = _norm_text(f.get("claim") or "")[:400]
+        severity = _norm_text(f.get("severity") or "INFO").upper()
+        if severity not in {"CRITICAL", "HIGH", "MEDIUM", "LOW", "INFO"}:
+            severity = "INFO"
+        confidence = _norm_text(f.get("confidence") or "MEDIUM").upper()
+        if confidence not in {"HIGH", "MEDIUM", "LOW"}:
+            confidence = "MEDIUM"
+
+        evidence = f.get("evidence") or []
+        if isinstance(evidence, str):
+            evidence = [evidence]
+        if not isinstance(evidence, list):
+            evidence = []
+        evidence = [_norm_text(e)[:180] for e in evidence if _norm_text(e)]
+        evidence = evidence[:6]
+
+        remediation = _norm_text(f.get("remediation") or f.get("action") or "")[:260]
+        impact = _norm_text(f.get("impact") or f.get("business_impact") or "")[:320]
+
+        category = _norm_text(f.get("category") or "OTHER").upper()
+        if category not in {"OSINT", "INFRA", "VULN", "REPUTATION", "HYGIENE", "OTHER"}:
+            category = "OTHER"
+
+        sources = f.get("sources") or []
+        if isinstance(sources, dict):
+            sources = [sources]
+        if not isinstance(sources, list):
+            sources = []
+        norm_sources = []
+        for s in sources[:5]:
+            if not isinstance(s, dict):
+                continue
+            tool = _norm_text(s.get("tool") or "")[:40]
+            ref = _norm_text(s.get("reference") or "")[:180]
+            if tool or ref:
+                norm_sources.append({"tool": tool, "reference": ref})
+
+        cleaned.append({
+            "id": fid,
+            "category": category,
+            "title": title,
+            "claim": claim,
+            "severity": severity,
+            "confidence": confidence,
+            "evidence": evidence,
+            "impact": impact,
+            "remediation": remediation,
+            "sources": norm_sources,
+        })
+
+    # Deduplicate (by claim similarity + severity/category)
+    deduped: list[dict] = []
+    for f in cleaned:
+        merged = False
+        for existing in deduped:
+            if f.get("category") == existing.get("category") and _similar(f.get("claim", ""), existing.get("claim", "")) >= 0.86:
+                # merge evidence/sources, keep highest severity
+                existing["evidence"] = list(dict.fromkeys((existing.get("evidence") or []) + (f.get("evidence") or [])))[:6]
+                existing["sources"] = (existing.get("sources") or []) + [s for s in (f.get("sources") or []) if s not in (existing.get("sources") or [])]
+                sev_rank = {"CRITICAL": 5, "HIGH": 4, "MEDIUM": 3, "LOW": 2, "INFO": 1}
+                if sev_rank.get(f.get("severity", "INFO"), 1) > sev_rank.get(existing.get("severity", "INFO"), 1):
+                    existing["severity"] = f.get("severity")
+                merged = True
+                break
+        if not merged:
+            deduped.append(f)
+
+    # Re-id after dedupe to keep compact ordering
+    for idx, f in enumerate(deduped, start=1):
+        f["id"] = f"F-{idx:03d}"
+
+    structured_data["top_findings"] = deduped
+
+    # Cap other fields
+    structured_data["executive_summary"] = _norm_text(structured_data.get("executive_summary") or "")[:400]
+    structured_data["positive_findings"] = [
+        _norm_text(x)[:160] for x in (structured_data.get("positive_findings") or []) if _norm_text(x)
+    ][:12]
+    structured_data["limitations"] = [
+        _norm_text(x)[:180] for x in (structured_data.get("limitations") or []) if _norm_text(x)
+    ][:12]
+    structured_data["sources_used"] = [
+        _norm_text(x)[:60] for x in (structured_data.get("sources_used") or []) if _norm_text(x)
+    ][:40]
 
     return structured_data
 
@@ -3328,22 +3530,42 @@ def generate_report_from_structured(
             "instruction": "Write in French",
             "sections": """Report structure:
 ## 1. Résumé Exécutif
-(Brief overview based on executive_summary and risk_score)
+- 5 à 10 lignes max, orienté décision (risque, priorités, périmètre)
 
-## 2. Identité & Infrastructure
-(WHOIS info, IP location, CDN - ONLY what's available in data)
+## 2. Périmètre, Méthodologie & Contexte OSINT
+- Type de cible, date, approche (OSINT passif), couches utilisées (Layer 1/2/3 si présent)
+- Si CDN: préciser l'impact sur l'interprétation des données
 
-## 3. Analyse des Risques
-(Based on top_findings - categorize by severity)
+## 3. Synthèse OSINT (Identité & Infrastructure)
+- Points factuels: WHOIS/DNS/ASN/CDN/empreinte web (uniquement si présent)
 
-## 4. Découvertes Détaillées (Top Findings)
-(List each finding with source and impact)
+## 4. Vulnérabilités & Risques Observés
+- Regrouper par sévérité (CRITICAL/HIGH/MEDIUM/LOW/INFO)
+- Mettre en avant les risques exploitables vs bonnes pratiques
 
-## 5. Recommandations
-(Based on actions from structured data)
+## 5. Constats Détaillés (format STRICT)
+Pour CHAQUE finding de top_findings, respecter exactement les champs suivants (pas de paragraphe libre) :
+### [F-XXX] <title>
+- **Catégorie**: <category>
+- **Sévérité**: <severity>
+- **Confiance**: <confidence>
+- **Constat**: <claim>
+- **Preuves**:
+  - <evidence 1>
+  - <evidence 2>
+- **Impact**: <impact>
+- **Remédiation**: <remediation>
+- **Sources**:
+  - <tool> — <reference>
 
-## 6. Sources & Limites
-(List sources_used and limitations - mention tools that failed/skipped)"""
+## 6. Plan d'Actions Priorisé
+- Tableau Markdown: Priorité | Action | Effort | Impact
+
+## 7. Sources & Limites
+- sources_used + limitations (inclure outils en erreur/skippés)
+
+## 8. Annexes (optionnel)
+- Points positifs (positive_findings)"""
         },
         "en": {
             "instruction": "Write in English",
@@ -3427,14 +3649,14 @@ ABSOLUTE RULES:
 7. Cloudflare, SSL Corporation, Let's Encrypt are LEGITIMATE SSL issuers, not threats
 8. A valid SSL certificate is a POSITIVE security indicator, not a vulnerability
 9. Distinguish FACTS from HYPOTHESES clearly
-10. Be CONCISE - no filler paragraphs, no empty statements
+10. Be detailed but NON-REDUNDANT: avoid repeating the same facts across sections; keep each section additive
 
 {lang_config["sections"]}"""
 
     user_prompt = f"""Target: {target} ({target_type})
 
 Structured data (JSON):
-{json.dumps(structured_data, indent=2, ensure_ascii=False)}
+{json.dumps(structured_data, ensure_ascii=False, separators=(',', ':'))}
 
 Generate a complete OSINT report in Markdown."""
 
