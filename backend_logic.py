@@ -3987,7 +3987,13 @@ Generate a complete OSINT report in Markdown."""
     return report
 
 
-def generate_layer3_report(target: str, results: dict, base_context: str = "", language: str = "fr") -> str:
+def generate_layer3_report(
+    target: str,
+    results: dict,
+    base_context: str = "",
+    language: str = "fr",
+    llm_hard_limit: int | None = None,
+) -> str:
     """
     Génère un rapport LLM pour les résultats Layer 3 (port_scan, vuln_scan).
     Si base_context est fourni (rapport Layer 1+2), il sera intégré pour un rapport plus complet.

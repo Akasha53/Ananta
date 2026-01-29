@@ -2126,6 +2126,8 @@ def compare_scans(
         data1 = json.loads(report1.raw_data) if report1.raw_data else {}
         data2 = json.loads(report2.raw_data) if report2.raw_data else {}
 
+        changes = []
+
         # Risk score changes (if present)
         risk1 = data1.get("risk_analysis") or {}
         risk2 = data2.get("risk_analysis") or {}
@@ -2170,8 +2172,6 @@ def compare_scans(
         tools_common = list(tools1 & tools2)
 
         # Comparer les résultats des outils communs
-        changes = []
-
         for tool_name in tools_common:
             tool1_data = data1["tools"][tool_name]
             tool2_data = data2["tools"][tool_name]
