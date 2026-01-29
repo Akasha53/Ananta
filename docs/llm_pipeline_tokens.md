@@ -9,8 +9,9 @@ Avec 15KB de données brutes, le rapport était tronqué.
 
 ### Phase 1 : Extraction Structurée (JSON)
 - **Input** : Tool cards compressées (1-2KB au lieu de 15KB)
-- **Output** : JSON structuré avec findings (max 800 tokens)
-- **Fonction** : `extract_structured_findings()`
+- **Output** : JSON structuré *strict* (constats dédoublonnés, preuves/impact/remédiation/confiance/sources)
+- **Fonction** : `extract_structured_findings()` + `postprocess_structured_findings()`
+- **Note** : Les tool_cards et structured_data sont sérialisés en JSON compact (`separators=(',', ':')`) pour limiter les tokens.
 
 ### Phase 2 : Génération Rapport (Markdown)
 - **Input** : JSON compact (1KB)

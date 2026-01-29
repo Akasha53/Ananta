@@ -32,7 +32,7 @@ Trois principes directeurs :
 - **Contextes autorisés** : Pentest autorisé, bug bounty, environnement contrôlé
 - **Principe** : Actions potentiellement intrusives, traçabilité légale obligatoire
 
-> **Note** : Actuellement, tous les outils implémentés sont Layer 1 ou 2. Le système Layer 3 est prêt pour l'ajout futur d'outils sensibles.
+> **Note** : Des outils Layer 3 existent (ex: `port_scan`, `vuln_scan`). Ils doivent rester **désactivés par défaut** et ne s'exécuter qu'avec consentement explicite, conformément à `execute_tool_with_audit()`.
 
 ## Tool Registry
 
