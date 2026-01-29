@@ -40,7 +40,7 @@
 ### API & Backend
 - [x] **Pydantic models complets** - `models.py` avec validateurs pour toutes les entrées
 - [x] **Pagination standardisée** - Helper `paginate()` + modèle `PaginatedResponse` dans `models.py`
-- [x] **Cache ETag/Last-Modified** - Headers HTTP pour caching côté client (endpoints /osint/report, /osint/history, /osint/export/json)
+- [x] **Cache ETag/Last-Modified** - Headers HTTP pour caching côté client (tous les endpoints GET cachables: /osint/report, /osint/history, /osint/export/*, /monitoring/stats)
 - [x] **Codes d'erreur standardisés** - Module `errors.py` avec ErrorCode enum et AnantaException
 - [x] **OpenAPI documentation** - Titre, description, tags, contact, license dans `main.py`
 

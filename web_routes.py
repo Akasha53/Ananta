@@ -861,12 +861,16 @@ def export_markdown(query: str, db: Session = Depends(get_db)):
 
 
 @router.get("/osint/export/xlsx")
-def export_xlsx(query: str, db: Session = Depends(get_db)):
-    """Exporte un rapport au format Excel (XLSX)."""
+def export_xlsx(request: Request, query: str, db: Session = Depends(get_db)):
+    """
+    Exporte un rapport au format Excel (XLSX).
+    Supporte le caching HTTP via ETag et Last-Modified.
+    """
     try:
         from openpyxl import Workbook
         from openpyxl.styles import Font, PatternFill, Border, Side, Alignment
         from openpyxl.utils import get_column_letter
+        from fastapi.responses import StreamingResponse
         import io
 
         normalized = logic.normalize_target(query)
@@ -876,6 +880,24 @@ def export_xlsx(query: str, db: Session = Depends(get_db)):
 
         if not report:
             raise HTTPException(status_code=404, detail="Rapport non trouvé")
+
+        # Déterminer Last-Modified
+        last_modified = report.updated_at or report.created_at
+
+        # Générer un ETag stable basé sur report ID + updated_at
+        # Pour XLSX, on ne génère pas le fichier entier juste pour le hash
+        etag_source = f"{report.id}:{report.updated_at or report.created_at}:{report.target}"
+        etag = generate_etag(etag_source)
+
+        # Vérifier 304 Not Modified (avant de générer le XLSX coûteux)
+        if check_not_modified(request, etag=etag, last_modified=last_modified):
+            return Response(
+                status_code=304,
+                headers={
+                    "ETag": etag,
+                    "Cache-Control": "public, max-age=3600"
+                }
+            )
 
         raw_data = {}
         try:
@@ -1010,16 +1032,19 @@ def export_xlsx(query: str, db: Session = Depends(get_db)):
         # Save to buffer
         output = io.BytesIO()
         wb.save(output)
+        xlsx_content = output.getvalue()
         output.seek(0)
 
-        from fastapi.responses import StreamingResponse
-        return StreamingResponse(
+        # Create response with cache headers
+        response = StreamingResponse(
             output,
             media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             headers={
                 "Content-Disposition": f'attachment; filename="report_{normalized}.xlsx"'
             }
         )
+        add_cache_headers(response, etag=etag, last_modified=last_modified, max_age=3600)
+        return response
 
     except HTTPException:
         raise
