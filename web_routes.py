@@ -2203,6 +2203,126 @@ def osint_timeline_events_by_report(
     return {"target": report.target, "report_id": report.id, "count": len(events), "events": events}
 
 
+@router.get("/osint/timeline_summary")
+def osint_timeline_summary(
+    target: str = Query(..., description="Cible (domaine/IP)"),
+    limit: int = Query(10, ge=2, le=50),
+    db: Session = Depends(get_db),
+):
+    """Résumé d'évolution (timeline) basé sur les N derniers reports en base.
+
+    Objectif: mettre en avant les points de rupture (risque/exposures/graph) plutôt que des dumps.
+    """
+    norm = validate_target(target)
+
+    reports = (
+        db.query(EntityReport)
+        .filter(EntityReport.target.ilike(f"%{norm}%"))
+        .order_by(EntityReport.updated_at.desc(), EntityReport.created_at.desc())
+        .limit(limit)
+        .all()
+    )
+
+    if len(reports) < 2:
+        return {"target": norm, "count": len(reports), "items": [], "message": "Pas assez d'historique pour comparer"}
+
+    def _load_payload(r: EntityReport) -> dict:
+        try:
+            return json.loads(r.raw_data) if r.raw_data else {}
+        except Exception:
+            return {}
+
+    def _risk(payload: dict):
+        ra = payload.get("risk_analysis")
+        if isinstance(ra, dict):
+            return ra.get("score"), ra.get("level")
+        return None, None
+
+    def _exposure_keys(payload: dict) -> set[str]:
+        exps = payload.get("exposures") or []
+        keys = set()
+        for e in exps:
+            if not isinstance(e, dict):
+                continue
+            keys.add(f"{e.get('type','')}|{e.get('id','')}|{e.get('title','')}")
+        return keys
+
+    def _graph_edge_keys(payload: dict) -> set[str]:
+        g = payload.get("intel_graph") or {}
+        edges = g.get("edges") if isinstance(g, dict) else None
+        out = set()
+        if isinstance(edges, list):
+            for ed in edges:
+                if not isinstance(ed, dict):
+                    continue
+                out.add(f"{ed.get('source')}|{ed.get('type')}|{ed.get('target')}")
+        return out
+
+    # Process from oldest -> newest for a forward timeline
+    ordered = list(reversed(reports))
+
+    items = []
+    prev_payload = _load_payload(ordered[0])
+    prev_score, prev_level = _risk(prev_payload)
+    prev_exps = _exposure_keys(prev_payload)
+    prev_edges = _graph_edge_keys(prev_payload)
+
+    prev_report_id = ordered[0].id
+
+    for r in ordered[1:]:
+        payload = _load_payload(r)
+        score, level = _risk(payload)
+        exps = _exposure_keys(payload)
+        edges = _graph_edge_keys(payload)
+
+        risk_delta = None
+        if prev_score is not None and score is not None and score != prev_score:
+            risk_delta = score - prev_score
+
+        exp_added = len(exps - prev_exps)
+        exp_removed = len(prev_exps - exps)
+        edge_added = len(edges - prev_edges)
+        edge_removed = len(prev_edges - edges)
+
+        # Only keep meaningful changes
+        meaningful = (
+            (risk_delta is not None and abs(risk_delta) >= 5)
+            or exp_added > 0
+            or exp_removed > 0
+            or edge_added > 0
+            or edge_removed > 0
+            or (prev_level and level and prev_level != level)
+        )
+
+        if meaningful:
+            items.append({
+                "from_report_id": prev_report_id,
+                "to_report_id": r.id,
+                "at": (r.updated_at or r.created_at).isoformat() if (r.updated_at or r.created_at) else None,
+                "risk": {
+                    "from_score": prev_score,
+                    "to_score": score,
+                    "delta": risk_delta,
+                    "from_level": prev_level,
+                    "to_level": level,
+                },
+                "changes": {
+                    "exposures_added": exp_added,
+                    "exposures_removed": exp_removed,
+                    "graph_edges_added": edge_added,
+                    "graph_edges_removed": edge_removed,
+                }
+            })
+
+        prev_payload = payload
+        prev_report_id = r.id
+        prev_score, prev_level = score, level
+        prev_exps = exps
+        prev_edges = edges
+
+    return {"target": norm, "count": len(items), "items": items}
+
+
 @router.get("/osint/timeline")
 def osint_timeline(
     target: str = Query(..., description="Cible (domaine/IP)"),
