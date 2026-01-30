@@ -1,6 +1,6 @@
 # ANANTA - Liste des Tâches (TODOS)
 
-> **Dernière mise à jour**: 22 janvier 2026  
+> **Dernière mise à jour**: 30 janvier 2026
 > **Version**: Ananta v1.0.3 - Mistral 7B (32k context)
 
 ---
@@ -24,6 +24,7 @@
   - [x] **Temps de réponse trop long** - fix perf (fast-path + lazy-load embedding) : "salut" ~80ms mesuré sur /agent/ask
 - [x] **Mode critique incomplet** - Layer 3 exécute maintenant Layer 1+2 d'abord pour le contexte complet
 - [x] **Rapports trop courts** - Ajout VirusTotal, Shodan, SecurityTrails au flux principal de scan
+- [x] **ScanJob progress updates fiables** - Helper `update_scan_job()` avec session DB isolée (évite UI bloquée à 0%)
 
 ---
 
@@ -76,7 +77,7 @@
 - [x] **Détection auto de langue** - Basé sur le navigateur (detectBrowserLanguage())
 
 ### Rapports & Export
-- [x] **Templates de rapports** - Choisir entre plusieurs formats (détaillé, exécutif, technique, minimal) 
+- [x] **Templates de rapports** - Choisir entre plusieurs formats (détaillé, exécutif, technique, minimal)
 - [ ] **Rapports programmés** - Scheduler des scans récurrents avec alerte par notification
 - [x] **Export Excel (XLSX)** - En plus de CSV, JSON, XML, Markdown (openpyxl)
 - [ ] **Branding personnalisé** - Logo et couleurs custom dans les PDF, les icones sont dans img
@@ -94,7 +95,7 @@
 
 ## Priorité BASSE (Nice-to-have)
 
-### Fonctionnalités avancées &
+### Fonctionnalités avancées
 - [ ] **Système de plugins** - Architecture extensible pour ajouter des outils custom
 - [ ] **Multi-tenant** - Support plusieurs organisations/équipes
 - [ ] **RBAC complet** - Rôles et permissions granulaires
@@ -105,10 +106,10 @@
 ### Monitoring & Observabilité
 - [ ] **Prometheus metrics** - Exporter des métriques pour monitoring
 - [ ] **Grafana dashboards** - Visualisation des performances
-- [ ] & **Alerting** - Notifications Slack/Discord/Email sur erreurs critiques
+- [ ] **Alerting** - Notifications Slack/Discord/Email sur erreurs critiques
 - [ ] **Distributed tracing** - OpenTelemetry pour debugger les requêtes lentes
 
-### DevOps &
+### DevOps
 - [ ] **Dockerfile** - Conteneurisation de l'application
 - [ ] **docker-compose.yml** - Orchestration locale complète
 - [ ] **Kubernetes manifests** - Déploiement cloud-native
@@ -124,15 +125,15 @@
 - [ ] **Changelog public** - Notes de version détaillées
 
 ### Intelligence Artificielle
-- [ ] & **Fine-tuning du LLM** - Entraîner sur des rapports OSINT
-- [ ] & **Multi-LLM support** - Switcher entre Mistral, Llama, etc.
+- [ ] **Fine-tuning du LLM** - Entraîner sur des rapports OSINT
+- [ ] **Multi-LLM support** - Switcher entre Mistral, Llama, etc.
 - [ ] **Résumé automatique** - Générer des executive summaries
 - [ ] **Détection d'anomalies** - Alerter sur des changements suspects
 - [ ] **Scoring de menace** - Calculer un score de risque automatique
 - [ ] **Recommandations** - Suggérer des actions basées sur les findings
 
 ### Intégrations externes
-- [ ] & **Webhook outgoing** - Notifier des systèmes externes après un scan
+- [ ] **Webhook outgoing** - Notifier des systèmes externes après un scan
 - [ ] **API publique** - Documenter et versionner l'API pour intégrations tierces
 - [ ] **Splunk/ELK** - Exporter les logs vers un SIEM
 - [ ] **MISP** - Intégration avec la plateforme de threat intelligence
@@ -144,7 +145,7 @@
 ## Tâches techniques (Dette technique)
 
 ### Refactoring
-- [ ] & c²²**Séparer `backend_logic.py`** - Fichier trop long (>2000 lignes), découper en modules
+- [ ] **Séparer `backend_logic.py`** - Fichier trop long (>2000 lignes), découper en modules
 - [ ] **Type hints complets** - Ajouter types Python partout
 - [ ] **Docstrings** - Documenter toutes les fonctions publiques
 - [ ] **Constantes centralisées** - Déplacer les magic numbers vers un fichier config
@@ -189,3 +190,18 @@ SECURITYTRAILS_API_KEY=your_key
 ENVIRONMENT=development  # ou production
 CORS_ORIGINS=https://example.com  # pour prod
 RATE_LIMIT_ENABLED=true
+```
+
+---
+
+## CrawlBot Session Notes
+
+### 2026-01-30 - UI Progress Fix
+- [x] `update_scan_job()` helper créé avec session DB isolée
+- [x] Appliqué à `scan_osint_task`, `scan_osint_layer1_task`, `scan_osint_layer2_task`
+- [x] Appliqué à `scan_osint_layer3_task`, `priority_scan_task`
+- [x] Tests ajoutés pour valider le comportement
+
+**Problème résolu**: UI affichait 0% de progression car la session DB principale était en état de rollback, bloquant les mises à jour de `ScanJob.progress`.
+
+**Solution**: Utiliser une session DB isolée (`SessionLocal()`) pour chaque mise à jour de progression, indépendante de la session principale utilisée par `logic_run_report()`.
