@@ -71,6 +71,38 @@ def task_failure_handler(sender=None, task_id=None, exception=None, args=None, k
     logger.error(f"[TASK FAILURE] {sender.name} | ID: {task_id} | Error: {exception}")
 
 
+# ==================== HELPERS ====================
+
+def update_scan_job(job_id: str, *, progress: int | None = None, status: str | None = None, result: dict | None = None, error_message: str | None = None) -> None:
+    """Update ScanJob in an isolated DB session.
+
+    Why: task logic may put the main SQLAlchemy session in a failed/rollback-needed state.
+    Progress/status updates must remain reliable (UI/WebSocket depends on them).
+    """
+    db = SessionLocal()
+    try:
+        job = db.query(ScanJob).filter_by(job_id=job_id).first()
+        if not job:
+            return
+        if progress is not None:
+            job.progress = int(progress)
+        if status:
+            job.status = status
+        if result is not None:
+            job.result = json.dumps(result, ensure_ascii=False)
+        if error_message:
+            job.error_message = error_message
+        db.commit()
+    except Exception as e:
+        logger.error(f"[JOB UPDATE ERROR] job_id={job_id}: {e}")
+        try:
+            db.rollback()
+        except Exception:
+            pass
+    finally:
+        db.close()
+
+
 # ==================== TÂCHES ====================
 
 @app.task(bind=True, name="ananta.scan_osint")
@@ -88,40 +120,26 @@ def scan_osint_task(self, query: str, report_type: str = "osint", language: str 
     """
     logger.info(f"[SCAN] Démarrage du scan pour: {query}")
 
-    # Mettre à jour l'état dans la BDD
+    # Session DB principale (utilisée par logic_run_report)
     db = SessionLocal()
 
     def update_progress(progress: int, status_text: str = ""):
-        """Callback pour mettre à jour la progression."""
-        try:
-            job = db.query(ScanJob).filter_by(job_id=self.request.id).first()
-            if job:
-                job.progress = progress
-                if status_text:
-                    job.status = status_text
-                db.commit()
-                logger.info(f"[PROGRESS] {query}: {progress}%")
-        except Exception as e:
-            logger.error(f"[PROGRESS ERROR] {e}")
+        """Callback pour mettre à jour la progression.
+
+        Important: utilise une session DB isolée pour éviter les blocages si la session principale est en état d'erreur.
+        """
+        update_scan_job(self.request.id, progress=progress, status=(status_text or None))
+        logger.info(f"[PROGRESS] {query}: {progress}%")
 
     try:
-        # Mettre à jour le statut à "PROCESSING"
-        job = db.query(ScanJob).filter_by(job_id=self.request.id).first()
-        if job:
-            job.status = "PROCESSING"
-            job.progress = 5
-            db.commit()
+        # Mettre à jour le statut à "PROCESSING" (session isolée pour fiabilité UI)
+        update_scan_job(self.request.id, status="PROCESSING", progress=5)
 
         # Exécuter le scan OSINT avec callback de progression
         result = logic_run_report(query, db, report_type=report_type, progress_callback=update_progress, language=language, llm_hard_limit=llm_hard_limit)
 
-        # Mettre à jour le statut à "COMPLETED"
-        job = db.query(ScanJob).filter_by(job_id=self.request.id).first()
-        if job:
-            job.status = "COMPLETED"
-            job.progress = 100
-            job.result = json.dumps(result)
-            db.commit()
+        # Mettre à jour le statut à "COMPLETED" (session isolée pour fiabilité UI)
+        update_scan_job(self.request.id, status="COMPLETED", progress=100, result=result)
 
         logger.info(f"[SCAN] Scan complété pour: {query} (lang={language})")
         return result
@@ -129,12 +147,8 @@ def scan_osint_task(self, query: str, report_type: str = "osint", language: str 
     except Exception as e:
         logger.error(f"[SCAN ERROR] Erreur lors du scan de {query}: {str(e)}")
 
-        # Mettre à jour le statut à "FAILED"
-        job = db.query(ScanJob).filter_by(job_id=self.request.id).first()
-        if job:
-            job.status = "FAILED"
-            job.error_message = str(e)
-            db.commit()
+        # Mettre à jour le statut à "FAILED" (session isolée pour fiabilité UI)
+        update_scan_job(self.request.id, status="FAILED", error_message=str(e))
 
         raise
 
@@ -234,22 +248,11 @@ def scan_osint_layer1_task(self, query: str, llm_hard_limit: int = None, tools: 
     db = SessionLocal()
 
     def update_progress(progress: int, status_text: str = ""):
-        try:
-            job = db.query(ScanJob).filter_by(job_id=self.request.id).first()
-            if job:
-                job.progress = progress
-                if status_text:
-                    job.status = status_text
-                db.commit()
-        except Exception as e:
-            logger.error(f"[PROGRESS ERROR] {e}")
+        """Update progress in an isolated session so progress never freezes due to rollback in main session."""
+        update_scan_job(self.request.id, progress=progress, status=(status_text or None))
 
     try:
-        job = db.query(ScanJob).filter_by(job_id=self.request.id).first()
-        if job:
-            job.status = "PROCESSING"
-            job.progress = 5
-            db.commit()
+        update_scan_job(self.request.id, status="PROCESSING", progress=5)
 
         # Scan avec restriction aux outils Layer 1 uniquement
         result = logic_run_report(
@@ -260,23 +263,14 @@ def scan_osint_layer1_task(self, query: str, llm_hard_limit: int = None, tools: 
             llm_hard_limit=llm_hard_limit,
         )
 
-        job = db.query(ScanJob).filter_by(job_id=self.request.id).first()
-        if job:
-            job.status = "COMPLETED"
-            job.progress = 100
-            job.result = json.dumps(result)
-            db.commit()
+        update_scan_job(self.request.id, status="COMPLETED", progress=100, result=result)
 
         logger.info(f"[LAYER 1] Scan complété rapidement: {query}")
         return result
 
     except Exception as e:
         logger.error(f"[LAYER 1 ERROR] {str(e)}")
-        job = db.query(ScanJob).filter_by(job_id=self.request.id).first()
-        if job:
-            job.status = "FAILED"
-            job.error_message = str(e)
-            db.commit()
+        update_scan_job(self.request.id, status="FAILED", error_message=str(e))
         raise
 
     finally:
@@ -304,22 +298,11 @@ def scan_osint_layer2_task(self, query: str, llm_hard_limit: int = None):
     db = SessionLocal()
 
     def update_progress(progress: int, status_text: str = ""):
-        try:
-            job = db.query(ScanJob).filter_by(job_id=self.request.id).first()
-            if job:
-                job.progress = progress
-                if status_text:
-                    job.status = status_text
-                db.commit()
-        except Exception as e:
-            logger.error(f"[PROGRESS ERROR] {e}")
+        # isolated session -> progress never freezes if main session rolls back
+        update_scan_job(self.request.id, progress=progress, status=(status_text or None))
 
     try:
-        job = db.query(ScanJob).filter_by(job_id=self.request.id).first()
-        if job:
-            job.status = "PROCESSING"
-            job.progress = 5
-            db.commit()
+        update_scan_job(self.request.id, status="PROCESSING", progress=5)
 
         # Scan avec restriction aux outils Layer 1 + 2
         result = logic_run_report(
@@ -330,23 +313,14 @@ def scan_osint_layer2_task(self, query: str, llm_hard_limit: int = None):
             llm_hard_limit=llm_hard_limit,
         )
 
-        job = db.query(ScanJob).filter_by(job_id=self.request.id).first()
-        if job:
-            job.status = "COMPLETED"
-            job.progress = 100
-            job.result = json.dumps(result)
-            db.commit()
+        update_scan_job(self.request.id, status="COMPLETED", progress=100, result=result)
 
         logger.info(f"[LAYER 2] Scan complété: {query}")
         return result
 
     except Exception as e:
         logger.error(f"[LAYER 2 ERROR] {str(e)}")
-        job = db.query(ScanJob).filter_by(job_id=self.request.id).first()
-        if job:
-            job.status = "FAILED"
-            job.error_message = str(e)
-            db.commit()
+        update_scan_job(self.request.id, status="FAILED", error_message=str(e))
         raise
 
     finally:
@@ -376,22 +350,12 @@ def scan_osint_layer3_task(self, query: str, approved_tools: list, llm_hard_limi
     db = SessionLocal()
 
     def update_progress(progress: int, status_text: str = ""):
-        try:
-            job = db.query(ScanJob).filter_by(job_id=self.request.id).first()
-            if job:
-                job.progress = progress
-                if status_text:
-                    job.status = status_text
-                db.commit()
-        except Exception as e:
-            logger.error(f"[PROGRESS ERROR] {e}")
+        # isolated session -> progress never freezes if main session rolls back
+        update_scan_job(self.request.id, progress=progress, status=(status_text or None))
 
     try:
-        job = db.query(ScanJob).filter_by(job_id=self.request.id).first()
-        if job:
-            job.status = "PROCESSING"
-            job.progress = 5
-            db.commit()
+        # Use isolated session for reliable progress updates
+        update_scan_job(self.request.id, status="PROCESSING", progress=5)
 
         # ============================================================
         # PHASE 1: Scans Layer 1+2 (données de base - WHOIS, DNS, headers, Censys, etc.)
@@ -521,23 +485,16 @@ def scan_osint_layer3_task(self, query: str, approved_tools: list, llm_hard_limi
             logger.error(f"[LAYER 3] Error saving to EntityReport: {e}")
             db.rollback()
 
-        job = db.query(ScanJob).filter_by(job_id=self.request.id).first()
-        if job:
-            job.status = "COMPLETED"
-            job.progress = 100
-            job.result = json.dumps(result)
-            db.commit()
+        # Use isolated session for reliable progress updates
+        update_scan_job(self.request.id, status="COMPLETED", progress=100, result=result)
 
         logger.warning(f"[LAYER 3] Scan critique COMPLET terminé: {query} (Layer 1+2+3)")
         return result
 
     except Exception as e:
         logger.error(f"[LAYER 3 ERROR] {str(e)}")
-        job = db.query(ScanJob).filter_by(job_id=self.request.id).first()
-        if job:
-            job.status = "FAILED"
-            job.error_message = str(e)
-            db.commit()
+        # Use isolated session for reliable error status update
+        update_scan_job(self.request.id, status="FAILED", error_message=str(e))
         raise
 
     finally:
@@ -566,43 +523,28 @@ def priority_scan_task(self, query: str, llm_hard_limit: int = None, user_id: st
     db = SessionLocal()
 
     def update_progress(progress: int, status_text: str = ""):
-        try:
-            job = db.query(ScanJob).filter_by(job_id=self.request.id).first()
-            if job:
-                job.progress = progress
-                job.status = f"PRIORITY - {status_text}"
-                db.commit()
-        except Exception as e:
-            logger.error(f"[PROGRESS ERROR] {e}")
+        """Update progress using isolated session for reliability."""
+        status = f"PRIORITY - {status_text}" if status_text else None
+        update_scan_job(self.request.id, progress=progress, status=status)
 
     try:
-        job = db.query(ScanJob).filter_by(job_id=self.request.id).first()
-        if job:
-            job.status = "PRIORITY PROCESSING"
-            job.progress = 5
-            db.commit()
+        # Use isolated session for reliable progress updates
+        update_scan_job(self.request.id, status="PRIORITY PROCESSING", progress=5)
 
         result = logic_run_report(query, db, report_type="osint", progress_callback=update_progress, llm_hard_limit=llm_hard_limit)
         result["priority"] = True
         result["requested_by"] = user_id
 
-        job = db.query(ScanJob).filter_by(job_id=self.request.id).first()
-        if job:
-            job.status = "COMPLETED"
-            job.progress = 100
-            job.result = json.dumps(result)
-            db.commit()
+        # Use isolated session for reliable progress updates
+        update_scan_job(self.request.id, status="COMPLETED", progress=100, result=result)
 
         logger.warning(f"[PRIORITY] ✅ Scan prioritaire complété: {query}")
         return result
 
     except Exception as e:
         logger.error(f"[PRIORITY ERROR] {str(e)}")
-        job = db.query(ScanJob).filter_by(job_id=self.request.id).first()
-        if job:
-            job.status = "FAILED"
-            job.error_message = str(e)
-            db.commit()
+        # Use isolated session for reliable error status update
+        update_scan_job(self.request.id, status="FAILED", error_message=str(e))
         raise
 
     finally:
