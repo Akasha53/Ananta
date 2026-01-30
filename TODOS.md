@@ -1,7 +1,7 @@
 # ANANTA - Liste des Tâches (TODOS)
 
-> **Dernière mise à jour**: 30 janvier 2026
-> **Version**: Ananta v1.0.3 - Mistral 7B (32k context)
+> **Dernière mise à jour**: 30 janvier 2026 (session refactoring claude-agent)
+> **Version**: Ananta v1.0.4 - Mistral 7B (32k context)
 
 ---
 
@@ -78,9 +78,9 @@
 
 ### Rapports & Export
 - [x] **Templates de rapports** - Choisir entre plusieurs formats (détaillé, exécutif, technique, minimal)
-- [ ] **Rapports programmés** - Scheduler des scans récurrents avec alerte par notification
+- [x] **Rapports programmés** - Scheduler des scans récurrents avec alerte par notification (Celery tasks: `check_scheduled_scans_task`, `execute_scheduled_scan_task` dans `tasks.py`)
 - [x] **Export Excel (XLSX)** - En plus de CSV, JSON, XML, Markdown (openpyxl)
-- [ ] **Branding personnalisé** - Logo et couleurs custom dans les PDF, les icones sont dans img
+- [x] **Branding personnalisé** - Logo et couleurs custom via env vars (`PDF_BRAND_LOGO_PATH`, `PDF_BRAND_PRIMARY_COLOR`, `PDF_REPORT_TITLE`, `PDF_BRAND_FOOTER`) dans `backend_logic.py`
 - [ ] **Comparaison de scans** - Améliorer la détection de changements
 - [ ] **Timeline visuelle** - Graphique de l'évolution d'une cible dans le temps
 
@@ -89,7 +89,7 @@
 - [x] **Compression des réponses** - GZipMiddleware pour réponses > 1KB
 - [x] **Lazy loading** - Charger les sections de rapport à la demande (IntersectionObserver)
 - [x] **Database indexing** - Index sur ScanJob, ToolExecutionLog, Entity, Finding
-- [ ] **Connection pooling** - Optimiser les connexions PostgreSQL
+- [x] **Connection pooling** - Optimiser les connexions PostgreSQL (implémenté dans `database.py`: `POOL_SIZE`, `MAX_OVERFLOW`, `POOL_RECYCLE`, `POOL_PRE_PING`)
 
 ---
 
@@ -145,16 +145,16 @@
 ## Tâches techniques (Dette technique)
 
 ### Refactoring
-- [ ] **Séparer `backend_logic.py`** - Fichier trop long (>2000 lignes), découper en modules
-- [ ] **Type hints complets** - Ajouter types Python partout
-- [ ] **Docstrings** - Documenter toutes les fonctions publiques
+- [x] **Séparer `backend_logic.py`** - EN COURS: Package `osint_tools/` créé avec modules layer1.py, layer2.py, layer3.py (~5500 lignes → ~1500 lignes extraites). Import backward-compatible depuis backend_logic.py.
+- [ ] **Type hints complets** - Ajouter types Python partout (partiellement fait dans osint_tools/)
+- [x] **Docstrings** - Documenter toutes les fonctions publiques (fait dans osint_tools/)
 - [ ] **Constantes centralisées** - Déplacer les magic numbers vers un fichier config
 - [x] **Error handling uniforme** - `errors.py` avec ErrorCode, AnantaException et helpers
 
 ### Nettoyage
-- [ ] **Nettoyer logs anciens** - Rotation automatique des fichiers logs
-- [ ] **Archiver jobs terminés** - Déplacer les vieux ScanJob vers une table archive
-- [ ] **Nettoyer les tables de la BDD inutilisées** :
+- [x] **Nettoyer logs anciens** - Rotation automatique des fichiers logs (`logging_config.py`: `RotatingFileHandler` 10MB, 5 backups) + CLI `python -m tools.maintenance logs-clean --days 30 --apply`
+- [x] **Archiver jobs terminés** - Déplacer les vieux ScanJob vers une table archive (`tools/maintenance.py`: `jobs-archive` command + table `scan_jobs_archive`)
+- [x] **Nettoyer les tables de la BDD inutilisées** - CLI `python -m tools.maintenance db-clean --list` puis `--drop-empty --apply --yes`:
   - sources (vide)
   - tool_exec_log (pas de logs high en legal risk alors que scan effectué)
   - scan_sessions (vide)

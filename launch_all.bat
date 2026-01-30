@@ -59,7 +59,15 @@ if errorlevel 1 (
 
 echo.
 echo [3/5] Lancement FastAPI...
-start "FastAPI" cmd /k "cd /d "%FASTAPI_DIR%" && python -m uvicorn main:app --host 0.0.0.0 --port 8010 --reload"
+REM Note: --reload can cause WinError 10013 on some Windows systems.
+REM If you get this error, use the NO_RELOAD version below instead.
+REM The issue is related to watchfiles/antivirus conflicts.
+REM 
+REM Option A: With reload (development - may fail with WinError 10013)
+REM start "FastAPI" cmd /k "cd /d "%FASTAPI_DIR%" && python -m uvicorn main:app --host 0.0.0.0 --port 8010 --reload"
+REM 
+REM Option B: Without reload (stable, recommended on Windows)
+start "FastAPI" cmd /k "cd /d "%FASTAPI_DIR%" && python -m uvicorn main:app --host 0.0.0.0 --port 8010 --log-level info"
 timeout /t 3 /nobreak >nul
 
 echo.

@@ -176,6 +176,14 @@ CELERY_CONFIG = {
     'broker_connection_retry': True,
     'broker_connection_retry_on_startup': True,
     'broker_connection_max_retries': 10,
+
+    # Remote control - Required for inspect() and ping() to work
+    # These are critical for /workers/status endpoint
+    'worker_enable_remote_control': True,
+    
+    # Event monitoring (enables celery events for monitoring)
+    'worker_send_task_events': True,
+    'task_send_sent_event': True,
 }
 
 # ==================== WORKER PROFILES ====================
