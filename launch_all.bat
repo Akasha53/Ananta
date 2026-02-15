@@ -50,11 +50,15 @@ echo OK
 
 echo.
 echo [2/5] Redis (Memurai)...
-sc query memurai >nul 2>&1
+REM Fail fast if Redis isn't running, otherwise Celery jobs will stay PENDING.
+sc query memurai | find "RUNNING" >nul 2>&1
 if errorlevel 1 (
-    echo Redis non detecte - continuons quand meme
+    echo ERREUR: Redis/Memurai n'est pas en cours d'execution.
+    echo - Demarre Memurai (service "memurai") puis relance launch_all.bat
+    pause
+    exit /b 1
 ) else (
-    echo Redis OK
+    echo Redis OK (RUNNING)
 )
 
 echo.
@@ -77,7 +81,8 @@ timeout /t 5 /nobreak >nul
 
 echo.
 echo [5/5] Lancement Worker Celery...
-start "Ananta Worker" cmd /k "cd /d "%FASTAPI_DIR%" && celery -A tasks worker -Q default,osint_fast,osint_medium,osint_critical,priority,maintenance -c 4 -n worker@%%h --loglevel=info --pool=solo"
+REM Use tasks.app explicitly to ensure we start the correct Celery application.
+start "Ananta Worker" cmd /k "cd /d "%FASTAPI_DIR%" && python -m celery -A tasks.app worker -Q default,osint_fast,osint_medium,osint_critical,priority,maintenance -c 4 -n worker@%%h --loglevel=info --pool=solo"
 timeout /t 2 /nobreak >nul
 
 echo.
