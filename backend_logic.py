@@ -805,7 +805,58 @@ def execute_tool_with_audit(
             }
         }
 
-    # 3. Exécution de l'outil avec gestion d'erreur
+    # 3. Check dépendances (ex: API keys) AVANT d'appeler l'outil
+    # Objectif: si la clé manque, on ne fait aucune requête réseau inutile.
+    try:
+        deps = list(getattr(tool_spec, "dependencies", []) or [])
+    except Exception:
+        deps = []
+
+    missing_env = []
+    for d in deps:
+        # Convention: les variables d'env finissent par _API_KEY
+        if isinstance(d, str) and d.endswith("_API_KEY"):
+            if not os.getenv(d):
+                missing_env.append(d)
+
+    if missing_env:
+        msg = f"Missing env dependencies: {', '.join(missing_env)}"
+        logger.info(f"[TOOL SKIPPED] {tool_name} - {msg}")
+
+        # audit trail
+        if db_session:
+            try:
+                audit_log = ToolExecutionLog(
+                    run_id=run_id,
+                    tool_name=tool_name,
+                    tool_layer=tool_spec.layer.value,
+                    legal_risk_level=tool_spec.legal_risk_level.value,
+                    context_declared=context_declared,
+                    user_consent=user_consent,
+                    target=target,
+                    hypothesis=hypothesis,
+                    status="skipped",
+                    duration_seconds=0.0,
+                    error_message=msg,
+                    executed_at=datetime.now(timezone.utc),
+                )
+                db_session.add(audit_log)
+                db_session.commit()
+            except Exception as e:
+                logger.error(f"Erreur lors du logging d'audit (skipped deps): {e}")
+
+        return {
+            "status": "skipped",
+            "error": msg,
+            "duration": 0.0,
+            "tool_metadata": {
+                "layer": tool_spec.layer.name,
+                "risk_level": tool_spec.legal_risk_level.name,
+                "capabilities": tool_spec.capabilities,
+            },
+        }
+
+    # 4. Exécution de l'outil avec gestion d'erreur
     logger.info(f"[TOOL EXEC START] {tool_name} sur {target} (contexte: {context_declared})")
 
     result_data = None
@@ -1540,7 +1591,7 @@ def translate_report_markdown(report_markdown: str, to_language: str, llm_hard_l
 
 def summarize_tool_output(tool_name: str, data: Any) -> str:
     """
-    Résume l'output d'un outil en max 200 caractères.
+    Résume l'output d'un outil (court, mais plus riche pour de meilleurs rapports).
     Fournit des détails clés pour le LLM.
     """
     if not data:
@@ -1742,7 +1793,7 @@ def summarize_tool_output(tool_name: str, data: Any) -> str:
                     f", emails={len(emails) if isinstance(emails, list) else 0}"
                     f", socials={len(socials) if isinstance(socials, list) else 0}"
                     f"{sample_s}"
-                )[:200]
+                )[:450]
             return "No web enrichment data found"
         return "Web enrichment data available"
 
@@ -1755,11 +1806,11 @@ def summarize_tool_output(tool_name: str, data: Any) -> str:
 
 def build_llm_context(raw_data_storage: dict, risk_analysis: dict) -> dict:
     """
-    Transforme les outputs tools en "tool_cards" ultra courts (1-2KB).
-    Empêche de passer 15KB de données brutes au LLM (Fix #1).
+    Transforme les outputs tools en "tool_cards" courts (mais suffisamment riches).
+    Empêche de passer trop de données brutes au LLM.
 
-    Input  : raw_data_storage (dict avec 15KB de données)
-    Output : tool_cards (list de résumés de max 200 chars chacun)
+    Input  : raw_data_storage (dict avec données brutes)
+    Output : tool_cards (list de résumés courts)
     """
     tool_cards = []
 
@@ -4279,6 +4330,10 @@ ABSOLUTE RULES:
 8. A valid SSL certificate is a POSITIVE security indicator, not a vulnerability
 9. Distinguish FACTS from HYPOTHESES clearly
 10. Be detailed but NON-REDUNDANT: avoid repeating the same facts across sections; keep each section additive
+11. DO NOT escalate severity beyond what is in structured_data.top_findings[].severity (use it as-is)
+12. Missing security headers are BEST PRACTICES (usually LOW/MEDIUM), never "CRITICAL" unless the structured data explicitly says so
+13. For every finding, include at least 1 concrete evidence bullet coming from the finding.evidence / finding.sources
+14. Recommendations must be actionable (who/what/how), and must map to priority_actions when present
 
 {lang_config["sections"]}"""
 
@@ -4790,187 +4845,103 @@ def logic_run_report(query: str, db: Session, report_type: str = "osint", progre
                         if isinstance(web_data, dict):
                             sources = web_data.get("sources", [])
 
-                    # ✅ OPTION A : Régénérer le rapport avec le prompt actuel
-                    # Reconstruire collected_data à partir du cache
-                    update_progress(15, "Reconstruction contexte (cache)")
-                    collected_data_cached = []
-                    tools_cached = raw.get("tools", {})
+                    # ✅ OPTION A : Régénérer le rapport via le pipeline HYBRID (Phase 1 + Phase 2)
+                    # Respect du layer_filter : si le cache ne contient pas les tools requis, on bypass le cache et on continue avec un scan complet.
 
-                    # WHOIS
-                    if "whois" in tools_cached and tools_cached["whois"].get("status") == "ok":
-                        whois_data = tools_cached["whois"].get("data", {})
-                        collected_data_cached.append(f"=== WHOIS ===\n{str(whois_data)[:1500]}")
+                    tools_cached = raw.get("tools", {}) if isinstance(raw, dict) else {}
 
-                    # DNS Resolution
-                    if "dns_resolution" in tools_cached and tools_cached["dns_resolution"].get("status") == "ok":
-                        resolved_ip = tools_cached["dns_resolution"].get("data")
-                        collected_data_cached.append(f"=== IP RESOLUTION ===\n{target} -> {resolved_ip}")
-
-                    # Censys
-                    if "censys" in tools_cached and tools_cached["censys"].get("status") == "ok":
-                        censys_data = tools_cached["censys"].get("data", {})
-                        collected_data_cached.append(f"=== INFRASTRUCTURE (IP) / CENSYS SCAN ===\n{str(censys_data)[:2500]}")
-
-                    # Reverse DNS
-                    if "reverse_dns" in tools_cached and tools_cached["reverse_dns"].get("status") == "ok":
-                        host = tools_cached["reverse_dns"].get("data")
-                        collected_data_cached.append(f"=== REVERSE DNS ===\n{host}")
-
-                    # Web Enrichment
-                    if "web_enrichment" in tools_cached and tools_cached["web_enrichment"].get("status") == "ok":
-                        web_data = tools_cached["web_enrichment"].get("data", {})
-                        web_text = web_data.get("text", "") if isinstance(web_data, dict) else ""
-                        if web_text:
-                            collected_data_cached.append(f"=== WEB INTEL ===\n{web_text}")
-
-                    # crt.sh Subdomains
-                    if "crtsh" in tools_cached and tools_cached["crtsh"].get("status") == "ok":
-                        crtsh_data = tools_cached["crtsh"].get("data", {})
-                        subdomains_list = crtsh_data.get("subdomains", [])
-                        collected_data_cached.append(f"=== SUBDOMAINS (crt.sh) ===\n{crtsh_data.get('subdomains_found', 0)} subdomains trouvés\nExemples: {', '.join(subdomains_list[:10])}")
-
-                    # Wayback Machine
-                    if "wayback" in tools_cached and tools_cached["wayback"].get("status") == "ok":
-                        wayback_data = tools_cached["wayback"].get("data", {})
-                        if wayback_data.get("snapshots_count", 0) > 0:
-                            collected_data_cached.append(f"=== HISTORIQUE (Wayback) ===\n{wayback_data.get('snapshots_count', 0)} snapshots\nPremière apparition: {wayback_data.get('first_seen', 'N/A')}\nDernière archive: {wayback_data.get('last_seen', 'N/A')}")
-
-                    # SSL Certificate
-                    if "ssl_analysis" in tools_cached and tools_cached["ssl_analysis"].get("status") == "ok":
-                        ssl_data = tools_cached["ssl_analysis"].get("data", {})
-                        issuer_org = ssl_data.get("issuer", {}).get("organizationName", "N/A")
-                        not_after = ssl_data.get("not_after", "N/A")
-                        collected_data_cached.append(f"=== CERTIFICAT SSL ===\nÉmetteur: {issuer_org}\nExpiration: {not_after}\nVersion SSL: {ssl_data.get('ssl_version', 'N/A')}")
-
-                    # HTTP Headers
-                    if "http_headers" in tools_cached and tools_cached["http_headers"].get("status") == "ok":
-                        headers_data = tools_cached["http_headers"].get("data", {})
-                        techs = headers_data.get("technologies_detected", [])
-                        security = headers_data.get("security_headers", {})
-                        hsts = "Oui" if security.get("Strict-Transport-Security", "Non présent") != "Non présent" else "Non"
-                        collected_data_cached.append(f"=== TECHNOLOGIES ===\n{chr(10).join(techs) if techs else 'Aucune détectée'}\nHTTPS Strict: {hsts}")
-
-                    # Reconstruire le contexte
-                    context_str = "\n\n".join(collected_data_cached)
-
-                    # Vérifier si c'était un rapport partiel
-                    timeout_reached = raw.get("scan_metadata", {}).get("partial_result", False)
-
-                    # Calculer le risk score depuis le cache
-                    risk_analysis_cached = None
-                    if report_type == "osint":
+                    # Vérifie que le cache contient bien les outils requis pour les couches demandées
+                    missing_tools = []
+                    if layer_filter is not None:
                         try:
-                            # Recalculer le risk score avec les données en cache
-                            risk_analysis_cached = calculate_risk_score(tools_cached)
-                            logger.info(f"[CACHE RISK SCORE] {target} → {risk_analysis_cached['score']}/100 ({risk_analysis_cached['level']})")
-                        except Exception as e:
-                            logger.error(f"Erreur calcul risk score depuis cache: {e}")
+                            required_tools = set(get_tools_for_layers(layer_filter))
+                        except Exception:
+                            required_tools = set()
+                        missing_tools = [t for t in required_tools if t not in tools_cached]
 
-                    # Prompt système (MISE À JOUR avec risk scoring)
-                    if report_type == "general":
-                        sys_prompt = "Tu es un assistant utile. Synthétise les infos suivantes."
+                    if missing_tools:
+                        logger.info(f"[CACHE BYPASS] Cache incomplet pour layers={layer_filter}. Missing tools: {missing_tools}")
                     else:
-                        partial_warning = "\n⚠️ ATTENTION : Ce rapport est PARTIEL car le scan original a dépassé la limite de temps. Certains outils n'ont pas été exécutés.\n" if timeout_reached else ""
+                        # Vérifier si c'était un rapport partiel
+                        timeout_reached = raw.get("scan_metadata", {}).get("partial_result", False) if isinstance(raw, dict) else False
 
-                        # Construire le contexte du risk score
-                        risk_context = ""
-                        if risk_analysis_cached:
-                            risk_context = f"""
-Un score de risque automatique a été calculé : {risk_analysis_cached['score']}/100 (Niveau: {risk_analysis_cached['level']})
+                        # Calculer / recalculer le risk score depuis le cache
+                        if report_type == "osint":
+                            try:
+                                risk_analysis_cached = calculate_risk_score(tools_cached)
+                                raw["risk_analysis"] = risk_analysis_cached
+                                logger.info(f"[CACHE RISK SCORE] {target} → {risk_analysis_cached['score']}/100 ({risk_analysis_cached['level']})")
+                            except Exception as e:
+                                logger.error(f"Erreur calcul risk score depuis cache: {e}")
+                                risk_analysis_cached = {"score": 50, "level": "UNKNOWN", "indicators": {"positive": [], "negative": []}}
+                        else:
+                            risk_analysis_cached = {"score": 50, "level": "UNKNOWN", "indicators": {"positive": [], "negative": []}}
 
-Indicateurs de sécurité positifs détectés :
-{chr(10).join(['- ' + ind for ind in risk_analysis_cached['indicators']['positive']]) if risk_analysis_cached['indicators']['positive'] else '- Aucun'}
+                        update_progress(30, "Synthèse IA (cache)")
 
-Vulnérabilités et risques détectés :
-{chr(10).join(['- ' + ind for ind in risk_analysis_cached['indicators']['negative']]) if risk_analysis_cached['indicators']['negative'] else '- Aucun'}
+                        # Rebuild LLM context from cached raw data (no raw dumps)
+                        llm_context = build_llm_context(raw_data_storage=raw, risk_analysis=risk_analysis_cached)
 
-IMPORTANT : Ce score est indicatif. Tu dois l'INTERPRÉTER et le CONTEXTUALISER dans ton rapport.
-"""
-
-                        sys_prompt = (
-                            f"Tu es un CONSULTANT SÉCURITÉ expérimenté qui rédige des rapports d'aide à la décision.{partial_warning}\n\n"
-                            "TON OBJECTIF : Aider le client à PRIORISER ses actions de sécurité avec des recommandations ACTIONNABLES.\n\n"
-                            "FORMAT OBLIGATOIRE :\n\n"
-                            "## 1. Résumé Exécutif\n"
-                            "- Score de risque global et signification\n"
-                            "- 3 actions prioritaires immédiates (si nécessaires)\n"
-                            "- Verdict : la cible est-elle bien protégée ou nécessite-t-elle une attention ?\n\n"
-                            "## 2. Identité & Contexte\n"
-                            "Présente la cible (WHOIS, registrar, date création, organisation).\n"
-                            "Si CDN détecté: AVERTIR que l'infrastructure visible est celle du CDN, pas la cible réelle.\n\n"
-                            "## 3. Analyse des Risques (CRITIQUE)\n"
-                            f"{risk_context}"
-                            "Pour CHAQUE vulnérabilité détectée, fournis:\n"
-                            "- **Sévérité**: CRITIQUE/ÉLEVÉ/MOYEN/FAIBLE/INFO\n"
-                            "- **Impact Business**: Que peut perdre le client ? (données, réputation, argent)\n"
-                            "- **Exploitabilité**: Facile/Moyen/Difficile - Un attaquant peut-il exploiter facilement ?\n"
-                            "- **Action recommandée**: Quoi faire concrètement et en combien de temps\n\n"
-                            "## 4. Points Positifs\n"
-                            "Liste ce qui est BIEN configuré (SSL valide, HSTS, CDN protection, etc.)\n\n"
-                            "## 5. Scénarios de Risque\n"
-                            "Décris 1-2 scénarios réalistes d'attaque si les vulnérabilités ne sont pas corrigées.\n"
-                            "Exemple: 'Un attaquant pourrait exploiter X pour accéder à Y, causant Z'\n\n"
-                            "## 6. Plan d'Action Priorisé\n"
-                            "| Priorité | Action | Effort | Impact |\n"
-                            "|----------|--------|--------|--------|\n"
-                            "| 1 | ... | Faible/Moyen/Élevé | ... |\n\n"
-                            "## 7. Sources & Limites\n"
-                            "Outils utilisés et limites de l'analyse.\n\n"
-                            "RÈGLES ABSOLUES :\n"
-                            "1. JAMAIS écrire 'Aucune information disponible' - OMETS la section si pas de données\n"
-                            "2. JAMAIS inventer d'informations - utilise UNIQUEMENT les données fournies\n"
-                            "3. Cloudflare, Let's Encrypt, AWS = LÉGITIMES, pas des menaces\n"
-                            "4. Un certificat SSL valide = POINT POSITIF\n"
-                            "5. Headers manquants = bonnes pratiques, PAS des vulnérabilités critiques\n"
-                            "6. Si CDN détecté, l'infra visible (IP, ports) concerne le CDN, PAS la cible\n"
-                            "7. Sois CONCIS et ACTIONNABLE - pas de remplissage"
+                        structured_data = extract_structured_findings(
+                            target=target,
+                            target_type=target_type,
+                            llm_context=llm_context,
                         )
 
-                    # Générer un résumé des outils (même logique que dans le scan)
-                    tools_summary = []
-                    for tool_name, tool_data in tools_cached.items():
-                        status = tool_data.get("status", "unknown")
-                        tools_summary.append(f"- {tool_name}: {status}")
-                        if status == "skipped":
-                            tools_summary.append(f"  Raison: {tool_data.get('reason', 'non spécifiée')}")
-                        elif status == "error":
-                            tools_summary.append(f"  Erreur: {tool_data.get('error', 'non spécifiée')}")
+                        # Persist derived structures for history/comparison/UI
+                        raw["structured_data"] = structured_data
+                        try:
+                            raw["intel_graph"] = build_intel_graph(target, target_type, raw, structured_data)
+                        except Exception:
+                            raw["intel_graph"] = {"version": 1, "root": f"target:{target_type.lower()}:{target}", "nodes": [], "edges": []}
+                        try:
+                            raw["exposures"] = build_exposures(raw)
+                        except Exception:
+                            raw["exposures"] = []
+                        try:
+                            raw["timeline_events"] = build_timeline_events(raw)
+                        except Exception:
+                            raw["timeline_events"] = []
 
-                    tools_status_text = "\n".join(tools_summary) if tools_summary else "Aucun outil exécuté"
+                        fresh_report = generate_report_from_structured(
+                            target=target,
+                            target_type=target_type,
+                            structured_data=structured_data,
+                            report_type=report_type,
+                            language=language,
+                            llm_hard_limit=llm_hard_limit,
+                        )
 
-                    user_prompt = f"""Cible: {target}
+                        update_progress(80, "Sauvegarde rapport")
 
-Statut des outils:
-{tools_status_text}
+                        # Mettre à jour le rapport en BDD (robuste : UPDATE par id, sinon INSERT)
+                        cached_target = cached.target
+                        cached_type = cached.target_type
+                        raw_json = json.dumps(raw, ensure_ascii=False)
 
-Données collectées:
-{context_str}"""
+                        try:
+                            rowcount = db.query(EntityReport).filter_by(id=cached.id).update(
+                                {"final_report": fresh_report, "raw_data": raw_json, "updated_at": func.now()},
+                                synchronize_session=False,
+                            )
+                            if rowcount == 0:
+                                # Row supprimée / remplacée pendant l'exécution → on recrée
+                                logger.warning("[CACHE] UPDATE 0 rows (stale instance). Recreate EntityReport.")
+                                db.add(EntityReport(target=cached_target, target_type=cached_type, final_report=fresh_report, raw_data=raw_json))
+                            db.commit()
+                            logger.info(f"[CACHE] Rapport mis à jour en BDD pour {target}")
+                        except Exception as e:
+                            logger.error(f"Erreur mise à jour BDD après régénération : {e}")
+                            db.rollback()
 
-                    # Régénérer le rapport avec le prompt actuel
-                    logger.info(f"[CACHE] Régénération du rapport avec prompt actuel pour {target}")
-                    update_progress(30, "Synthèse IA (cache)")
-                    fresh_report = ask_llm(sys_prompt, user_prompt, hard_limit_override=llm_hard_limit)
-
-                    update_progress(80, "Sauvegarde rapport")
-
-                    # Mettre à jour le rapport en BDD
-                    try:
-                        cached.final_report = fresh_report
-                        cached.updated_at = func.now()
-                        db.commit()
-                        logger.info(f"[CACHE] Rapport mis à jour en BDD pour {target}")
-                    except Exception as e:
-                        logger.error(f"Erreur mise à jour BDD après régénération : {e}")
-                        db.rollback()
-
-                    return {
-                        "target": cached.target,
-                        "type": cached.target_type,
-                        "report": fresh_report,
-                        "source": "cache_with_fresh_synthesis",
-                        "date": ref_date.strftime("%Y-%m-%d %H:%M"),
-                        "sources": sources
-                    }
+                        return {
+                            "target": cached_target,
+                            "type": cached_type,
+                            "report": fresh_report,
+                            "source": "cache_with_hybrid_pipeline",
+                            "date": ref_date.strftime("%Y-%m-%d %H:%M"),
+                            "sources": sources,
+                        }
 
                 except Exception as e:
                     logger.error(f"Erreur lors de la régénération depuis le cache : {e}")

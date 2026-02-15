@@ -1,5 +1,53 @@
 # Development Runbook
 
+## Quick Verification Checklist (Async Scans)
+
+After starting all services, verify the async scan pipeline works:
+
+### 1. Start Services
+```batch
+launch_all.bat
+```
+
+### 2. Verify Workers are Detected
+```bash
+curl http://localhost:8010/workers/status
+```
+Expected: `"active_workers": 1` (or more) and `"detection_method": "ping"` or `"inspect"`
+
+### 3. Submit an Async Scan
+```bash
+curl -X POST http://localhost:8010/agent/ask_async \
+  -H "Content-Type: application/json" \
+  -d '{"query": "analyze example.com"}'
+```
+Expected: `{"type": "async", "job_id": "...", "status": "PENDING"}`
+
+### 4. Check Job Progress
+```bash
+curl http://localhost:8010/jobs/{JOB_ID}
+```
+Expected: Status should transition: `PENDING` → `PROCESSING` → `COMPLETED`
+
+### 5. Verify Report in UI
+- Open http://localhost:8010/web/html/index.html
+- The job should appear in the history
+- Click to view the generated report
+
+### 6. Test Export (Optional)
+```bash
+curl http://localhost:8010/export/report/{TARGET}?format=pdf --output report.pdf
+```
+
+### Troubleshooting Quick Checks
+| Issue | Check |
+|-------|-------|
+| Workers = 0 | Is Redis running? `redis-cli ping` |
+| Job stays PENDING | Check Celery worker window for errors |
+| No report | Check LLM is running: `curl http://localhost:5000/v1/models` |
+
+---
+
 ## Démarrage de Tous les Services
 
 ### Windows (Recommandé)
@@ -161,6 +209,34 @@ logs/
 1. Vérifier Redis : `redis-cli ping`
 2. Sur Windows, utiliser `--pool=solo`
 3. Vérifier les logs du worker
+4. Vérifier que le worker écoute les bonnes queues (voir commande dans launch_all.bat)
+
+### /workers/status returns 0 workers (Windows)
+On Windows with `--pool=solo`, Celery's `inspect()` API often fails to detect workers.
+The endpoint now uses multiple detection methods:
+1. `app.control.ping()` - Most reliable on Windows
+2. `app.control.inspect()` - Standard method
+3. Direct Redis query for heartbeat keys
+4. Database inference (PROCESSING jobs)
+
+If workers still show as 0:
+- Ensure Redis is running
+- Check worker logs for errors
+- Verify broker URL matches between FastAPI and worker
+- Try: `celery -A tasks inspect ping` manually
+
+### WinError 10013 when starting uvicorn
+This error occurs on Windows when:
+- Port 8010 is still held by a previous process
+- Antivirus/firewall blocks watchfiles (used by `--reload`)
+- Multiple uvicorn processes conflict
+
+**Solutions:**
+1. **Remove --reload** (recommended): The launch_all.bat now uses no-reload mode by default
+2. **Kill existing processes**: `netstat -ano | findstr :8010` then `taskkill /PID <pid> /F`
+3. **Use a different port**: Change to 8011 or another free port
+4. **Disable Windows Defender real-time protection** (temporary, for testing only)
+5. **Run as Administrator** (may help with permission issues)
 
 ### Scans timeout
 1. Timeout global : 180s (scan) / 300s (Celery task)

@@ -1,10 +1,14 @@
 """
 Pytest configuration and fixtures for Ananta tests.
+
+Note: Tests use SQLite (test.db) instead of PostgreSQL for isolation.
+The test.db file is automatically cleaned up after test sessions.
 """
 
 import os
 import sys
 import pytest
+import atexit
 from typing import Generator
 
 # Add project root to path
@@ -20,14 +24,29 @@ from database import Base, get_db
 
 # ==================== DATABASE FIXTURES ====================
 
-# Use SQLite in-memory for tests
-SQLALCHEMY_TEST_DATABASE_URL = "sqlite:///./test.db"
+# Use SQLite file for tests (not in-memory to allow debugging)
+# Note: This is intentionally NOT PostgreSQL - tests should be isolated
+TEST_DB_PATH = "./test.db"
+SQLALCHEMY_TEST_DATABASE_URL = f"sqlite:///{TEST_DB_PATH}"
 
 engine = create_engine(
     SQLALCHEMY_TEST_DATABASE_URL,
     connect_args={"check_same_thread": False}
 )
 TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+
+
+def _cleanup_test_db():
+    """Remove test database file if it exists."""
+    if os.path.exists(TEST_DB_PATH):
+        try:
+            os.remove(TEST_DB_PATH)
+        except OSError:
+            pass  # File may be locked, ignore
+
+
+# Register cleanup at interpreter exit
+atexit.register(_cleanup_test_db)
 
 
 def override_get_db():
@@ -103,6 +122,23 @@ def sample_domain():
 def sample_ip():
     """Sample IP for testing."""
     return "93.184.216.34"  # example.com IP
+
+
+# ==================== SESSION CLEANUP FIXTURES ====================
+
+@pytest.fixture(scope="session", autouse=True)
+def cleanup_test_databases(request):
+    """Clean up all test database files after the entire test session."""
+    yield  # Run all tests first
+
+    # Cleanup test.db and test_tasks.db
+    test_db_files = ["./test.db", "./test_tasks.db"]
+    for db_file in test_db_files:
+        if os.path.exists(db_file):
+            try:
+                os.remove(db_file)
+            except OSError:
+                pass  # File may be locked by another process
 
 
 # ==================== HELPER FUNCTIONS ====================

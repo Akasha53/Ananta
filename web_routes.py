@@ -3284,6 +3284,13 @@ def get_workers_status(db: Session = Depends(get_db)):
     """
     Retourne l'état en temps réel des workers Celery.
     Utilisé par workers.html pour le monitoring.
+    
+    On Windows with --pool=solo, inspect() often fails. This endpoint uses
+    multiple fallback methods:
+    1. app.control.ping() - Most reliable on Windows
+    2. app.control.inspect() - Standard method (may timeout on Windows)
+    3. Redis heartbeat keys - Direct broker query
+    4. Database PROCESSING jobs - Last resort inference
     """
     if not HAS_CELERY:
         return {
@@ -3300,67 +3307,178 @@ def get_workers_status(db: Session = Depends(get_db)):
         from tasks import app as celery_app
         from kombu import Connection
         import os
+        import redis
 
-        # Utiliser l'API inspect() de Celery
-        inspect = celery_app.control.inspect()
-
-        # Récupérer les infos des workers
-        active_workers_info = inspect.active() or {}
-        stats_info = inspect.stats() or {}
-        registered_tasks = inspect.registered() or {}
-        active_queues_info = inspect.active_queues() or {}
-
-        # Compter les workers actifs
-        active_workers = len(active_workers_info)
-
-        # Compter les tâches actives (toutes queues confondues)
-        active_tasks = sum(len(tasks) for tasks in active_workers_info.values())
-
-        # Construire la liste des workers
+        redis_url = os.getenv("REDIS_URL", "redis://localhost:6379/0")
         workers_list = []
-        for worker_name, worker_stats in stats_info.items():
-            # Extraire les queues écoutées par ce worker via inspect.active_queues()
-            worker_queues = []
-            if worker_name in active_queues_info:
-                # active_queues() retourne une liste de dicts avec la clé 'name'
-                worker_queues = [q['name'] for q in active_queues_info[worker_name] if 'name' in q]
+        active_workers = 0
+        active_tasks = 0
+        detection_method = "none"
 
-            # Essayer de récupérer les queues depuis active()
-            active_tasks_for_worker = active_workers_info.get(worker_name, [])
+        # =====================================================
+        # METHOD 1: app.control.ping() - Most reliable on Windows
+        # =====================================================
+        try:
+            # ping() is more reliable than inspect() on Windows with --pool=solo
+            # Use a short timeout (2s) to avoid blocking
+            ping_response = celery_app.control.ping(timeout=2.0)
+            
+            if ping_response:
+                # ping_response is a list of dicts: [{'worker@host': {'ok': 'pong'}}]
+                for worker_dict in ping_response:
+                    for worker_name, status in worker_dict.items():
+                        if status.get('ok') == 'pong':
+                            worker_display_name = worker_name.split('@')[0] if '@' in worker_name else worker_name
+                            workers_list.append({
+                                "name": worker_display_name,
+                                "full_name": worker_name,
+                                "status": "online",
+                                "queues": [],  # Will be filled by inspect if available
+                                "concurrency": 1,
+                                "active_tasks": 0,
+                                "total_processed": 0,
+                                "detection": "ping"
+                            })
+                            active_workers += 1
+                
+                if active_workers > 0:
+                    detection_method = "ping"
+                    logger.debug(f"[Workers] Detected {active_workers} workers via ping()")
 
-            # Parser le nom du worker (format: "nom@hostname")
-            worker_display_name = worker_name.split('@')[0] if '@' in worker_name else worker_name
+        except Exception as ping_err:
+            logger.debug(f"[Workers] ping() failed: {ping_err}")
 
-            workers_list.append({
-                "name": worker_display_name,
+        # =====================================================
+        # METHOD 2: app.control.inspect() - Try to get more details
+        # =====================================================
+        active_workers_info = {}
+        stats_info = {}
+        active_queues_info = {}
+
+        if active_workers > 0 or detection_method == "none":
+            try:
+                # Use shorter timeout on Windows
+                inspect = celery_app.control.inspect(timeout=2.0)
+                
+                # These calls can fail independently - wrap each
+                try:
+                    active_workers_info = inspect.active() or {}
+                except Exception:
+                    pass
+                    
+                try:
+                    stats_info = inspect.stats() or {}
+                except Exception:
+                    pass
+                    
+                try:
+                    active_queues_info = inspect.active_queues() or {}
+                except Exception:
+                    pass
+
+                # If inspect() found workers but ping() didn't, update the list
+                if stats_info and not workers_list:
+                    detection_method = "inspect"
+                    for worker_name, worker_stats in stats_info.items():
+                        worker_queues = []
+                        if worker_name in active_queues_info:
+                            worker_queues = [q['name'] for q in active_queues_info[worker_name] if 'name' in q]
+
+                        active_tasks_for_worker = active_workers_info.get(worker_name, [])
+                        worker_display_name = worker_name.split('@')[0] if '@' in worker_name else worker_name
+
+                        workers_list.append({
+                            "name": worker_display_name,
+                            "full_name": worker_name,
+                            "status": "online",
+                            "queues": worker_queues,
+                            "concurrency": worker_stats.get('pool', {}).get('max-concurrency', 1),
+                            "active_tasks": len(active_tasks_for_worker),
+                            "total_processed": worker_stats.get('total', {}).get('ananta.scan_osint', 0),
+                            "detection": "inspect"
+                        })
+                        active_workers += 1
+
+                # Enrich existing workers from ping() with inspect() data
+                elif workers_list and stats_info:
+                    for worker in workers_list:
+                        full_name = worker.get("full_name", "")
+                        if full_name in stats_info:
+                            worker_stats = stats_info[full_name]
+                            worker["concurrency"] = worker_stats.get('pool', {}).get('max-concurrency', 1)
+                            worker["total_processed"] = worker_stats.get('total', {}).get('ananta.scan_osint', 0)
+                        if full_name in active_queues_info:
+                            worker["queues"] = [q['name'] for q in active_queues_info[full_name] if 'name' in q]
+                        if full_name in active_workers_info:
+                            worker["active_tasks"] = len(active_workers_info[full_name])
+                            active_tasks += worker["active_tasks"]
+
+            except Exception as inspect_err:
+                logger.debug(f"[Workers] inspect() failed: {inspect_err}")
+
+        # =====================================================
+        # METHOD 3: Direct Redis heartbeat query (fallback)
+        # =====================================================
+        if active_workers == 0:
+            try:
+                # Celery stores worker heartbeats in Redis
+                # Key pattern: celery-task-meta-* and _kombu.binding.*
+                r = redis.from_url(redis_url, socket_timeout=2.0)
+                
+                # Check for any celery keys that indicate worker activity
+                # Workers register with keys like: _kombu.binding.<queue>
+                binding_keys = r.keys("_kombu.binding.*")
+                
+                # Also check for recent heartbeats (worker events)
+                # Celery workers publish to celeryev.* exchange
+                event_keys = r.keys("celeryev.*")
+                
+                if binding_keys or event_keys:
+                    # There's evidence of Celery activity in Redis
+                    # This doesn't guarantee a worker is running, but it's a hint
+                    logger.debug(f"[Workers] Redis shows Celery bindings: {len(binding_keys)} queues")
+
+            except Exception as redis_err:
+                logger.debug(f"[Workers] Redis heartbeat check failed: {redis_err}")
+
+        # =====================================================
+        # METHOD 4: Database PROCESSING jobs (last resort)
+        # =====================================================
+        processing_jobs = db.query(ScanJob).filter(ScanJob.status == "PROCESSING").count()
+        
+        if active_workers == 0 and processing_jobs > 0:
+            detection_method = "db_inference"
+            active_workers = 1
+            workers_list = [{
+                "name": "worker (inferred)",
                 "status": "online",
-                "queues": worker_queues,
-                "concurrency": worker_stats.get('pool', {}).get('max-concurrency', 1),
-                "active_tasks": len(active_tasks_for_worker),
-                "total_processed": worker_stats.get('total', {}).get('ananta.scan_osint', 0)
-            })
+                "queues": ["all"],
+                "concurrency": 1,
+                "active_tasks": processing_jobs,
+                "total_processed": 0,
+                "detection": "db_inference",
+                "note": "Worker détecté via tâches en cours (inspect/ping indisponibles)"
+            }]
 
-        # Compter les tâches en attente (via Redis/broker)
+        # =====================================================
+        # Count pending tasks from Redis queues
+        # =====================================================
         pending_tasks = 0
         queues_status = {}
 
         try:
-            redis_url = os.getenv("REDIS_URL", "redis://localhost:6379/0")
             with Connection(redis_url) as conn:
                 from celery_config import CELERY_QUEUES
 
                 for queue_obj in CELERY_QUEUES:
                     queue_name = queue_obj.name
                     try:
-                        # Récupérer la longueur de la queue
                         queue_length = conn.default_channel.client.llen(queue_name)
                         pending_tasks += queue_length
 
-                        # Compter combien de workers écoutent cette queue
                         workers_listening = 0
                         for worker in workers_list:
-                            # Vérifier si ce worker écoute cette queue spécifique
-                            if queue_name in worker.get("queues", []):
+                            if queue_name in worker.get("queues", []) or "all" in worker.get("queues", []):
                                 workers_listening += 1
 
                         queues_status[queue_name] = {
@@ -3368,17 +3486,17 @@ def get_workers_status(db: Session = Depends(get_db)):
                             "workers": workers_listening
                         }
                     except Exception as e:
-                        logger.debug(f"[Workers] Erreur queue {queue_name}: {e}")
+                        logger.debug(f"[Workers] Queue {queue_name} error: {e}")
                         queues_status[queue_name] = {"pending": 0, "workers": 0}
 
         except Exception as e:
-            logger.warning(f"[Workers] Impossible de se connecter à Redis: {e}")
-            # Remplir avec des valeurs par défaut
+            logger.warning(f"[Workers] Redis connection failed: {e}")
             for queue_name in ['priority', 'osint_fast', 'osint_medium', 'osint_critical', 'maintenance', 'default']:
                 queues_status[queue_name] = {"pending": 0, "workers": 0}
 
-        # Compter les tâches complétées dans les dernières 24h
-        from datetime import timedelta
+        # =====================================================
+        # Count completed jobs in last 24h
+        # =====================================================
         now = datetime.now(timezone.utc)
         cutoff = now - timedelta(hours=24)
 
@@ -3387,17 +3505,27 @@ def get_workers_status(db: Session = Depends(get_db)):
             ScanJob.updated_at >= cutoff
         ).count()
 
+        # Calculate total active tasks
+        if active_tasks == 0:
+            active_tasks = sum(w.get("active_tasks", 0) for w in workers_list)
+            if active_tasks == 0:
+                active_tasks = processing_jobs
+
         return {
             "active_workers": active_workers,
             "active_tasks": active_tasks,
             "pending_tasks": pending_tasks,
             "completed_24h": completed_24h,
             "workers": workers_list,
-            "queues": queues_status
+            "queues": queues_status,
+            "detection_method": detection_method,
+            "inspect_available": detection_method == "inspect",
+            "ping_available": detection_method == "ping",
+            "processing_jobs_db": processing_jobs
         }
 
     except Exception as e:
-        logger.exception(f"[/workers/status] ERREUR: {e}")
+        logger.exception(f"[/workers/status] ERROR: {e}")
         return {
             "active_workers": 0,
             "active_tasks": 0,

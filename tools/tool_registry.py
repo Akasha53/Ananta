@@ -437,7 +437,7 @@ TOOL_REGISTRY: Dict[str, ToolSpec] = {
         jurisdiction_notes="API publique de VirusTotal. Respecter les ToS. "
                           "Les données soumises peuvent être partagées avec la communauté.",
         function_name="logic_virustotal",
-        dependencies=["requests"],
+        dependencies=["requests", "VIRUSTOTAL_API_KEY"],
         typical_duration_seconds=2.0,
         evidence_type="Réputation de menace, détections antivirus",
         hypothesis_validated="La cible X est associée à des activités malveillantes"
@@ -464,7 +464,7 @@ TOOL_REGISTRY: Dict[str, ToolSpec] = {
         jurisdiction_notes="Shodan indexe des données publiquement accessibles. "
                           "L'utilisation est légale mais respecter les ToS.",
         function_name="logic_shodan",
-        dependencies=["requests"],
+        dependencies=["requests", "SHODAN_API_KEY"],
         typical_duration_seconds=2.0,
         evidence_type="Infrastructure: ports, services, bannières, vulnérabilités",
         hypothesis_validated="L'hôte X expose des services vulnérables"
@@ -489,7 +489,7 @@ TOOL_REGISTRY: Dict[str, ToolSpec] = {
         },
         jurisdiction_notes="API de recherche de données DNS historiques. Données publiques.",
         function_name="logic_securitytrails",
-        dependencies=["requests"],
+        dependencies=["requests", "SECURITYTRAILS_API_KEY"],
         typical_duration_seconds=3.0,
         evidence_type="Historique DNS, sous-domaines, domaines associés",
         hypothesis_validated="Le domaine X a changé d'infrastructure récemment"
