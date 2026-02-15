@@ -1545,11 +1545,32 @@ async function pollAndDisplayResults(jobId) {
                     updateProgress(data);
                 },
                 // onComplete
-                (data) => {
-                    if (data.status === 'COMPLETED' && data.result) {
-                        handleResult(data.result);
-                    } else if (data.status === 'FAILED') {
-                        handleError(new Error(data.error || 'Le scan a échoué'));
+                async (data) => {
+                    try {
+                        // Some backends may send a COMPLETED status without embedding the full result in the WS payload.
+                        // In that case, do a final HTTP fetch to get the stored result from /jobs/{id}.
+                        if (data.status === 'COMPLETED') {
+                            if (data.result) {
+                                handleResult(data.result);
+                                return;
+                            }
+                            const finalStatus = await pollJobStatus(jobId);
+                            if (finalStatus.status === 'COMPLETED' && finalStatus.result) {
+                                handleResult(finalStatus.result);
+                                return;
+                            }
+                            handleError(new Error('Scan terminé mais résultat introuvable (job.result vide).'));
+                            return;
+                        }
+
+                        if (data.status === 'FAILED') {
+                            // Same idea: fetch to retrieve any persisted error_message
+                            const finalStatus = await pollJobStatus(jobId).catch(() => null);
+                            handleError(new Error((finalStatus && finalStatus.error) || data.error || 'Le scan a échoué'));
+                            return;
+                        }
+                    } catch (e) {
+                        handleError(e);
                     }
                 },
                 // onError - fallback to polling
