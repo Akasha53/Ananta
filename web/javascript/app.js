@@ -621,6 +621,161 @@ function applyTranslations() {
 // Apply translations to static HTML elements that don't have data-i18n
 function applyStaticTranslations(lang) {
     const trans = TRANSLATIONS[lang] || TRANSLATIONS['fr'];
+    const ui = {
+        fr: {
+            hard_limit_tokens: "Hard limit (tokens)",
+            hard_limit_hint: "Plafond max_tokens pour la synthèse (plus haut = plus long, plus détaillé)",
+            scan_mode: "Mode de Scan",
+            scan_depth: "Profondeur du scan OSINT",
+            scan_fast: "Rapide (Layer 1)",
+            scan_fast_hint: "WHOIS, DNS, Headers HTTP (~30s)",
+            scan_standard: "Standard (Layer 1+2)",
+            scan_standard_hint: "+ Censys, crt.sh, analyse web (~2-3min)",
+            scan_full: "Complet (Tous les layers)",
+            scan_full_hint: "Scan exhaustif avec toutes les sources (~5min)",
+            scan_critical: "Critique (Layer 3 - Risque Légal)",
+            scan_critical_hint: "Port scan, vuln scan - NÉCESSITE AUTORISATION EXPLICITE",
+            layer3_tools_label: "Outils Layer 3 à activer",
+            layer3_port_scan: "Port Scan (TCP top 100 ports)",
+            layer3_vuln_scan: "Vuln Scan (CVE detection)",
+            legal_warning_title: "AVERTISSEMENT LÉGAL",
+            legal_warning_text: "Les scans de ports et de vulnérabilités peuvent être illégaux sans autorisation écrite du propriétaire de la cible. En activant ces outils, vous confirmez disposer d'une autorisation valide (pentest contractuel, bug bounty, audit interne).",
+            legal_consent_text: "Je confirme avoir l'autorisation légale pour ce scan",
+            report_template_title: "Template de Rapport",
+            report_style: "Style du rapport généré",
+            template_detailed: "Détaillé",
+            template_detailed_hint: "Rapport complet avec toutes les informations et analyses",
+            template_executive: "Exécutif",
+            template_executive_hint: "Résumé pour décideurs avec points clés et recommandations",
+            template_technical: "Technique",
+            template_technical_hint: "Focus sur les détails techniques (ports, CVE, headers)",
+            template_minimal: "Minimal",
+            template_minimal_hint: "Essentiel uniquement: verdict et indicateurs critiques",
+            dark_mode: "Mode sombre",
+            theme_toggle_hint: "Basculer entre thème sombre et clair",
+            interface_language: "Langue de l'interface",
+            install: "Installer",
+            later: "Plus tard"
+        },
+        en: {
+            hard_limit_tokens: "Hard limit (tokens)",
+            hard_limit_hint: "max_tokens cap for synthesis (higher = longer, more detailed)",
+            scan_mode: "Scan Mode",
+            scan_depth: "OSINT scan depth",
+            scan_fast: "Fast (Layer 1)",
+            scan_fast_hint: "WHOIS, DNS, HTTP headers (~30s)",
+            scan_standard: "Standard (Layer 1+2)",
+            scan_standard_hint: "+ Censys, crt.sh, web analysis (~2-3min)",
+            scan_full: "Full (All layers)",
+            scan_full_hint: "Exhaustive scan with all sources (~5min)",
+            scan_critical: "Critical (Layer 3 - Legal Risk)",
+            scan_critical_hint: "Port scan, vuln scan - EXPLICIT AUTHORIZATION REQUIRED",
+            layer3_tools_label: "Layer 3 tools to enable",
+            layer3_port_scan: "Port Scan (TCP top 100 ports)",
+            layer3_vuln_scan: "Vuln Scan (CVE detection)",
+            legal_warning_title: "LEGAL WARNING",
+            legal_warning_text: "Port and vulnerability scans may be illegal without written authorization from the target owner. By enabling these tools, you confirm you have valid authorization (contractual pentest, bug bounty, internal audit).",
+            legal_consent_text: "I confirm I have legal authorization for this scan",
+            report_template_title: "Report Template",
+            report_style: "Generated report style",
+            template_detailed: "Detailed",
+            template_detailed_hint: "Full report with complete information and analysis",
+            template_executive: "Executive",
+            template_executive_hint: "Decision-maker summary with key points and recommendations",
+            template_technical: "Technical",
+            template_technical_hint: "Focus on technical details (ports, CVE, headers)",
+            template_minimal: "Minimal",
+            template_minimal_hint: "Essentials only: verdict and critical indicators",
+            dark_mode: "Dark mode",
+            theme_toggle_hint: "Switch between dark and light theme",
+            interface_language: "Interface language",
+            install: "Install",
+            later: "Later"
+        },
+        es: {
+            hard_limit_tokens: "Límite duro (tokens)",
+            hard_limit_hint: "Límite de max_tokens para el resumen (más alto = más largo, más detallado)",
+            scan_mode: "Modo de Escaneo",
+            scan_depth: "Profundidad del escaneo OSINT",
+            scan_fast: "Rápido (Layer 1)",
+            scan_fast_hint: "WHOIS, DNS, cabeceras HTTP (~30s)",
+            scan_standard: "Estándar (Layer 1+2)",
+            scan_standard_hint: "+ Censys, crt.sh, análisis web (~2-3min)",
+            scan_full: "Completo (Todas las capas)",
+            scan_full_hint: "Escaneo exhaustivo con todas las fuentes (~5min)",
+            scan_critical: "Crítico (Layer 3 - Riesgo Legal)",
+            scan_critical_hint: "Port scan, vuln scan - SE REQUIERE AUTORIZACIÓN EXPLÍCITA",
+            layer3_tools_label: "Herramientas Layer 3 a activar",
+            layer3_port_scan: "Port Scan (TCP top 100 puertos)",
+            layer3_vuln_scan: "Vuln Scan (detección CVE)",
+            legal_warning_title: "ADVERTENCIA LEGAL",
+            legal_warning_text: "Los escaneos de puertos y vulnerabilidades pueden ser ilegales sin autorización escrita del propietario del objetivo. Al activar estas herramientas, confirmas que tienes autorización válida (pentest contractual, bug bounty, auditoría interna).",
+            legal_consent_text: "Confirmo que tengo autorización legal para este escaneo",
+            report_template_title: "Plantilla de Informe",
+            report_style: "Estilo del informe generado",
+            template_detailed: "Detallado",
+            template_detailed_hint: "Informe completo con toda la información y análisis",
+            template_executive: "Ejecutivo",
+            template_executive_hint: "Resumen para decisores con puntos clave y recomendaciones",
+            template_technical: "Técnico",
+            template_technical_hint: "Enfoque en detalles técnicos (puertos, CVE, cabeceras)",
+            template_minimal: "Mínimo",
+            template_minimal_hint: "Solo lo esencial: veredicto e indicadores críticos",
+            dark_mode: "Modo oscuro",
+            theme_toggle_hint: "Alternar entre tema oscuro y claro",
+            interface_language: "Idioma de la interfaz",
+            install: "Instalar",
+            later: "Más tarde"
+        },
+        de: {
+            hard_limit_tokens: "Hard Limit (Tokens)",
+            hard_limit_hint: "max_tokens-Obergrenze für die Synthese (höher = länger, detaillierter)",
+            scan_mode: "Scan-Modus",
+            scan_depth: "OSINT-Scan-Tiefe",
+            scan_fast: "Schnell (Layer 1)",
+            scan_fast_hint: "WHOIS, DNS, HTTP-Header (~30s)",
+            scan_standard: "Standard (Layer 1+2)",
+            scan_standard_hint: "+ Censys, crt.sh, Web-Analyse (~2-3min)",
+            scan_full: "Vollständig (Alle Layer)",
+            scan_full_hint: "Umfassender Scan mit allen Quellen (~5min)",
+            scan_critical: "Kritisch (Layer 3 - Rechtliches Risiko)",
+            scan_critical_hint: "Port scan, vuln scan - AUSDRÜCKLICHE AUTORISIERUNG ERFORDERLICH",
+            layer3_tools_label: "Zu aktivierende Layer-3-Tools",
+            layer3_port_scan: "Port-Scan (TCP Top 100 Ports)",
+            layer3_vuln_scan: "Vuln-Scan (CVE-Erkennung)",
+            legal_warning_title: "RECHTLICHER HINWEIS",
+            legal_warning_text: "Port- und Schwachstellen-Scans können ohne schriftliche Genehmigung des Zielinhabers illegal sein. Durch Aktivieren dieser Tools bestätigen Sie, dass Sie eine gültige Autorisierung besitzen (vertraglicher Pentest, Bug Bounty, internes Audit).",
+            legal_consent_text: "Ich bestätige, dass ich die rechtliche Genehmigung für diesen Scan habe",
+            report_template_title: "Berichtsvorlage",
+            report_style: "Stil des generierten Berichts",
+            template_detailed: "Detailliert",
+            template_detailed_hint: "Vollständiger Bericht mit allen Informationen und Analysen",
+            template_executive: "Executive",
+            template_executive_hint: "Management-Zusammenfassung mit Kernpunkten und Empfehlungen",
+            template_technical: "Technisch",
+            template_technical_hint: "Fokus auf technische Details (Ports, CVE, Header)",
+            template_minimal: "Minimal",
+            template_minimal_hint: "Nur das Wesentliche: Urteil und kritische Indikatoren",
+            dark_mode: "Dunkler Modus",
+            theme_toggle_hint: "Zwischen dunklem und hellem Design wechseln",
+            interface_language: "Sprache der Oberfläche",
+            install: "Installieren",
+            later: "Später"
+        }
+    };
+    const u = ui[lang] || ui.fr;
+    const setText = (selector, value) => {
+        const el = document.querySelector(selector);
+        if (el) el.textContent = value;
+    };
+    const setWithIcon = (selector, value) => {
+        const el = document.querySelector(selector);
+        if (!el) return;
+        const icon = el.querySelector('i');
+        el.innerHTML = '';
+        if (icon) el.appendChild(icon);
+        el.appendChild(document.createTextNode((icon ? ' ' : '') + value));
+    };
 
     // Send button
     const sendBtn = document.querySelector('#send-btn span');
@@ -647,10 +802,61 @@ function applyStaticTranslations(lang) {
     }
 
     // Settings section titles
-    const sectionTitles = {
-        'api_configuration': document.querySelector('.settings-section:nth-child(1) .settings-section-title'),
-        'llm_parameters': document.querySelector('.settings-section:nth-child(2) .settings-section-title'),
-    };
+    setWithIcon('.settings-section:nth-child(1) .settings-section-title', trans['api_configuration'] || 'Configuration API');
+    setWithIcon('.settings-section:nth-child(2) .settings-section-title', trans['llm_parameters'] || 'Paramètres LLM');
+    setWithIcon('.settings-section:nth-child(3) .settings-section-title', u.scan_mode);
+    setWithIcon('.settings-section:nth-child(4) .settings-section-title', trans['cache_management'] || 'Gestion du Cache');
+    setWithIcon('.settings-section:nth-child(5) .settings-section-title', u.report_template_title);
+    setWithIcon('.settings-section:nth-child(6) .settings-section-title', trans['export_settings'] || 'Export');
+    setWithIcon('.settings-section:nth-child(7) .settings-section-title', trans['display_settings'] || 'Affichage');
+    setWithIcon('.settings-section:nth-child(8) .settings-section-title', trans['theme'] || 'Thème');
+    setWithIcon('.settings-section:nth-child(9) .settings-section-title', trans['language'] || 'Langue');
+    setWithIcon('.settings-section:nth-child(10) .settings-section-title', trans['history'] || 'Historique');
+    setWithIcon('.settings-section:nth-child(11) .settings-section-title', trans['notifications'] || 'Notifications');
+    setWithIcon('.settings-section:nth-child(12) .settings-section-title', trans['favorites'] || 'Raccourcis Favoris');
+
+    setText('label[for="setting-api-url"]', trans['backend_url'] || 'URL du Backend');
+    setText('.settings-section:nth-child(1) .settings-hint', trans['auto_detection'] || 'Laissez vide pour auto-détection');
+    setText('label[for="setting-llm-temperature"]', trans['temperature'] || 'Température');
+    setText('.settings-section:nth-child(2) .settings-field:nth-child(2) .settings-hint', trans['temperature_hint'] || '');
+    setText('label[for="setting-llm-timeout"]', trans['timeout_seconds'] || 'Timeout (secondes)');
+    setText('label[for="setting-llm-hard-limit"]', u.hard_limit_tokens);
+    setText('.settings-section:nth-child(2) .settings-field:nth-child(4) .settings-hint', u.hard_limit_hint);
+
+    setText('.settings-section:nth-child(3) .settings-field > label', u.scan_depth);
+    setWithIcon('input[name="scan-mode"][value="fast"] + span', u.scan_fast);
+    const scanFastHint = document.querySelector('input[name="scan-mode"][value="fast"]')?.closest('label')?.nextElementSibling;
+    if (scanFastHint) scanFastHint.textContent = u.scan_fast_hint;
+    setWithIcon('input[name="scan-mode"][value="standard"] + span', u.scan_standard);
+    const scanStandardHint = document.querySelector('input[name="scan-mode"][value="standard"]')?.closest('label')?.nextElementSibling;
+    if (scanStandardHint) scanStandardHint.textContent = u.scan_standard_hint;
+    setWithIcon('input[name="scan-mode"][value="full"] + span', u.scan_full);
+    const scanFullHint = document.querySelector('input[name="scan-mode"][value="full"]')?.closest('label')?.nextElementSibling;
+    if (scanFullHint) scanFullHint.textContent = u.scan_full_hint;
+    setWithIcon('input[name="scan-mode"][value="critical"] + span', u.scan_critical);
+    const scanCriticalHint = document.querySelector('input[name="scan-mode"][value="critical"]')?.closest('label')?.nextElementSibling;
+    if (scanCriticalHint) {
+        const icon = scanCriticalHint.querySelector('i');
+        scanCriticalHint.innerHTML = '';
+        if (icon) scanCriticalHint.appendChild(icon);
+        scanCriticalHint.appendChild(document.createTextNode((icon ? ' ' : '') + u.scan_critical_hint));
+    }
+
+    const layer3Label = document.querySelector('#layer3-tools-section > label');
+    if (layer3Label) {
+        const icon = layer3Label.querySelector('i');
+        layer3Label.innerHTML = '';
+        if (icon) layer3Label.appendChild(icon);
+        layer3Label.appendChild(document.createTextNode((icon ? ' ' : '') + u.layer3_tools_label));
+    }
+    setWithIcon('input[name="layer3-tool"][value="port_scan"] + span', u.layer3_port_scan);
+    setWithIcon('input[name="layer3-tool"][value="vuln_scan"] + span', u.layer3_vuln_scan);
+    const legalTitle = document.querySelector('.legal-consent-box p strong');
+    if (legalTitle) legalTitle.textContent = u.legal_warning_title;
+    const legalText = document.querySelector('.legal-consent-box p:nth-child(2)');
+    if (legalText) legalText.textContent = u.legal_warning_text;
+    const legalConsent = document.querySelector('#legal-consent-checkbox + span');
+    if (legalConsent) legalConsent.textContent = u.legal_consent_text;
 
     // Settings buttons
     const clearCacheBtn = document.getElementById('btn-clear-cache');
@@ -679,12 +885,48 @@ function applyStaticTranslations(lang) {
         favInput.placeholder = trans['favorites_placeholder'] || 'Ajouter une cible...';
     }
 
+    setText('.settings-section:nth-child(4) .settings-field > label', trans['space_used'] || 'Espace utilisé');
+    setText('label[for="setting-cache-ttl"]', trans['cache_ttl_days'] || 'TTL du cache (jours)');
+    setText('.settings-section:nth-child(6) .settings-field > label', trans['default_format'] || 'Format par défaut');
+    setText('.settings-section:nth-child(5) .settings-field > label', u.report_style);
+    setWithIcon('input[name="report-template"][value="detailed"] + span', u.template_detailed);
+    const detailedHint = document.querySelector('input[name="report-template"][value="detailed"]')?.closest('label')?.nextElementSibling;
+    if (detailedHint) detailedHint.textContent = u.template_detailed_hint;
+    setWithIcon('input[name="report-template"][value="executive"] + span', u.template_executive);
+    const executiveHint = document.querySelector('input[name="report-template"][value="executive"]')?.closest('label')?.nextElementSibling;
+    if (executiveHint) executiveHint.textContent = u.template_executive_hint;
+    setWithIcon('input[name="report-template"][value="technical"] + span', u.template_technical);
+    const technicalHint = document.querySelector('input[name="report-template"][value="technical"]')?.closest('label')?.nextElementSibling;
+    if (technicalHint) technicalHint.textContent = u.template_technical_hint;
+    setWithIcon('input[name="report-template"][value="minimal"] + span', u.template_minimal);
+    const minimalHint = document.querySelector('input[name="report-template"][value="minimal"]')?.closest('label')?.nextElementSibling;
+    if (minimalHint) minimalHint.textContent = u.template_minimal_hint;
+    setText('.settings-section:nth-child(9) .settings-field > label', u.interface_language);
+    setText('.settings-section:nth-child(10) label[for="setting-max-reports"]', trans['max_reports'] || 'Nombre max de rapports');
+    setText('.settings-section:nth-child(10) label[for="setting-auto-delete"]', trans['auto_delete_days'] || 'Auto-suppression après (jours)');
+    setText('.settings-section:nth-child(10) .settings-hint', trans['auto_delete_hint'] || '0 = jamais supprimer');
+    const darkLabel = document.querySelector('#setting-dark-mode + .toggle-slider + .toggle-label');
+    if (darkLabel) darkLabel.textContent = u.dark_mode;
+    setText('.settings-section:nth-child(8) .settings-hint', u.theme_toggle_hint);
+    const compactLabel = document.querySelector('#setting-compact-mode + .toggle-slider + .toggle-label');
+    if (compactLabel) compactLabel.textContent = trans['compact_mode'] || 'Mode compact';
+    setText('label[for="setting-font-size"]', trans['font_size'] || 'Taille de police');
+    const notifLabel = document.querySelector('#setting-notifications + .toggle-slider + .toggle-label');
+    if (notifLabel) notifLabel.textContent = trans['browser_alerts'] || 'Alertes navigateur';
+    setText('.settings-section:nth-child(11) .settings-hint', trans['notification_hint'] || '');
+    const fontOptions = document.querySelectorAll('#setting-font-size option');
+    if (fontOptions.length >= 3) {
+        fontOptions[0].textContent = trans['font_small'] || 'Petite';
+        fontOptions[1].textContent = trans['font_medium'] || 'Moyenne';
+        fontOptions[2].textContent = trans['font_large'] || 'Grande';
+    }
+
     // PWA install buttons
     const installBtn = document.querySelector('.install-btn');
-    if (installBtn) installBtn.textContent = trans['install'] || 'Installer';
+    if (installBtn) installBtn.textContent = u.install;
 
     const dismissBtn = document.querySelector('.dismiss-btn');
-    if (dismissBtn) dismissBtn.textContent = trans['later'] || 'Plus tard';
+    if (dismissBtn) dismissBtn.textContent = u.later;
 }
 
 // Detect browser language and map to supported languages
