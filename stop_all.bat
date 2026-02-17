@@ -50,4 +50,11 @@ echo Redis (Memurai) reste actif (service Windows)
 echo Pour l'arreter: net stop memurai (droits admin requis)
 echo.
 
+call :pause_if_needed
+
+:pause_if_needed
+if "%NONINTERACTIVE%"=="1" goto :eof
+if "%CI%"=="1" goto :eof
+if /I "%CI%"=="true" goto :eof
 pause
+goto :eof

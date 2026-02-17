@@ -43,7 +43,7 @@ echo.
 echo [1/5] Verification des chemins...
 if not exist "%FASTAPI_DIR%\main.py" (
     echo ERREUR: main.py introuvable
-    pause
+    call :pause_if_needed
     exit /b 1
 )
 echo OK
@@ -55,7 +55,7 @@ sc query memurai | find "RUNNING" >nul 2>&1
 if errorlevel 1 (
     echo ERREUR: Redis/Memurai n'est pas en cours d'execution.
     echo - Demarre Memurai (service "memurai") puis relance launch_all.bat
-    pause
+    call :pause_if_needed
     exit /b 1
 ) else (
     echo Redis OK (RUNNING)
@@ -104,4 +104,11 @@ echo   3 fenetres ouvertes (FastAPI, Mistral, Worker)
 echo   Pour arreter: stop_all.bat
 echo ========================================
 echo.
+call :pause_if_needed
+
+:pause_if_needed
+if "%NONINTERACTIVE%"=="1" goto :eof
+if "%CI%"=="1" goto :eof
+if /I "%CI%"=="true" goto :eof
 pause
+goto :eof
