@@ -512,6 +512,34 @@ def run_layer2_tools(target: str, target_type: str, run_id: str, db_session: Ses
         if securitytrails_result["status"] == "ok":
             results["collected_data"].append(f"=== DNS HISTORY (SecurityTrails) ===\n{str(securitytrails_result['data'].get('raw'))[:1500]}")
 
+    # SpiderFoot correlation (domain or IP) - requires local SpiderFoot API
+    if target_type == "DOMAIN" or target_type == "IP":
+        spider_target = target
+        spider_result = execute_tool_with_audit(
+            tool_name="spiderfoot",
+            target=spider_target,
+            tool_function=logic_spiderfoot,
+            run_id=run_id,
+            context_declared="OSINT passif (parallel)",
+            db_session=db_session
+        )
+        results["tools"]["spiderfoot"] = {
+            "status": spider_result["status"],
+            "data": spider_result.get("data", {}).get("raw") if spider_result["status"] == "ok" else None,
+            "error": spider_result.get("error"),
+            "duration": spider_result["duration"]
+        }
+        if spider_result["status"] == "ok":
+            sf_data = spider_result["data"].get("raw", {})
+            entities = sf_data.get("entities", {})
+            results["collected_data"].append(
+                f"=== CORRELATION (SpiderFoot) ===\n"
+                f"Events: {sf_data.get('events_count', 0)}\n"
+                f"Findings: {sf_data.get('high_confidence_findings', 0)}\n"
+                f"Entities: domains={entities.get('domains', 0)}, ips={entities.get('ips', 0)}, emails={entities.get('emails', 0)}\n"
+                f"Risk: {sf_data.get('risk_level', 'N/A')}\n"
+            )
+
     # VirusTotal (reputation) - works for both domain and IP
     if target_type == "DOMAIN" or target_type == "IP":
         vt_target = ip_target if target_type == "DOMAIN" and ip_target else target
@@ -688,6 +716,7 @@ def aggregate_parallel_results(layer1_results: Dict, layer2_results: Dict,
 
     # Phase 2: Rapport final
     final_report = llm_phase2_generate_report(phase1_result, target, target_type)
+    final_report = append_spiderfoot_summary_to_report(final_report, raw_data_storage, language="fr")
 
     # Construire le résultat final
     result = {
@@ -1735,6 +1764,21 @@ def summarize_tool_output(tool_name: str, data: Any) -> str:
             return f"SecurityTrails: DNS history={hist_count}, subdomains={sub_count}"
         return "SecurityTrails data available"
 
+    elif tool_name == "spiderfoot":
+        if isinstance(data, dict):
+            events_count = data.get("events_count", 0)
+            findings = data.get("high_confidence_findings", 0)
+            entities = data.get("entities", {}) if isinstance(data.get("entities"), dict) else {}
+            domains = entities.get("domains", 0)
+            ips = entities.get("ips", 0)
+            emails = entities.get("emails", 0)
+            risk = data.get("risk_level", "UNKNOWN")
+            return (
+                f"SpiderFoot: events={events_count}, findings={findings}, "
+                f"domains={domains}, ips={ips}, emails={emails}, risk={risk}"
+            )
+        return "SpiderFoot data available"
+
     elif tool_name == "subdomains":
         if isinstance(data, dict):
             subs = data.get("subdomains", [])
@@ -2505,6 +2549,196 @@ def logic_securitytrails(target: str):
         return {"error": "SecurityTrails request timeout (>10s)"}
     except Exception as e:
         logger.error(f"[SECURITYTRAILS] Error analyzing {target}: {e}")
+        return {"error": str(e)}
+
+
+def logic_spiderfoot(target: str):
+    """
+    Corrélation OSINT via SpiderFoot API.
+
+    Cette intégration est best-effort:
+    - nécessite SPIDERFOOT_API_URL (ex: http://127.0.0.1:5001)
+    - tente de lancer un scan via /startscan
+    - récupère un échantillon d'événements via /scaneventresults
+    """
+    spiderfoot_url = (os.getenv("SPIDERFOOT_API_URL") or "").strip().rstrip("/")
+    if not spiderfoot_url:
+        logger.info("[SPIDERFOOT] Skipped - SPIDERFOOT_API_URL not configured")
+        return {"skipped": True, "reason": "SPIDERFOOT_API_URL not configured"}
+
+    api_key = (os.getenv("SPIDERFOOT_API_KEY") or "").strip()
+    timeout = max(10, min(int(os.getenv("SPIDERFOOT_TIMEOUT", "45")), 180))
+
+    headers = {"Accept": "application/json"}
+    if api_key:
+        headers["Authorization"] = f"Bearer {api_key}"
+
+    normalized_target = (target or "").strip()
+    if normalized_target.startswith(("http://", "https://")):
+        normalized_target = urlparse(normalized_target).netloc or normalized_target
+
+    def _post_candidates(path: str, payload: Dict[str, Any]) -> requests.Response:
+        # Compat API: certains endpoints attendent form-data, d'autres JSON.
+        errors = []
+        for use_json in (True, False):
+            try:
+                if use_json:
+                    resp = requests.post(
+                        f"{spiderfoot_url}{path}",
+                        json=payload,
+                        headers=headers,
+                        timeout=min(timeout, 20),
+                    )
+                else:
+                    resp = requests.post(
+                        f"{spiderfoot_url}{path}",
+                        data=payload,
+                        headers=headers,
+                        timeout=min(timeout, 20),
+                    )
+                if resp.status_code < 500:
+                    return resp
+                errors.append(f"{path} -> HTTP {resp.status_code}")
+            except Exception as exc:
+                errors.append(f"{path} -> {exc}")
+        raise RuntimeError("; ".join(errors) if errors else "Unknown SpiderFoot request error")
+
+    def _extract_scan_id(start_response: requests.Response) -> str:
+        text = (start_response.text or "").strip()
+        try:
+            payload = start_response.json()
+        except Exception:
+            payload = None
+
+        if isinstance(payload, dict):
+            for key in ("scan_id", "scanId", "id"):
+                if payload.get(key):
+                    return str(payload[key])
+            # Certains retours encapsulent l'id dans "data"
+            data = payload.get("data")
+            if isinstance(data, dict):
+                for key in ("scan_id", "scanId", "id"):
+                    if data.get(key):
+                        return str(data[key])
+
+        if text and len(text) < 128:
+            return text
+        return ""
+
+    try:
+        start_payload = {
+            "scanname": f"ananta-{normalized_target}-{int(time.time())}",
+            "scantarget": normalized_target,
+            "modulelist": "",
+            "typelist": "",
+            "usecase": "all",
+        }
+
+        start_resp = _post_candidates("/startscan", start_payload)
+        if start_resp.status_code in (401, 403):
+            return {"error": "SpiderFoot unauthorized (check SPIDERFOOT_API_KEY / API access)"}
+        if start_resp.status_code >= 400:
+            return {"error": f"SpiderFoot startscan failed: HTTP {start_resp.status_code}"}
+
+        scan_id = _extract_scan_id(start_resp)
+        if not scan_id:
+            return {"error": "SpiderFoot did not return a scan id"}
+
+        # Attendre brièvement pour laisser SpiderFoot produire des événements.
+        time.sleep(2)
+
+        events_resp = _post_candidates("/scaneventresults", {"id": scan_id, "limit": 200})
+        if events_resp.status_code >= 400:
+            return {
+                "raw": {
+                    "scan_id": scan_id,
+                    "status": "started",
+                    "events_count": 0,
+                    "high_confidence_findings": 0,
+                    "entities": {"domains": 0, "ips": 0, "emails": 0},
+                    "top_event_types": [],
+                    "risk_level": "UNKNOWN",
+                    "note": f"scan started but events endpoint returned HTTP {events_resp.status_code}",
+                }
+            }
+
+        events_payload = events_resp.json() if events_resp.text else []
+        rows = []
+        if isinstance(events_payload, list):
+            rows = events_payload
+        elif isinstance(events_payload, dict):
+            for key in ("events", "records", "data", "rows"):
+                if isinstance(events_payload.get(key), list):
+                    rows = events_payload[key]
+                    break
+
+        domains = set()
+        ips = set()
+        emails = set()
+        event_type_counts: Dict[str, int] = {}
+        suspicious_hits = 0
+
+        for row in rows:
+            if not isinstance(row, (list, tuple, dict)):
+                continue
+
+            if isinstance(row, dict):
+                event_type = str(row.get("eventType") or row.get("type") or "UNKNOWN")
+                value = str(row.get("data") or row.get("value") or row.get("sourceData") or "")
+            else:
+                event_type = str(row[4] if len(row) > 4 else "UNKNOWN")
+                value = str(row[1] if len(row) > 1 else "")
+
+            event_type_counts[event_type] = event_type_counts.get(event_type, 0) + 1
+
+            value_l = value.lower()
+            if "@" in value and len(value) < 255:
+                emails.add(value.strip())
+            if re.match(r"^(?:\d{1,3}\.){3}\d{1,3}$", value.strip()):
+                ips.add(value.strip())
+            if "." in value and " " not in value and len(value) < 255:
+                maybe_domain = value.strip().strip(".")
+                if re.match(r"^(?:[a-zA-Z0-9-]+\.)+[a-zA-Z]{2,}$", maybe_domain):
+                    domains.add(maybe_domain.lower())
+
+            if (
+                "malicious" in value_l
+                or "blacklist" in value_l
+                or "phish" in value_l
+                or "cve-" in value_l
+                or "suspicious" in value_l
+            ):
+                suspicious_hits += 1
+
+        if suspicious_hits >= 8:
+            risk_level = "HIGH"
+        elif suspicious_hits > 0:
+            risk_level = "MEDIUM"
+        else:
+            risk_level = "LOW"
+
+        top_event_types = sorted(event_type_counts.items(), key=lambda x: x[1], reverse=True)[:5]
+
+        return {
+            "raw": {
+                "scan_id": scan_id,
+                "status": "completed_partial",
+                "events_count": len(rows),
+                "high_confidence_findings": suspicious_hits,
+                "entities": {
+                    "domains": len(domains),
+                    "ips": len(ips),
+                    "emails": len(emails),
+                },
+                "top_event_types": [{"event": k, "count": v} for k, v in top_event_types],
+                "risk_level": risk_level,
+            }
+        }
+
+    except requests.exceptions.Timeout:
+        return {"error": "SpiderFoot timeout"}
+    except Exception as e:
+        logger.error(f"[SPIDERFOOT] Error analyzing {target}: {e}")
         return {"error": str(e)}
 
 
@@ -4355,6 +4589,58 @@ Generate a complete OSINT report in Markdown."""
     return report
 
 
+def append_spiderfoot_summary_to_report(report: str, raw_data_storage: dict, language: str = "fr") -> str:
+    """
+    Ajoute un bloc de synthèse SpiderFoot en fin de rapport si l'outil est disponible.
+    Garantit une visibilité explicite dans le rapport final.
+    """
+    if not report or not isinstance(raw_data_storage, dict):
+        return report
+
+    tool_data = (raw_data_storage.get("tools", {}) or {}).get("spiderfoot", {})
+    if not isinstance(tool_data, dict) or tool_data.get("status") != "ok":
+        return report
+
+    sf = tool_data.get("data", {})
+    if not isinstance(sf, dict):
+        return report
+
+    entities = sf.get("entities", {}) if isinstance(sf.get("entities"), dict) else {}
+    top_events = sf.get("top_event_types", []) if isinstance(sf.get("top_event_types"), list) else []
+    top_events_str = ", ".join(
+        f"{str(x.get('event', 'N/A'))} ({int(x.get('count', 0))})"
+        for x in top_events[:3]
+        if isinstance(x, dict)
+    ) or "N/A"
+
+    if language == "en":
+        section_title = "## SpiderFoot Summary"
+        lines = [
+            f"- Scan ID: `{sf.get('scan_id', 'N/A')}`",
+            f"- Risk level: **{sf.get('risk_level', 'UNKNOWN')}**",
+            f"- Events analyzed: **{sf.get('events_count', 0)}**",
+            f"- High-confidence findings: **{sf.get('high_confidence_findings', 0)}**",
+            f"- Entities discovered: domains={entities.get('domains', 0)}, ips={entities.get('ips', 0)}, emails={entities.get('emails', 0)}",
+            f"- Top event families: {top_events_str}",
+        ]
+    else:
+        section_title = "## Résumé SpiderFoot"
+        lines = [
+            f"- Scan ID: `{sf.get('scan_id', 'N/A')}`",
+            f"- Niveau de risque: **{sf.get('risk_level', 'UNKNOWN')}**",
+            f"- Événements analysés: **{sf.get('events_count', 0)}**",
+            f"- Findings haute confiance: **{sf.get('high_confidence_findings', 0)}**",
+            f"- Entités découvertes: domaines={entities.get('domains', 0)}, ips={entities.get('ips', 0)}, emails={entities.get('emails', 0)}",
+            f"- Familles d'événements dominantes: {top_events_str}",
+        ]
+
+    block = section_title + "\n\n" + "\n".join(lines) + "\n"
+
+    if "Résumé SpiderFoot" in report or "SpiderFoot Summary" in report:
+        return report
+    return report.rstrip() + "\n\n---\n\n" + block
+
+
 def generate_layer3_report(
     target: str,
     results: dict,
@@ -4911,6 +5197,7 @@ def logic_run_report(query: str, db: Session, report_type: str = "osint", progre
                             language=language,
                             llm_hard_limit=llm_hard_limit,
                         )
+                        fresh_report = append_spiderfoot_summary_to_report(fresh_report, raw, language=language)
 
                         update_progress(80, "Sauvegarde rapport")
 
@@ -5368,6 +5655,51 @@ def logic_run_report(query: str, db: Session, report_type: str = "osint", progre
             if not should_run_tool_for_layer("securitytrails", layer_filter):
                 raw_data_storage["tools"]["securitytrails"] = {"status": "skipped", "reason": "layer_filter"}
 
+        # SpiderFoot - Corrélation OSINT (Layer 2)
+        if not timeout_reached and should_run_tool_for_layer("spiderfoot", layer_filter):
+            spiderfoot_result = execute_tool_with_audit(
+                tool_name="spiderfoot",
+                target=target,
+                tool_function=logic_spiderfoot,
+                run_id=run_id,
+                context_declared="OSINT passif - Correlation",
+                db_session=db
+            )
+
+            if spiderfoot_result["status"] == "ok" and spiderfoot_result["data"]:
+                sf_info = spiderfoot_result["data"].get("raw", {})
+                raw_data_storage["tools"]["spiderfoot"] = {
+                    "status": "ok",
+                    "data": sf_info,
+                    "duration": spiderfoot_result["duration"]
+                }
+                entities = sf_info.get("entities", {})
+                collected_data.append(
+                    "=== CORRÉLATION (SpiderFoot) ===\n"
+                    f"Événements: {sf_info.get('events_count', 0)}\n"
+                    f"Findings: {sf_info.get('high_confidence_findings', 0)}\n"
+                    f"Entités: domaines={entities.get('domains', 0)}, ip={entities.get('ips', 0)}, emails={entities.get('emails', 0)}\n"
+                    f"Risque estimé: {sf_info.get('risk_level', 'N/A')}"
+                )
+            elif spiderfoot_result["status"] == "skipped":
+                raw_data_storage["tools"]["spiderfoot"] = {
+                    "status": "skipped",
+                    "reason": spiderfoot_result.get("error", "SpiderFoot non configuré"),
+                    "duration": spiderfoot_result.get("duration", 0.0)
+                }
+            else:
+                raw_data_storage["tools"]["spiderfoot"] = {
+                    "status": "error",
+                    "error": spiderfoot_result.get("error", "Unknown error"),
+                    "duration": spiderfoot_result.get("duration", 0.0)
+                }
+
+            if check_timeout(scan_start_time, MAX_SCAN_DURATION, "SpiderFoot"):
+                timeout_reached = True
+        else:
+            if not should_run_tool_for_layer("spiderfoot", layer_filter):
+                raw_data_storage["tools"]["spiderfoot"] = {"status": "skipped", "reason": "layer_filter"}
+
         update_progress(52, "PROCESSING")
 
         # Wayback Machine avec audit wrapper
@@ -5761,6 +6093,8 @@ def logic_run_report(query: str, db: Session, report_type: str = "osint", progre
                 tool_cards=llm_context.get("tool_cards", []) if 'llm_context' in locals() else [],
                 scan_metadata=raw_data_storage.get("scan_metadata", {})
             )
+
+    final_report = append_spiderfoot_summary_to_report(final_report, raw_data_storage, language=language)
 
     update_progress(95, "PROCESSING")
 

@@ -215,6 +215,20 @@ const TRANSLATIONS = {
         'reset': 'Réinitialiser',
         'save': 'Sauvegarder',
         'language': 'Langue',
+        'install': 'Installer',
+        'later': 'Plus tard',
+        'clear_cache_btn': 'Vider le cache',
+        'test_btn': 'Tester',
+        'favorites_placeholder': 'Ajouter une cible...',
+        'export_pdf': 'Exporter PDF',
+        'export_excel': 'Exporter Excel',
+        'export_json': 'Exporter JSON',
+        'export_csv': 'Exporter CSV',
+        'export_xml': 'Exporter XML',
+        'export_markdown': 'Exporter Markdown',
+        'confirm_reset_settings': 'Réinitialiser tous les paramètres aux valeurs par défaut ?',
+        'confirm_clear_cache': 'Vider le cache ? Cette action est irréversible.',
+        'cache_cleared_success': 'Cache vidé avec succès.',
 
         // Notifications
         'settings_saved': 'Paramètres sauvegardés avec succès.',
@@ -303,6 +317,20 @@ const TRANSLATIONS = {
         'reset': 'Reset',
         'save': 'Save',
         'language': 'Language',
+        'install': 'Install',
+        'later': 'Later',
+        'clear_cache_btn': 'Clear cache',
+        'test_btn': 'Test',
+        'favorites_placeholder': 'Add a target...',
+        'export_pdf': 'Export PDF',
+        'export_excel': 'Export Excel',
+        'export_json': 'Export JSON',
+        'export_csv': 'Export CSV',
+        'export_xml': 'Export XML',
+        'export_markdown': 'Export Markdown',
+        'confirm_reset_settings': 'Reset all settings to default values?',
+        'confirm_clear_cache': 'Clear cache? This action is irreversible.',
+        'cache_cleared_success': 'Cache cleared successfully.',
 
         // Notifications
         'settings_saved': 'Settings saved successfully.',
@@ -391,6 +419,20 @@ const TRANSLATIONS = {
         'reset': 'Restablecer',
         'save': 'Guardar',
         'language': 'Idioma',
+        'install': 'Instalar',
+        'later': 'Más tarde',
+        'clear_cache_btn': 'Vaciar caché',
+        'test_btn': 'Probar',
+        'favorites_placeholder': 'Añadir un objetivo...',
+        'export_pdf': 'Exportar PDF',
+        'export_excel': 'Exportar Excel',
+        'export_json': 'Exportar JSON',
+        'export_csv': 'Exportar CSV',
+        'export_xml': 'Exportar XML',
+        'export_markdown': 'Exportar Markdown',
+        'confirm_reset_settings': '¿Restablecer toda la configuración a los valores predeterminados?',
+        'confirm_clear_cache': '¿Vaciar la caché? Esta acción es irreversible.',
+        'cache_cleared_success': 'Caché vaciada correctamente.',
 
         // Notifications
         'settings_saved': 'Configuración guardada correctamente.',
@@ -479,6 +521,20 @@ const TRANSLATIONS = {
         'reset': 'Zurücksetzen',
         'save': 'Speichern',
         'language': 'Sprache',
+        'install': 'Installieren',
+        'later': 'Später',
+        'clear_cache_btn': 'Cache leeren',
+        'test_btn': 'Testen',
+        'favorites_placeholder': 'Ziel hinzufügen...',
+        'export_pdf': 'PDF exportieren',
+        'export_excel': 'Excel exportieren',
+        'export_json': 'JSON exportieren',
+        'export_csv': 'CSV exportieren',
+        'export_xml': 'XML exportieren',
+        'export_markdown': 'Markdown exportieren',
+        'confirm_reset_settings': 'Alle Einstellungen auf Standardwerte zurücksetzen?',
+        'confirm_clear_cache': 'Cache leeren? Diese Aktion ist irreversibel.',
+        'cache_cleared_success': 'Cache erfolgreich geleert.',
 
         // Notifications
         'settings_saved': 'Einstellungen erfolgreich gespeichert.',
@@ -596,7 +652,39 @@ function applyStaticTranslations(lang) {
         'llm_parameters': document.querySelector('.settings-section:nth-child(2) .settings-section-title'),
     };
 
-    // More comprehensive updates could be added here
+    // Settings buttons
+    const clearCacheBtn = document.getElementById('btn-clear-cache');
+    if (clearCacheBtn) {
+        clearCacheBtn.innerHTML = `<i class="fas fa-trash mr-2"></i> ${trans['clear_cache_btn'] || 'Vider le cache'}`;
+    }
+
+    const testBtn = document.getElementById('btn-test-notification');
+    if (testBtn) {
+        testBtn.innerHTML = `<i class="fas fa-bell mr-2"></i> ${trans['test_btn'] || 'Tester'}`;
+    }
+
+    const resetBtn = document.querySelector('button[onclick="resetSettings()"]');
+    if (resetBtn) {
+        resetBtn.innerHTML = `<i class="fas fa-undo mr-2"></i> ${trans['reset'] || 'Réinitialiser'}`;
+    }
+
+    const saveBtn = document.querySelector('button[onclick="saveSettings()"]');
+    if (saveBtn) {
+        saveBtn.innerHTML = `<i class="fas fa-save mr-2"></i> ${trans['save'] || 'Sauvegarder'}`;
+    }
+
+    // Favorites placeholder
+    const favInput = document.getElementById('new-favorite-input');
+    if (favInput) {
+        favInput.placeholder = trans['favorites_placeholder'] || 'Ajouter une cible...';
+    }
+
+    // PWA install buttons
+    const installBtn = document.querySelector('.install-btn');
+    if (installBtn) installBtn.textContent = trans['install'] || 'Installer';
+
+    const dismissBtn = document.querySelector('.dismiss-btn');
+    if (dismissBtn) dismissBtn.textContent = trans['later'] || 'Plus tard';
 }
 
 // Detect browser language and map to supported languages
@@ -1442,7 +1530,7 @@ async function handleExecution() {
         addChatMessage({ author: "SYSTEM", content: `<span class="text-rose-500 font-bold">ERREUR CRITIQUE:</span> ${escapeHtml(e.message)}` });
     } finally {
         btn.disabled = false;
-        btn.innerHTML = '<span>EXECUTER</span> <i class="fas fa-paper-plane text-xs"></i>';
+        btn.innerHTML = `<span>${t('execute')}</span> <i class="fas fa-paper-plane text-xs"></i>`;
     }
 }
 
@@ -2122,7 +2210,7 @@ function saveSettings() {
 }
 
 function resetSettings() {
-    if (confirm('Réinitialiser tous les paramètres aux valeurs par défaut ?')) {
+    if (confirm(t('confirm_reset_settings'))) {
         appSettings = { ...DEFAULT_SETTINGS };
         localStorage.removeItem('ananta-settings');
         populateSettingsForm();
@@ -2178,12 +2266,12 @@ function updateExportButton() {
     };
 
     const labels = {
-        'pdf': 'Exporter PDF',
-        'xlsx': 'Exporter Excel',
-        'json': 'Exporter JSON',
-        'csv': 'Exporter CSV',
-        'xml': 'Exporter XML',
-        'md': 'Exporter Markdown'
+        'pdf': t('export_pdf'),
+        'xlsx': t('export_excel'),
+        'json': t('export_json'),
+        'csv': t('export_csv'),
+        'xml': t('export_xml'),
+        'md': t('export_markdown')
     };
 
     const icon = icons[format] || icons['pdf'];
@@ -2197,7 +2285,7 @@ function renderFavorites() {
     if (!container) return;
 
     if (!appSettings.favorites || appSettings.favorites.length === 0) {
-        container.innerHTML = '<p class="text-slate-600 text-xs italic">Aucun favori</p>';
+        container.innerHTML = `<p class="text-slate-600 text-xs italic">${t('no_favorites')}</p>`;
         return;
     }
 
@@ -2241,14 +2329,14 @@ function useFavorite(target) {
 }
 
 async function clearCache() {
-    if (!confirm('Vider le cache ? Cette action est irréversible.')) return;
+    if (!confirm(t('confirm_clear_cache'))) return;
 
     try {
         const res = await fetch(`${API_BASE}/cache/clear`, { method: 'POST' });
         if (res.ok) {
             addChatMessage({
                 author: "SYSTEM",
-                content: '<span class="text-emerald-400"><i class="fas fa-trash mr-2"></i>Cache vidé avec succès.</span>'
+                content: `<span class="text-emerald-400"><i class="fas fa-trash mr-2"></i>${t('cache_cleared_success')}</span>`
             });
             updateCacheUsage();
         } else {

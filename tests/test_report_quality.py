@@ -1,6 +1,10 @@
 import pytest
 
-from backend_logic import summarize_tool_output, postprocess_structured_findings
+from backend_logic import (
+    summarize_tool_output,
+    postprocess_structured_findings,
+    append_spiderfoot_summary_to_report,
+)
 
 
 def test_summarize_tool_output_vuln_scan_is_compact():
@@ -98,3 +102,21 @@ def test_postprocess_structured_findings_caps_sizes():
     assert all(len(x) <= 180 for x in out["top_findings"][0]["evidence"])
     assert len(out["limitations"]) <= 12
     assert len(out["sources_used"]) <= 40
+
+
+def test_spiderfoot_summary_is_compact_and_appended():
+    data = {
+        "events_count": 42,
+        "high_confidence_findings": 3,
+        "entities": {"domains": 5, "ips": 4, "emails": 2},
+        "risk_level": "MEDIUM",
+    }
+    s = summarize_tool_output("spiderfoot", data)
+    assert "SpiderFoot" in s
+    assert "events=42" in s
+    assert "risk=MEDIUM" in s
+
+    report = "# Rapport\n\nContenu principal."
+    raw = {"tools": {"spiderfoot": {"status": "ok", "data": data}}}
+    with_section = append_spiderfoot_summary_to_report(report, raw, language="fr")
+    assert "Résumé SpiderFoot" in with_section

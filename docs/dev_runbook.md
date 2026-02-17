@@ -272,6 +272,8 @@ CENSYS_API_KEY=your_key
 VIRUSTOTAL_API_KEY=your_key
 SHODAN_API_KEY=your_key
 SECURITYTRAILS_API_KEY=your_key
+SPIDERFOOT_API_URL=http://127.0.0.1:5001
+SPIDERFOOT_API_KEY=your_key
 
 # Configuration sécurité
 ENVIRONMENT=development  # ou production

@@ -495,6 +495,31 @@ TOOL_REGISTRY: Dict[str, ToolSpec] = {
         hypothesis_validated="Le domaine X a changé d'infrastructure récemment"
     ),
 
+    "spiderfoot": ToolSpec(
+        name="spiderfoot",
+        layer=ToolLayer.LAYER_2_SPECIALIZED,
+        description="Corrélation OSINT automatisée via l'API SpiderFoot (entités, IOC, relations)",
+        capabilities=["osint_correlation", "ioc_discovery", "entity_enrichment", "threat_intelligence"],
+        legal_risk_level=LegalRiskLevel.MEDIUM,
+        requires_explicit_approval=False,
+        allowed_contexts=[
+            "OSINT passif",
+            "threat intelligence",
+            "recherche académique",
+            "audit autorisé"
+        ],
+        rate_limits={
+            "hardcoded": False
+        },
+        jurisdiction_notes="L'usage dépend des modules activés dans SpiderFoot. "
+                          "Conserver un usage passif/recherche publique pour rester conforme.",
+        function_name="logic_spiderfoot",
+        dependencies=["requests", "SPIDERFOOT_API_URL"],
+        typical_duration_seconds=8.0,
+        evidence_type="Corrélation d'indicateurs (emails, IPs, domaines, IOC)",
+        hypothesis_validated="La cible X est liée à des entités/indicateurs supplémentaires"
+    ),
+
     "subdomains": ToolSpec(
         name="subdomains",
         layer=ToolLayer.LAYER_2_SPECIALIZED,
