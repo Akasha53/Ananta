@@ -51,15 +51,18 @@ echo OK
 echo.
 echo [2/5] Redis (Memurai)...
 REM Fail fast if Redis isn't running, otherwise Celery jobs will stay PENDING.
-sc query memurai | find "RUNNING" >nul 2>&1
-if errorlevel 1 (
+powershell -Command "if ((Get-Service -Name 'Memurai').Status -eq 'Running') { exit 0 } else { exit 1 }"
+if errorlevel 1 goto redis_error
+echo Redis OK (RUNNING)
+goto redis_ok
+
+:redis_error
     echo ERREUR: Redis/Memurai n'est pas en cours d'execution.
     echo - Demarre Memurai (service "memurai") puis relance launch_all.bat
     call :pause_if_needed
     exit /b 1
-) else (
-    echo Redis OK (RUNNING)
-)
+
+:redis_ok
 
 echo.
 echo [3/5] Lancement FastAPI...
