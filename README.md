@@ -1,99 +1,559 @@
-# Ananta - Local OSINT Analysis Platform
+# Ananta
 
 <div align="center">
   <a href="https://github.com/Akasha53/Ananta/actions/workflows/ci.yml">
     <img src="https://github.com/Akasha53/Ananta/actions/workflows/ci.yml/badge.svg?branch=main" alt="CI Status" />
   </a>
-  <a href="https://discord.com/users/105914437889295164">
-    <img src="https://img.shields.io/badge/Discord-Contact-5865F2?style=flat&logo=discord&logoColor=white" alt="Discord Contact" />
-  </a>
-  <a href="https://t.me/akasha5300">
-    <img src="https://img.shields.io/badge/Telegram-@akasha5300-26A5E4?style=flat&logo=telegram&logoColor=white" alt="Telegram Contact" />
+  <a href="https://github.com/Akasha53/Ananta/issues">
+    <img src="https://img.shields.io/badge/Support-Issues-181717?style=flat&logo=github&logoColor=white" alt="GitHub Issues" />
   </a>
 </div>
 
-Ananta is a privacy-first OSINT platform that runs locally: FastAPI backend, Celery workers, and a local LLM for structured security reports.
+Ananta is a local-first OSINT analysis platform built around a simple idea: collect evidence from public sources, keep the workflow auditable, and turn technical signals into readable intelligence reports.
 
-## Project Preview
+It combines a FastAPI backend, a static web interface, optional Celery workers for background scans, and an optional local LLM served through `text-generation-webui` for richer report synthesis. The platform is designed for analysts, security practitioners, and researchers who want structured reconnaissance and reporting without sending their workflow to a third-party cloud service.
+
+## Preview
 
 | Main Console | Project View |
 |---|---|
 | ![Main Console](./img/Main_Page.png) | ![Project View](<./img/Capture d'écran 2026-02-15 170410.png>) |
 
-## Core Features
+## What Ananta Does
 
-- Layered OSINT model (Layer 1 passive, Layer 2 enriched, Layer 3 sensitive with approval)
-- Local report generation via Mistral-compatible API (`text-generation-webui`)
-- Async scan pipeline with Celery + Redis
-- Full audit trail for each tool execution
-- Export formats: PDF, XLSX, JSON, CSV, XML, Markdown
-- Monitoring pages: jobs, workers, logs, timeline, comparisons
-- Optional external enrichments: Censys, VirusTotal, Shodan, SecurityTrails, SpiderFoot
+Ananta accepts a target such as a domain, IP address, URL, or general research query and builds a report from multiple OSINT sources. The system can run lightweight passive lookups, API-backed enrichments, and, when explicitly approved, more sensitive checks such as port and vulnerability scans. Results are stored, rendered in multiple views, and exported in several formats.
+
+Core capabilities include:
+
+- Local-first OSINT workflow with a browser-based interface.
+- Layered execution model that separates passive, enriched, and sensitive tooling.
+- Async background jobs with progress tracking and worker monitoring.
+- Structured intelligence outputs such as graph data, exposures, timeline events, and diffs.
+- Multi-format export to PDF, JSON, CSV, XML, Markdown, and XLSX.
+- Audit logging for tool execution, approvals, and operational observability.
+- Optional local LLM integration for better narrative reporting while keeping model execution on your machine.
+
+## Key Features
+
+### 1. Layered OSINT Execution
+
+Ananta classifies tools into three layers:
+
+- `Layer 1`: passive, low-risk collection such as WHOIS, DNS, HTTP headers, robots.txt, TLS and email posture checks.
+- `Layer 2`: enriched or aggregated sources such as Censys, crt.sh, Wayback Machine, Shodan, VirusTotal, SecurityTrails, and SpiderFoot when configured.
+- `Layer 3`: sensitive actions such as active port scanning and vulnerability scanning, protected by explicit approval flows and audit logging.
+
+This model is not just documentation. The application uses it to decide what can run automatically, what must be logged, and what requires human confirmation.
+
+### 2. Reports That Go Beyond Raw Tool Dumps
+
+Ananta is designed to produce usable intelligence rather than a list of disconnected outputs. A typical report combines:
+
+- Raw tool evidence.
+- Normalized and structured findings.
+- Derived graph relationships.
+- Exposure summaries.
+- Timeline events and history.
+- Optional LLM-written narrative synthesis.
+
+If the local LLM is unavailable, the backend can still generate a fallback report path so the platform remains useful without a model.
+
+### 3. Async Jobs and Operational Visibility
+
+Longer scans can run in the background through Celery and Redis. The UI and API can track:
+
+- Job status.
+- Progress percentage.
+- Result payloads.
+- Worker availability.
+- Monitoring logs and system health.
+
+This allows the main interface to remain responsive while longer scans continue in the background.
+
+### 4. Built-In Safety and Traceability
+
+Ananta includes a number of controls that matter for a public security-oriented project:
+
+- Request IDs on every request.
+- Rate limiting on expensive endpoints.
+- Security headers and configurable CORS.
+- Standardized error payloads.
+- Full audit trail for tool execution.
+- Approval workflow for sensitive actions.
+- Health and worker status endpoints.
 
 ## Architecture
 
-- Backend API: `main.py`, `web_routes.py`
-- Orchestration/reporting: `backend_logic.py`
-- Async workers: `tasks.py`, `celery_config.py`
-- Data/auth: `database.py`, `models.py`, `auth.py`, `middleware.py`
-- Tool registry/policy: `tools/tool_registry.py`
-- Frontend: `web/html`, `web/javascript`, `web/css`
+The project is organized around a few central components:
+
+| Component | Role |
+|---|---|
+| `main.py` | FastAPI application setup, middleware, error handling, app metadata |
+| `web_routes.py` | Main HTTP and WebSocket routes |
+| `backend_logic.py` | Core orchestration, enrichment, normalization, reporting, and exports |
+| `tasks.py` | Celery jobs for async scans, cleanup, scheduling, and parallel workflows |
+| `celery_config.py` | Celery queues, routing, limits, and Redis-backed configuration |
+| `database.py` | SQLAlchemy models, engine setup, session handling, DB fallback logic |
+| `models.py` | Pydantic request and response schemas |
+| `tools/tool_registry.py` | Tool classification, legal-risk metadata, and execution policy |
+| `web/html` | Main UI pages |
+| `web/javascript` | Frontend application logic, pages, service worker, and monitoring scripts |
+| `web/css` | Main styling and mobile styling |
+
+### Runtime Flow
+
+At a high level, a full scan looks like this:
+
+1. A user submits a target through the web UI or API.
+2. The backend determines whether the request is conversational, passive OSINT, enriched OSINT, or a sensitive workflow.
+3. Relevant tools run directly or are dispatched to Celery depending on scan mode.
+4. Results are normalized and stored in the database.
+5. Structured outputs such as graph, exposures, and timeline data are derived.
+6. A final report is generated, optionally with local LLM synthesis.
+7. The report becomes available through the UI, history views, exports, and comparison endpoints.
+
+## User Interface
+
+The frontend is served directly by the FastAPI app and includes several focused pages:
+
+| Page | Purpose |
+|---|---|
+| `/web/html/index.html` | Main analysis console |
+| `/web/html/database.html` | Stored reports and history |
+| `/web/html/monitoring.html` | Operational monitoring and logs |
+| `/web/html/workers.html` | Celery worker visibility |
+| `/web/html/timeline.html` | Timeline-based report history |
+| `/web/html/comparison.html` | Diff and comparison views |
+| `/web/html/scheduled.html` | Scheduled scan management |
+| `/web/html/offline.html` | Offline fallback page for the PWA experience |
+
+The frontend also includes:
+
+- WebSocket job updates.
+- Offline support through a service worker.
+- Mobile styling.
+- Theme support.
+- Monitoring and scheduled-scan pages separated into dedicated scripts.
+
+## API Overview
+
+Ananta exposes a wide API surface. The most important endpoints are grouped below.
+
+### Core Analysis
+
+- `POST /agent/ask`
+- `POST /agent/ask_async`
+- `GET /jobs/{job_id}`
+- `GET /jobs/`
+
+### OSINT and Reports
+
+- `GET /osint/search_smart/`
+- `GET /osint/whois/`
+- `GET /osint/dns/`
+- `GET /osint/headers/`
+- `GET /osint/censys/`
+- `GET /osint/report/`
+- `GET /osint/report/view`
+- `GET /osint/history/`
+
+### Structured Intelligence Views
+
+- `GET /osint/graph`
+- `GET /osint/structured`
+- `GET /osint/exposures`
+- `GET /osint/timeline_events`
+- `GET /osint/timeline_summary`
+- `GET /osint/timeline`
+- `GET /osint/diff`
+- `GET /osint/compare`
+
+### Export
+
+- `GET /osint/generate_pdf/`
+- `GET /osint/export/json`
+- `GET /osint/export/csv`
+- `GET /osint/export/xml`
+- `GET /osint/export/markdown`
+- `GET /osint/export/xlsx`
+
+### Operations and Admin
+
+- `GET /health`
+- `GET /workers/status`
+- `GET /monitoring/stats`
+- `GET /monitoring/logs`
+- `GET /cache/stats`
+- `POST /cache/clear`
+- `POST /api-keys/create`
+- `GET /api-keys/list`
+- `DELETE /api-keys/{key_id}`
+
+### Sensitive Action Approval
+
+- `POST /agent/request_approval`
+- `POST /agent/approve/{approval_id}`
+- `POST /agent/deny/{approval_id}`
+
+### Real-Time Updates
+
+- `GET /ws/jobs/{job_id}` via WebSocket
+
+Interactive API documentation is available at `/docs` when the server is running.
+
+Some administrative or protected routes may require an API key through the `X-API-Key` header.
+
+## Scan Modes
+
+The async analysis endpoint supports several execution modes:
+
+| Mode | Description |
+|---|---|
+| `fast` | Layer 1 only, optimized for quick passive analysis |
+| `standard` | Layer 1 and Layer 2 sources |
+| `full` | Main sequential report flow |
+| `parallel` | Layer 1 and Layer 2 executed in parallel, then aggregated |
+| `priority` | Urgent queue |
+| `critical` | Layer 3 workflow with approved sensitive tools |
+
+This gives you a practical tradeoff between speed, depth, and operational risk.
+
+## Data Model
+
+The main persisted entities include:
+
+- `EntityReport`: stored report and raw data for a target.
+- `ScanJob`: async job state and progress.
+- `ScanJobArchive`: historical archive for completed jobs.
+- `ToolExecutionLog`: audit log for tool runs.
+- `Entity`: normalized entities discovered during analysis.
+- `Finding`: structured findings and evidence.
+- `PendingApproval`: approval records for sensitive tools.
+- `ScheduledScan`: recurring analysis definitions.
+
+This structure is what enables history, exports, timeline generation, graph views, and auditability.
+
+## Requirements
+
+### Base Requirements
+
+- Python `3.10+`
+- `pip`
+- A supported SQL database:
+  - PostgreSQL is the main intended configuration.
+  - SQLite fallback is supported automatically when `DATABASE_URL` is not set.
+
+### For Async Operation
+
+- Redis
+- Celery worker process
+
+### For Full Local Report Generation
+
+- `text-generation-webui` submodule initialized
+- A local model compatible with the configured endpoint
+
+### Python Dependencies
+
+Install the project requirements from:
+
+- `requirements.txt`
+- `requirements-dev.txt`
 
 ## Quick Start
 
-### 1) Clone and install
+### 1. Clone the Repository
 
 ```bash
 git clone --recursive https://github.com/Akasha53/Ananta.git
 cd Ananta
+```
+
+The `--recursive` flag is important because the repository uses `text-generation-webui` as a git submodule.
+
+### 2. Install Python Dependencies
+
+```bash
 pip install -r requirements.txt -r requirements-dev.txt
 ```
 
-### 2) Configure `.env`
+### 3. Create Your Environment File
+
+Start from `.env.example` and create a local `.env`.
+
+Example:
 
 ```env
 DATABASE_URL=postgresql://user:password@localhost/ananta_db
 REDIS_URL=redis://localhost:6379/0
+LLM_API_URL=http://127.0.0.1:5000/v1/chat/completions
+LLM_TIMEOUT=420
 
-# Optional APIs
-CENSYS_API_KEY=your_key
-VIRUSTOTAL_API_KEY=your_key
-SHODAN_API_KEY=your_key
-SECURITYTRAILS_API_KEY=your_key
+# Optional external enrichments
+CENSYS_API_KEY=
+VIRUSTOTAL_API_KEY=
+SHODAN_API_KEY=
+SECURITYTRAILS_API_KEY=
 SPIDERFOOT_API_URL=http://127.0.0.1:5001
-SPIDERFOOT_API_KEY=your_key
+SPIDERFOOT_API_KEY=
+
+# Environment and web security
+ENVIRONMENT=development
+CORS_ORIGINS=http://localhost:8010
+RATE_LIMIT_ENABLED=true
 ```
 
-### 3) Initialize database
+Important notes:
+
+- If `DATABASE_URL` is omitted, Ananta falls back to `sqlite:///./ananta.db`.
+- If optional provider keys are not configured, those enrichments are skipped cleanly.
+- `LLM_API_URL` is configurable and does not have to be the default local endpoint.
+
+### 4. Initialize the Database
 
 ```bash
 python -c "from database import init_db; init_db()"
 alembic upgrade head
 ```
 
-### 4) Run
+### 5. Start the Stack
 
-Windows:
+#### Windows
 
-```batch
+The repository includes helper scripts:
+
+```bat
 launch_all.bat
 ```
 
-Manual backend:
+This starts:
+
+- FastAPI on port `8010`
+- the local LLM server on port `5000`
+- a Celery worker
+
+To stop services:
+
+```bat
+stop_all.bat
+```
+
+#### Linux / macOS Manual Start
+
+Terminal 1:
+
+```bash
+redis-server
+```
+
+Terminal 2:
 
 ```bash
 python -m uvicorn main:app --host 127.0.0.1 --port 8010 --reload
 ```
 
-## Main URLs
+Terminal 3:
+
+```bash
+cd text-generation-webui
+python server.py --model mistralai_Mistral-7B-Instruct-v0.2 --api --nowebui --gpu-memory 7GiB --load-in-4bit
+```
+
+Terminal 4:
+
+```bash
+python -m celery -A tasks.app worker -Q default,osint_fast,osint_medium,osint_critical,priority,maintenance --loglevel=info
+```
+
+### 6. Open the Application
 
 - Web UI: `http://localhost:8010/web/html/index.html`
 - API docs: `http://localhost:8010/docs`
-- Health: `http://localhost:8010/health`
+- Health check: `http://localhost:8010/health`
 
-## Security & Legal
+## Basic Usage
 
-Layer 3 tools (`port_scan`, `vuln_scan`) require explicit user consent and must only be used with proper authorization.
+### UI Workflow
 
-License: **ANCSAL v1.0** (source-available, non-commercial by default).  
-See `LICENSE.md` for full terms.
+Open the main console and submit a target such as:
+
+- `example.com`
+- `8.8.8.8`
+- `analyze example.com`
+
+The application will decide whether to handle the request as chat, passive analysis, or a deeper OSINT workflow.
+
+### Sync API Example
+
+```bash
+curl -X POST http://localhost:8010/agent/ask \
+  -H "Content-Type: application/json" \
+  -d "{\"query\": \"analyze example.com\"}"
+```
+
+### Async API Example
+
+Start a background scan:
+
+```bash
+curl -X POST http://localhost:8010/agent/ask_async \
+  -H "Content-Type: application/json" \
+  -d "{\"query\": \"analyze example.com\", \"scan_mode\": \"full\", \"language\": \"en\"}"
+```
+
+Supported report language codes in the async flow are `fr`, `en`, `es`, and `de`.
+
+Check progress:
+
+```bash
+curl http://localhost:8010/jobs/{JOB_ID}
+```
+
+### Worker Check
+
+```bash
+curl http://localhost:8010/workers/status
+```
+
+## Reporting and Exports
+
+Ananta stores report data so it can be revisited, compared, and exported later. Supported export formats include:
+
+- PDF
+- JSON
+- CSV
+- XML
+- Markdown
+- XLSX
+
+The PDF export is intended to produce a readable analyst-facing report with summary sections, technical annexes, and legal warning text.
+
+## Security Model and Responsible Use
+
+Ananta is built for OSINT, research, and authorized security work. The project contains guardrails, but those guardrails do not replace operator responsibility.
+
+Important principles:
+
+- Passive collection is the default path.
+- Sensitive actions must require explicit approval.
+- Tool runs are auditable.
+- The user remains responsible for legal authorization and use context.
+
+Layer 3 functionality such as port scanning and vulnerability checks should only be used where you have clear permission to test the target.
+
+## Observability and Operations
+
+The platform includes operational endpoints and UI pages for:
+
+- application health
+- cache statistics
+- worker detection
+- monitoring logs
+- scheduled scans
+- background cleanup
+
+Middleware and runtime protections include:
+
+- CORS configuration by environment
+- CSP and other security headers
+- per-endpoint rate limiting
+- gzip compression
+- request tracing with `X-Request-ID`
+- standardized error payloads
+
+## Development
+
+### Useful Commands
+
+Run the server directly:
+
+```bash
+python main.py
+```
+
+Run tests:
+
+```bash
+pytest tests/ -v
+```
+
+Inspect routes:
+
+```bash
+python -c "from main import app; print([r.path for r in app.routes])"
+```
+
+Check the configured database URL:
+
+```bash
+python -c "from database import engine; print(engine.url)"
+```
+
+### Database Migrations
+
+Create a migration:
+
+```bash
+alembic revision --autogenerate -m "describe change"
+```
+
+Apply migrations:
+
+```bash
+alembic upgrade head
+```
+
+Rollback one step:
+
+```bash
+alembic downgrade -1
+```
+
+## Repository Layout
+
+```text
+.
+├── main.py
+├── web_routes.py
+├── backend_logic.py
+├── tasks.py
+├── celery_config.py
+├── database.py
+├── models.py
+├── tools/
+├── osint_tools/
+├── web/
+│   ├── html/
+│   ├── javascript/
+│   └── css/
+├── docs/
+├── tests/
+├── alembic/
+└── text-generation-webui/   # git submodule
+```
+
+## Limitations and Notes
+
+- Redis is required for async jobs, worker monitoring, and scheduled scans.
+- The local LLM is optional in architecture but strongly recommended for the full reporting experience.
+- External provider enrichments depend on your own API keys and quotas.
+- Windows uses `--pool=solo` for Celery compatibility.
+- Some project documentation in `docs/` is still more detailed than the README for specific implementation areas.
+
+## License
+
+The Ananta codebase is released under the **MIT License**. See [LICENSE](./LICENSE).
+
+This repository also includes the optional `text-generation-webui` submodule, which remains under its own upstream **AGPL-3.0** license. The MIT license at the root does not replace or override that upstream license.
+
+## Contributing
+
+Issues and pull requests are welcome. If you contribute to the project:
+
+- keep changes aligned with the layered safety model
+- avoid weakening auditability or approval flows for sensitive actions
+- document any new environment variables, routes, or external provider requirements
+
+## Project Status
+
+Ananta is an actively evolving project with working core functionality around analysis, reporting, async execution, structured outputs, and operational tooling. The roadmap in `docs/ROADMAP_ANANTA.md` covers future work such as richer graphing, stronger correlation, better comparison workflows, and deeper reporting views.

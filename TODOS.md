@@ -1,6 +1,6 @@
 ﻿# ANANTA - Liste des TÃ¢ches (TODOS)
 
-> **Dernière mise à jour**: 30 janvier 2026 (session refactoring claude-agent)
+> **Dernière mise à jour**: 30 janvier 2026
 > **Version**: Ananta v1.0.4 - Mistral 7B (32k context)
 
 ---
@@ -192,19 +192,3 @@ CORS_ORIGINS=https://example.com  # pour prod
 RATE_LIMIT_ENABLED=true
 ```
 
----
-
-## CrawlBot Session Notes
-
-### 2026-01-30 - UI Progress Fix
-- [x] `update_scan_job()` helper créé avec session DB isolée
-- [x] Appliqué à `scan_osint_task`, `scan_osint_layer1_task`, `scan_osint_layer2_task`
-- [x] Appliqué à `scan_osint_layer3_task`, `priority_scan_task`
-- [x] Tests ajoutés pour valider le comportement
-
-**Problème résolu**: UI affichait 0% de progression car la session DB principale était en état de rollback, bloquant les mises à jour de `ScanJob.progress`.
-
-**Solution**: Utiliser une session DB isolée (`SessionLocal()`) pour chaque mise à jour de progression, indépendante de la session principale utilisée par `logic_run_report()`.
-
-### 2026-01-29 - Notes (importées)
-\n\n---\n\n## CrawlBot Session Notes\n- Last update: 2026-01-29 22:36\n- [x] fix: Skip API tools early when _API_KEY env var missing (no network calls, clean skip + audit)\n- [x] chore: Ignore local LLM weights under text-generation-webui/models/\n\nNext:\n- [ ] Investigate UI progress stuck at 0% (WebSocket vs polling; ScanJob updates)\n- [ ] Improve report density with more passive sources (RDAP/ASN, tech fingerprint)\n

@@ -76,7 +76,7 @@ Créez une clé via `POST /api-keys/create`.
         "url": "https://github.com/Akasha53/Ananta",
     },
     license_info={
-        "name": "ANCSAL v1.0",
+        "name": "MIT",
         "url": "https://github.com/Akasha53/Ananta/blob/main/LICENSE",
     },
     openapi_tags=[

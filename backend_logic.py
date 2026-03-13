@@ -71,7 +71,7 @@ CENSYS_API_KEY = os.getenv("CENSYS_API_KEY")
 # ================== LLM CONFIGURATION ==================
 # Modèle: Mistral 7B Instruct (32k context) - remplace DeepSeek 7B (4k context)
 LLM_CONFIG = {
-    "api_url": "http://localhost:5000/v1/chat/completions",
+    "api_url": os.getenv("LLM_API_URL", "http://localhost:5000/v1/chat/completions"),
     "model_name": "mistral-7b-instruct",  # Nom utilisé dans l'API
     "context_window": 32768,               # 32k tokens (vs 4k pour DeepSeek)
     # Timeout long: Mistral local peut etre lent (VRAM/CPU). Surcharge possible via env.

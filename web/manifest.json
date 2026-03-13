@@ -78,18 +78,16 @@
   ],
   "screenshots": [
     {
-      "src": "/web/screenshots/console-mobile.png",
-      "sizes": "390x844",
+      "src": "/web/screenshots/console-desktop.png",
+      "sizes": "1911x1030",
       "type": "image/png",
-      "form_factor": "narrow",
-      "label": "Console OSINT Mobile"
+      "label": "Ananta Main Console"
     },
     {
-      "src": "/web/screenshots/console-desktop.png",
-      "sizes": "1920x1080",
+      "src": "/web/screenshots/console-mobile.png",
+      "sizes": "1916x1028",
       "type": "image/png",
-      "form_factor": "wide",
-      "label": "Console OSINT Desktop"
+      "label": "Ananta Project View"
     }
   ],
   "related_applications": [],
