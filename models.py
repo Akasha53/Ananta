@@ -320,6 +320,49 @@ class EntityPreviewRequest(BaseModel):
         return validate_entity_query(v)
 
 
+# ==================== LLM PROVIDER ====================
+
+
+class LLMProviderRequest(BaseModel):
+    """Bascule du moteur d'inférence utilisé par Ananta."""
+
+    provider: Literal[
+        "webui", "ollama", "openai_api", "anthropic", "claude_cli", "codex_cli", "none"
+    ] = Field(
+        ...,
+        description=(
+            "webui (text-generation-webui) | ollama | openai_api (LM Studio, vLLM, "
+            "llama.cpp...) | anthropic (API Claude) | claude_cli | codex_cli | none"
+        ),
+    )
+    model: Optional[str] = Field(
+        default=None, max_length=120, description="Modèle à utiliser (selon le fournisseur)"
+    )
+    endpoint: Optional[str] = Field(
+        default=None, max_length=300, description="URL du serveur (webui, openai_api, ollama)"
+    )
+
+    @field_validator("model")
+    @classmethod
+    def validate_model(cls, v: Optional[str]) -> Optional[str]:
+        if v is None:
+            return None
+        v = v.strip()
+        if v and not re.match(r"^[\w.:/@-]+$", v):
+            raise ValueError("Nom de modèle invalide")
+        return v or None
+
+    @field_validator("endpoint")
+    @classmethod
+    def validate_endpoint(cls, v: Optional[str]) -> Optional[str]:
+        if v is None:
+            return None
+        v = v.strip()
+        if v and not re.match(r"^https?://[\w.\-]+(:\d+)?(/[\w./\-]*)?$", v):
+            raise ValueError("L'endpoint doit être une URL http(s) valide")
+        return v or None
+
+
 # ==================== API KEY MODELS ====================
 
 class APIKeyCreate(BaseModel):

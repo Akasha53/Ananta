@@ -9,8 +9,6 @@ couverte par `test_entity_engine.py`.
 
 from __future__ import annotations
 
-import json
-
 import pytest
 
 from entity_research.identifiers import EntityKind, SelectorType, make_selector

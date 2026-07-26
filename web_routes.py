@@ -43,6 +43,7 @@ from models import (
     ErrorResponse,
     EntityResearchRequest,
     EntityPreviewRequest,
+    LLMProviderRequest,
     validate_target,
     validate_query,
     DOMAIN_PATTERN,
@@ -3938,3 +3939,84 @@ def entity_run_delete(run_id: str, db: Session = Depends(get_db)):
 
     logger.info(f"[ENTITY] Dossier {run_id} supprimé")
     return {"success": True, "message": f"Dossier {run_id} supprimé"}
+
+# ============================================================================
+# MOTEUR D'INFÉRENCE - Choix du LLM
+# ============================================================================
+#
+# Ananta n'est lié à aucun moteur : text-generation-webui, Ollama (local ou sur
+# une autre machine), API compatible OpenAI, API Claude, ou les CLI `claude` /
+# `codex` déjà installées et authentifiées. Sans LLM disponible, les rapports
+# déterministes restent produits.
+
+
+@router.get("/llm/providers")
+def llm_providers(probe: bool = Query(True, description="Tester la disponibilité réelle")):
+    """Catalogue des moteurs d'inférence et lequel est actif."""
+    from llm_providers import current_provider_id, describe_providers
+
+    providers = describe_providers(probe=probe)
+    return {
+        "active": current_provider_id(),
+        "available": sum(1 for p in providers if p.get("available")),
+        "total": len(providers),
+        "providers": providers,
+    }
+
+
+@router.post("/llm/provider")
+def llm_set_provider(body: LLMProviderRequest):
+    """
+    Bascule le moteur d'inférence à chaud.
+
+    Le changement s'applique au processus courant. Pour qu'il survive à un
+    redémarrage, renseigner `LLM_PROVIDER` (et les variables associées) dans
+    le fichier `.env`.
+    """
+    from llm_providers import set_provider
+
+    overrides = {}
+    if body.model:
+        overrides["LLM_MODEL"] = body.model
+        if body.provider == "ollama":
+            overrides["OLLAMA_MODEL"] = body.model
+        elif body.provider == "anthropic":
+            overrides["ANTHROPIC_MODEL"] = body.model
+    if body.endpoint:
+        if body.provider == "ollama":
+            overrides["OLLAMA_HOST"] = body.endpoint
+        else:
+            overrides["LLM_API_URL"] = body.endpoint
+
+    try:
+        result = set_provider(body.provider, overrides)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    logger.info(f"[LLM] Fournisseur basculé sur '{body.provider}' (disponible={result['available']})")
+    return {
+        "success": True,
+        **result,
+        "persist_hint": f"Ajoutez LLM_PROVIDER={body.provider} dans .env pour rendre le choix permanent.",
+    }
+
+
+@router.post("/llm/test")
+def llm_test(body: LLMProviderRequest = None):
+    """Envoie une requête minimale au moteur actif et renvoie sa réponse."""
+    from llm_providers import LLMUnavailable, current_provider_id, generate
+
+    provider_id = body.provider if body else current_provider_id()
+    try:
+        answer = generate(
+            "Tu réponds en une phrase courte, en français.",
+            "Confirme que tu es opérationnel.",
+            max_tokens=60,
+            provider_id=provider_id,
+        )
+        return {"success": True, "provider": provider_id, "answer": answer[:500]}
+    except LLMUnavailable as e:
+        return {"success": False, "provider": provider_id, "error": str(e)}
+    except Exception as e:
+        logger.exception("[/llm/test] erreur inattendue")
+        raise HTTPException(status_code=500, detail=str(e))

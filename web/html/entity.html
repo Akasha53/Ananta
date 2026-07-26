@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>ANANTA // RECHERCHE D'ENTITÉ</title>
+  <title>ANANTA // ENTITÉ</title>
 
   <meta name="description" content="ANANTA - Recherche d'entité : personne physique ou morale" />
   <meta name="theme-color" content="#020617" />
@@ -11,97 +11,306 @@
   <link rel="manifest" href="../manifest.json" />
   <link rel="icon" type="image/svg+xml" href="../icons/icon.svg" />
 
-  <script src="https://cdn.tailwindcss.com"></script>
-  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" />
-  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="../css/tailwind.css" />
+  <link rel="stylesheet" href="../vendor/fontawesome/all.min.css" />
+  <link rel="stylesheet" href="../vendor/fonts/jetbrains-mono.css" />
   <link rel="stylesheet" href="../css/style.css" />
   <link rel="stylesheet" href="../css/mobile.css" />
+
+  <style>
+    /* Le graphe occupe tout l'espace : les contrôles flottent au-dessus. */
+    .panel {
+      background: rgba(2, 6, 23, 0.82);
+      backdrop-filter: blur(14px);
+      border: 1px solid rgba(51, 65, 85, 0.75);
+      border-radius: 12px;
+    }
+    .layout-btn.active {
+      background: rgba(34, 211, 238, 0.14);
+      border-color: rgba(34, 211, 238, 0.55);
+      color: #22d3ee;
+    }
+    .chip {
+      background: rgba(15, 23, 42, 0.85);
+      border: 1px solid rgba(51, 65, 85, 0.8);
+    }
+    #graph-canvas { display: block; width: 100%; height: 100%; touch-action: none; }
+    .slide-over {
+      transform: translateX(105%);
+      transition: transform 0.28s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+    .slide-over.open { transform: translateX(0); }
+    .scroll-thin::-webkit-scrollbar { width: 6px; height: 6px; }
+    .scroll-thin::-webkit-scrollbar-thumb { background: #1e293b; border-radius: 3px; }
+    .fact-row:hover { background: rgba(30, 41, 59, 0.5); }
+    @keyframes pulse-ring {
+      0% { box-shadow: 0 0 0 0 rgba(34, 211, 238, 0.35); }
+      70% { box-shadow: 0 0 0 12px rgba(34, 211, 238, 0); }
+      100% { box-shadow: 0 0 0 0 rgba(34, 211, 238, 0); }
+    }
+    .running { animation: pulse-ring 1.8s infinite; }
+  </style>
 </head>
 
 <body class="bg-[#020617] text-slate-300 font-mono h-screen flex flex-col overflow-hidden">
 
-  <a href="#main-content" class="sr-only focus:not-sr-only focus:absolute focus:top-2 focus:left-2 focus:z-50 focus:px-4 focus:py-2 focus:bg-cyan-500 focus:text-slate-900 focus:rounded">
-    Aller au contenu principal
+  <a href="#graph-canvas" class="sr-only focus:not-sr-only focus:absolute focus:top-2 focus:left-2 focus:z-50 focus:px-4 focus:py-2 focus:bg-cyan-500 focus:text-slate-900 focus:rounded">
+    Aller au graphe
   </a>
 
-  <header class="h-16 glass-panel flex items-center justify-between px-4 md:px-8 border-b border-slate-800 z-10">
-    <div class="flex items-center gap-4">
-      <a href="index.html" class="inline-flex items-center gap-2 text-slate-500 hover:text-cyan-400 transition-colors leading-none">
-        <i class="fas fa-arrow-left" aria-hidden="true"></i>
-        <span class="hidden md:inline">Retour Console</span>
-      </a>
-      <div class="h-6 w-[1px] bg-slate-800"></div>
-      <h1 class="text-base md:text-lg font-bold text-cyan-400 tracking-widest uppercase">
-        <i class="fas fa-id-card-clip mr-2" aria-hidden="true"></i>Recherche d'entité
-      </h1>
-    </div>
-    <div class="flex items-center gap-3">
-      <button id="btn-sources" class="px-3 py-2 bg-slate-800/60 border border-slate-700 text-slate-300 rounded hover:border-cyan-500/40 transition-all text-xs font-bold">
-        <i class="fas fa-plug mr-2" aria-hidden="true"></i><span class="hidden md:inline">SOURCES</span>
-        <span id="sources-badge" class="ml-1 text-cyan-400">--</span>
+  <!-- ============================ BARRE HAUTE ============================ -->
+  <header class="h-14 flex items-center gap-3 px-3 md:px-5 border-b border-slate-800 bg-slate-950/70 z-30 shrink-0">
+    <a href="index.html" class="text-slate-500 hover:text-cyan-400 transition-colors shrink-0" aria-label="Retour console">
+      <i class="fas fa-arrow-left" aria-hidden="true"></i>
+    </a>
+    <div class="h-6 w-[1px] bg-slate-800 hidden md:block"></div>
+    <h1 class="text-sm font-bold text-cyan-400 tracking-widest uppercase shrink-0 hidden md:block">
+      <i class="fas fa-circle-nodes mr-2" aria-hidden="true"></i>Entité
+    </h1>
+
+    <div class="flex-1 flex items-center gap-2 min-w-0">
+      <div class="relative flex-1 min-w-0">
+        <i class="fas fa-magnifying-glass absolute left-3 top-1/2 -translate-y-1/2 text-slate-600 text-xs" aria-hidden="true"></i>
+        <input id="input-query" type="text" autocomplete="off"
+          class="w-full bg-slate-900/80 border border-slate-700 rounded-lg pl-9 pr-3 py-2 text-sm focus:border-cyan-500 focus:outline-none"
+          placeholder="Nom de société, personne, email, téléphone, domaine, SIREN, TVA, LEI…" />
+      </div>
+      <select id="select-mode" class="bg-slate-900/80 border border-slate-700 rounded-lg px-2 py-2 text-xs hidden sm:block" title="Profondeur de collecte">
+        <option value="passive">Passive</option>
+        <option value="standard" selected>Standard</option>
+        <option value="deep">Deep</option>
+      </select>
+      <button id="btn-search" class="px-4 py-2 bg-cyan-500 text-slate-900 font-bold rounded-lg hover:bg-cyan-400 transition-all text-xs shrink-0">
+        <i class="fas fa-fingerprint md:mr-2" aria-hidden="true"></i><span class="hidden md:inline">ANALYSER</span>
       </button>
-      <button id="btn-history" class="px-3 py-2 bg-slate-800/60 border border-slate-700 text-slate-300 rounded hover:border-cyan-500/40 transition-all text-xs font-bold">
-        <i class="fas fa-clock-rotate-left mr-2" aria-hidden="true"></i><span class="hidden md:inline">HISTORIQUE</span>
+    </div>
+
+    <div class="flex items-center gap-1 shrink-0">
+      <button id="btn-options" class="w-9 h-9 rounded-lg text-slate-400 hover:text-cyan-400 hover:bg-slate-800 transition-all" title="Options et conformité">
+        <i class="fas fa-sliders" aria-hidden="true"></i>
+      </button>
+      <button id="btn-details" class="w-9 h-9 rounded-lg text-slate-400 hover:text-cyan-400 hover:bg-slate-800 transition-all" title="Vue détaillée (tableaux)">
+        <i class="fas fa-table-list" aria-hidden="true"></i>
+      </button>
+      <button id="btn-history" class="w-9 h-9 rounded-lg text-slate-400 hover:text-cyan-400 hover:bg-slate-800 transition-all" title="Dossiers précédents">
+        <i class="fas fa-clock-rotate-left" aria-hidden="true"></i>
+      </button>
+      <button id="btn-sources" class="h-9 px-2 rounded-lg text-slate-400 hover:text-cyan-400 hover:bg-slate-800 transition-all text-xs" title="Catalogue des sources">
+        <i class="fas fa-plug mr-1" aria-hidden="true"></i><span id="sources-badge" class="text-cyan-400">--</span>
       </button>
     </div>
   </header>
 
-  <main id="main-content" class="flex-1 overflow-y-auto p-4 md:p-8">
-    <div class="max-w-6xl mx-auto space-y-6">
+  <!-- ============================ SCÈNE ============================ -->
+  <main class="flex-1 relative overflow-hidden">
 
-      <!-- ============ FORMULAIRE ============ -->
-      <section class="glass-panel p-6" aria-labelledby="search-title">
-        <h2 id="search-title" class="text-sm font-bold uppercase tracking-widest text-slate-500 mb-4">
-          <i class="fas fa-magnifying-glass mr-2" aria-hidden="true"></i>Point de départ
-        </h2>
+    <canvas id="graph-canvas" aria-label="Graphe de l'entité"></canvas>
 
-        <label for="input-query" class="block text-xs text-slate-400 mb-2">
-          Le moindre indice suffit : nom, raison sociale, email, téléphone, domaine, SIREN, TVA, LEI, pseudonyme...
-        </label>
-        <textarea id="input-query" rows="2"
-          class="w-full bg-slate-900 border border-slate-700 rounded px-4 py-3 text-sm focus:border-cyan-500 focus:outline-none resize-none"
-          placeholder="Ex : Jean Dupont contact@acme.fr &nbsp;|&nbsp; ACME INDUSTRIES SAS &nbsp;|&nbsp; 552 100 554 &nbsp;|&nbsp; +33 1 42 00 00 00"></textarea>
-
-        <!-- Aperçu de ce que le moteur comprend -->
-        <div id="preview-box" class="mt-3 hidden">
-          <div class="text-[11px] text-slate-500 uppercase font-bold tracking-widest mb-2">Ce que le moteur comprend</div>
-          <div id="preview-selectors" class="flex flex-wrap gap-2"></div>
-          <div id="preview-meta" class="text-xs text-slate-500 mt-2"></div>
+    <!-- Écran d'accueil -->
+    <div id="welcome" class="absolute inset-0 flex items-center justify-center p-6 pointer-events-none">
+      <div class="text-center max-w-lg pointer-events-auto">
+        <div class="w-24 h-24 mx-auto mb-6 rounded-full border border-cyan-500/30 flex items-center justify-center running">
+          <i class="fas fa-circle-nodes text-4xl text-cyan-400/80" aria-hidden="true"></i>
         </div>
+        <h2 class="text-xl font-bold text-slate-200 mb-2">L'entité au centre, tout le reste en orbite</h2>
+        <p class="text-sm text-slate-500 leading-relaxed mb-5">
+          Donnez le moindre indice — un nom de société suffit. Ananta remonte l'identité légale,
+          les dirigeants, l'équipe publiée, les actifs numériques et les signaux de risque,
+          puis les dispose autour de la cible. Cliquez une personne pour l'inspecter,
+          double-cliquez pour recentrer le graphe sur elle.
+        </p>
+        <div class="flex flex-wrap gap-2 justify-center text-xs">
+          <button class="example-chip chip px-3 py-1.5 rounded-full hover:border-cyan-500/50 transition-all" data-example="ACME INDUSTRIES SAS">ACME INDUSTRIES SAS</button>
+          <button class="example-chip chip px-3 py-1.5 rounded-full hover:border-cyan-500/50 transition-all" data-example="552 100 554">552 100 554</button>
+          <button class="example-chip chip px-3 py-1.5 rounded-full hover:border-cyan-500/50 transition-all" data-example="contact@acme.fr">contact@acme.fr</button>
+          <button id="btn-demo" class="chip px-3 py-1.5 rounded-full border-cyan-500/40 text-cyan-400 hover:bg-cyan-500/10 transition-all">
+            <i class="fas fa-play mr-1" aria-hidden="true"></i>Voir une démo
+          </button>
+        </div>
+      </div>
+    </div>
 
-        <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mt-5">
-          <div>
-            <label for="select-kind" class="block text-xs text-slate-400 mb-2">Nature</label>
-            <select id="select-kind" class="w-full bg-slate-900 border border-slate-700 rounded px-3 py-2 text-sm">
-              <option value="">Détection auto</option>
-              <option value="organization">Personne morale</option>
-              <option value="person">Personne physique</option>
-            </select>
+    <!-- Aperçu de la saisie -->
+    <div id="preview-box" class="absolute top-3 left-1/2 -translate-x-1/2 panel px-3 py-2 max-w-[92vw] hidden z-20">
+      <div id="preview-selectors" class="flex flex-wrap gap-1.5 justify-center"></div>
+      <div id="preview-meta" class="text-[10px] text-slate-500 text-center mt-1.5"></div>
+    </div>
+
+    <!-- Rail gauche : dispositions + filtres + légende -->
+    <div id="left-rail" class="absolute left-3 top-3 bottom-3 w-14 md:w-16 flex flex-col gap-3 z-20 hidden">
+      <div class="panel p-1.5 flex flex-col gap-1">
+        <button class="layout-btn active w-full aspect-square rounded-lg border border-transparent text-slate-400 hover:text-cyan-400 transition-all" data-layout="orbit" title="Orbites — anneaux animés">
+          <i class="fas fa-atom" aria-hidden="true"></i>
+        </button>
+        <button class="layout-btn w-full aspect-square rounded-lg border border-transparent text-slate-400 hover:text-cyan-400 transition-all" data-layout="force" title="Forces — grappes émergentes">
+          <i class="fas fa-diagram-project" aria-hidden="true"></i>
+        </button>
+        <button class="layout-btn w-full aspect-square rounded-lg border border-transparent text-slate-400 hover:text-cyan-400 transition-all" data-layout="radial" title="Organigramme radial">
+          <i class="fas fa-sitemap" aria-hidden="true"></i>
+        </button>
+        <button class="layout-btn w-full aspect-square rounded-lg border border-transparent text-slate-400 hover:text-cyan-400 transition-all" data-layout="constellation" title="Constellation — grappes thématiques">
+          <i class="fas fa-star" aria-hidden="true"></i>
+        </button>
+        <button class="layout-btn w-full aspect-square rounded-lg border border-transparent text-slate-400 hover:text-cyan-400 transition-all" data-layout="sunburst" title="Secteurs — répartition du dossier">
+          <i class="fas fa-chart-pie" aria-hidden="true"></i>
+        </button>
+      </div>
+
+      <div class="panel p-1.5 flex flex-col gap-1">
+        <button class="filter-btn w-full aspect-square rounded-lg text-violet-400 transition-all" data-filter="person" title="Afficher les personnes">
+          <i class="fas fa-user" aria-hidden="true"></i>
+        </button>
+        <button class="filter-btn w-full aspect-square rounded-lg text-cyan-400 transition-all" data-filter="organization" title="Afficher les organisations">
+          <i class="fas fa-building" aria-hidden="true"></i>
+        </button>
+        <button class="filter-btn w-full aspect-square rounded-lg text-sky-400 transition-all" data-filter="fact" title="Afficher les faits">
+          <i class="fas fa-circle-info" aria-hidden="true"></i>
+        </button>
+        <button class="filter-btn w-full aspect-square rounded-lg text-red-400 transition-all" data-filter="risk" title="Afficher les risques">
+          <i class="fas fa-triangle-exclamation" aria-hidden="true"></i>
+        </button>
+      </div>
+
+      <div class="panel p-1.5 flex flex-col gap-1 mt-auto">
+        <button id="btn-fit" class="w-full aspect-square rounded-lg text-slate-400 hover:text-cyan-400 transition-all" title="Recentrer la vue">
+          <i class="fas fa-crosshairs" aria-hidden="true"></i>
+        </button>
+        <button id="btn-legend" class="w-full aspect-square rounded-lg text-slate-400 hover:text-cyan-400 transition-all" title="Légende">
+          <i class="fas fa-palette" aria-hidden="true"></i>
+        </button>
+      </div>
+    </div>
+
+    <!-- Bandeau statistiques -->
+    <div id="stats-bar" class="absolute top-3 right-3 flex flex-wrap gap-1.5 justify-end z-20 hidden max-w-[45vw]">
+      <div class="chip px-2.5 py-1 rounded-lg text-[11px]"><span class="text-slate-500">Confiance</span> <span id="stat-confidence" class="text-cyan-400 font-bold">--</span></div>
+      <div class="chip px-2.5 py-1 rounded-lg text-[11px]"><span class="text-slate-500">Risque</span> <span id="stat-risk" class="font-bold">--</span></div>
+      <div class="chip px-2.5 py-1 rounded-lg text-[11px]"><span class="text-slate-500">Entités</span> <span id="stat-entities" class="text-slate-200 font-bold">0</span></div>
+      <div class="chip px-2.5 py-1 rounded-lg text-[11px]"><span class="text-slate-500">Personnes</span> <span id="stat-people" class="text-violet-400 font-bold">0</span></div>
+      <div class="chip px-2.5 py-1 rounded-lg text-[11px]"><span class="text-slate-500">Faits</span> <span id="stat-facts" class="text-slate-200 font-bold">0</span></div>
+      <div class="chip px-2.5 py-1 rounded-lg text-[11px]"><span class="text-slate-500">Sources</span> <span id="stat-sources" class="text-emerald-400 font-bold">0</span></div>
+    </div>
+
+    <!-- Fil d'Ariane du zoom -->
+    <div id="breadcrumb" class="absolute bottom-3 left-3 md:left-24 panel px-3 py-2 flex items-center gap-2 text-xs z-20 hidden max-w-[70vw] overflow-x-auto scroll-thin">
+      <button id="btn-back" class="text-slate-400 hover:text-cyan-400 shrink-0" title="Revenir au niveau précédent">
+        <i class="fas fa-arrow-turn-up rotate-90" aria-hidden="true"></i>
+      </button>
+      <div id="breadcrumb-trail" class="flex items-center gap-1.5 whitespace-nowrap"></div>
+    </div>
+
+    <!-- Légende -->
+    <div id="legend" class="absolute bottom-3 right-3 panel p-3 text-[11px] z-20 hidden">
+      <div class="text-slate-500 uppercase tracking-widest text-[9px] mb-2">Légende</div>
+      <div id="legend-items" class="grid grid-cols-2 gap-x-4 gap-y-1"></div>
+      <div class="mt-2 pt-2 border-t border-slate-800 text-slate-500 leading-relaxed">
+        L'anneau autour d'un nœud = confiance.<br />
+        Point ambre = hypothèse non vérifiée.<br />
+        Double-clic sur une entité = recentrer.
+      </div>
+    </div>
+
+    <!-- Progression -->
+    <div id="progress-box" class="absolute bottom-3 left-1/2 -translate-x-1/2 panel px-4 py-3 w-[min(520px,90vw)] z-30 hidden">
+      <div class="flex items-center justify-between mb-2 text-xs">
+        <span id="progress-label" class="text-slate-400">Collecte…</span>
+        <span id="progress-value" class="text-cyan-400 font-bold">0%</span>
+      </div>
+      <div class="w-full h-1.5 bg-slate-800 rounded-full overflow-hidden">
+        <div id="progress-bar" class="h-full bg-cyan-500 transition-all duration-500" style="width:0%"></div>
+      </div>
+    </div>
+
+    <!-- Infobulle -->
+    <div id="tooltip" class="absolute panel px-3 py-2 text-xs pointer-events-none z-40 hidden max-w-xs"></div>
+
+    <!-- ============================ INSPECTEUR ============================ -->
+    <aside id="inspector" class="slide-over absolute top-0 right-0 h-full w-full sm:w-[400px] bg-slate-950/95 backdrop-blur-xl border-l border-slate-800 z-30 flex flex-col">
+      <div class="p-4 border-b border-slate-800 shrink-0">
+        <div class="flex items-start justify-between gap-3">
+          <div class="min-w-0">
+            <div id="inspector-badge" class="inline-block px-2 py-0.5 rounded text-[9px] font-bold uppercase tracking-widest mb-1.5"></div>
+            <h2 id="inspector-title" class="text-lg font-bold text-slate-100 break-words leading-tight"></h2>
+            <p id="inspector-subtitle" class="text-xs text-slate-500 mt-1"></p>
           </div>
+          <button id="inspector-close" class="text-slate-500 hover:text-slate-200 shrink-0" aria-label="Fermer">
+            <i class="fas fa-xmark" aria-hidden="true"></i>
+          </button>
+        </div>
+        <div id="inspector-actions" class="flex flex-wrap gap-1.5 mt-3"></div>
+      </div>
+      <div id="inspector-body" class="flex-1 overflow-y-auto scroll-thin p-4 text-sm"></div>
+    </aside>
+
+    <!-- ============================ VUE DÉTAILLÉE ============================ -->
+    <aside id="details" class="slide-over absolute top-0 right-0 h-full w-full md:w-[720px] bg-slate-950/97 backdrop-blur-xl border-l border-slate-800 z-40 flex flex-col">
+      <div class="flex items-center justify-between p-4 border-b border-slate-800 shrink-0">
+        <h2 class="text-sm font-bold uppercase tracking-widest text-slate-400">
+          <i class="fas fa-table-list mr-2" aria-hidden="true"></i>Vue détaillée
+        </h2>
+        <div class="flex items-center gap-2">
+          <button data-export="json" class="btn-export chip px-2.5 py-1.5 rounded text-[11px] hover:border-cyan-500/50" title="Export JSON"><i class="fas fa-file-code"></i></button>
+          <button data-export="markdown" class="btn-export chip px-2.5 py-1.5 rounded text-[11px] hover:border-cyan-500/50" title="Export Markdown"><i class="fas fa-file-lines"></i></button>
+          <button data-export="csv" class="btn-export chip px-2.5 py-1.5 rounded text-[11px] hover:border-cyan-500/50" title="Export CSV"><i class="fas fa-file-csv"></i></button>
+          <button id="btn-delete-run" class="chip px-2.5 py-1.5 rounded text-[11px] text-red-300 border-red-500/30 hover:bg-red-500/10" title="Supprimer le dossier"><i class="fas fa-trash"></i></button>
+          <button id="details-close" class="text-slate-500 hover:text-slate-200 ml-1" aria-label="Fermer"><i class="fas fa-xmark"></i></button>
+        </div>
+      </div>
+      <div class="flex flex-wrap border-b border-slate-800 shrink-0" role="tablist">
+        <button class="tab-btn px-4 py-2.5 text-[11px] font-bold uppercase tracking-widest text-cyan-400 border-b-2 border-cyan-500" data-tab="identity" role="tab">Identité</button>
+        <button class="tab-btn px-4 py-2.5 text-[11px] font-bold uppercase tracking-widest text-slate-500 border-b-2 border-transparent hover:text-slate-300" data-tab="people" role="tab">Personnes</button>
+        <button class="tab-btn px-4 py-2.5 text-[11px] font-bold uppercase tracking-widest text-slate-500 border-b-2 border-transparent hover:text-slate-300" data-tab="risk" role="tab">Risques</button>
+        <button class="tab-btn px-4 py-2.5 text-[11px] font-bold uppercase tracking-widest text-slate-500 border-b-2 border-transparent hover:text-slate-300" data-tab="timeline" role="tab">Chronologie</button>
+        <button class="tab-btn px-4 py-2.5 text-[11px] font-bold uppercase tracking-widest text-slate-500 border-b-2 border-transparent hover:text-slate-300" data-tab="report" role="tab">Rapport</button>
+        <button class="tab-btn px-4 py-2.5 text-[11px] font-bold uppercase tracking-widest text-slate-500 border-b-2 border-transparent hover:text-slate-300" data-tab="sources" role="tab">Sources</button>
+      </div>
+      <div class="flex-1 overflow-y-auto scroll-thin p-4">
+        <div id="tab-identity" class="tab-panel"></div>
+        <div id="tab-people" class="tab-panel hidden"></div>
+        <div id="tab-risk" class="tab-panel hidden"></div>
+        <div id="tab-timeline" class="tab-panel hidden"></div>
+        <div id="tab-report" class="tab-panel hidden"></div>
+        <div id="tab-sources" class="tab-panel hidden"></div>
+      </div>
+    </aside>
+
+    <!-- ============================ OPTIONS ============================ -->
+    <aside id="options" class="slide-over absolute top-0 right-0 h-full w-full sm:w-[400px] bg-slate-950/97 backdrop-blur-xl border-l border-slate-800 z-40 flex flex-col">
+      <div class="flex items-center justify-between p-4 border-b border-slate-800 shrink-0">
+        <h2 class="text-sm font-bold uppercase tracking-widest text-slate-400">
+          <i class="fas fa-sliders mr-2" aria-hidden="true"></i>Options & conformité
+        </h2>
+        <button id="options-close" class="text-slate-500 hover:text-slate-200"><i class="fas fa-xmark"></i></button>
+      </div>
+      <div class="flex-1 overflow-y-auto scroll-thin p-4 space-y-4 text-sm">
+        <div>
+          <label for="select-kind" class="block text-xs text-slate-400 mb-1.5">Nature de la cible</label>
+          <select id="select-kind" class="w-full bg-slate-900 border border-slate-700 rounded px-3 py-2 text-sm">
+            <option value="">Détection automatique</option>
+            <option value="organization">Personne morale</option>
+            <option value="person">Personne physique</option>
+          </select>
+        </div>
+        <div>
+          <label for="select-purpose" class="block text-xs text-slate-400 mb-1.5">Finalité déclarée (RGPD art. 6)</label>
+          <select id="select-purpose" class="w-full bg-slate-900 border border-slate-700 rounded px-3 py-2 text-sm">
+            <option value="due_diligence" selected>Due diligence</option>
+            <option value="kyc_aml">KYC / LCB-FT</option>
+            <option value="fraud_investigation">Investigation fraude</option>
+            <option value="security_assessment">Évaluation sécurité</option>
+            <option value="journalism">Enquête journalistique</option>
+            <option value="recruitment">Recrutement</option>
+            <option value="legal_proceedings">Procédure judiciaire</option>
+            <option value="self_check">Recherche sur soi-même</option>
+            <option value="research">Recherche académique</option>
+          </select>
+          <p class="text-[11px] text-slate-600 mt-1.5 leading-relaxed">
+            La finalité conditionne ce que le moteur a le droit de collecter sur une personne physique.
+          </p>
+        </div>
+        <div class="grid grid-cols-2 gap-3">
           <div>
-            <label for="select-mode" class="block text-xs text-slate-400 mb-2">Profondeur</label>
-            <select id="select-mode" class="w-full bg-slate-900 border border-slate-700 rounded px-3 py-2 text-sm">
-              <option value="passive">Passive — registres officiels</option>
-              <option value="standard" selected>Standard — + web public</option>
-              <option value="deep">Deep — exploration étendue</option>
-            </select>
-          </div>
-          <div>
-            <label for="select-purpose" class="block text-xs text-slate-400 mb-2">Finalité (RGPD)</label>
-            <select id="select-purpose" class="w-full bg-slate-900 border border-slate-700 rounded px-3 py-2 text-sm">
-              <option value="due_diligence" selected>Due diligence</option>
-              <option value="kyc_aml">KYC / LCB-FT</option>
-              <option value="fraud_investigation">Investigation fraude</option>
-              <option value="security_assessment">Évaluation sécurité</option>
-              <option value="journalism">Enquête journalistique</option>
-              <option value="recruitment">Recrutement</option>
-              <option value="legal_proceedings">Procédure judiciaire</option>
-              <option value="self_check">Recherche sur soi-même</option>
-              <option value="research">Recherche académique</option>
-            </select>
-          </div>
-          <div>
-            <label for="select-language" class="block text-xs text-slate-400 mb-2">Langue du dossier</label>
+            <label for="select-language" class="block text-xs text-slate-400 mb-1.5">Langue</label>
             <select id="select-language" class="w-full bg-slate-900 border border-slate-700 rounded px-3 py-2 text-sm">
               <option value="fr" selected>Français</option>
               <option value="en">English</option>
@@ -109,222 +318,99 @@
               <option value="de">Deutsch</option>
             </select>
           </div>
-        </div>
-
-        <details class="mt-4 border border-slate-800 rounded-lg">
-          <summary class="cursor-pointer px-4 py-3 text-xs uppercase tracking-widest text-slate-500 hover:text-cyan-400">
-            <i class="fas fa-sliders mr-2" aria-hidden="true"></i>Options avancées et garde-fous
-          </summary>
-          <div class="px-4 pb-4 grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
-            <label class="flex items-start gap-3 p-2">
-              <input type="checkbox" id="opt-enumeration" class="mt-1 accent-cyan-500" />
-              <span>
-                <span class="text-slate-300">Recherche de pseudonyme</span>
-                <span class="block text-xs text-slate-500">Interroge les plateformes publiques. Requêtes visibles côté plateformes.</span>
-              </span>
-            </label>
-            <label class="flex items-start gap-3 p-2">
-              <input type="checkbox" id="opt-breach" class="mt-1 accent-cyan-500" />
-              <span>
-                <span class="text-slate-300">Données de fuite</span>
-                <span class="block text-xs text-slate-500">Réservé à la réponse à incident. Nécessite une clé HIBP.</span>
-              </span>
-            </label>
-            <label class="flex items-start gap-3 p-2">
-              <input type="checkbox" id="opt-person-pivot" class="mt-1 accent-cyan-500" checked />
-              <span>
-                <span class="text-slate-300">Pivot vers les dirigeants</span>
-                <span class="block text-xs text-slate-500">Remonte d'une société vers ses représentants publiés.</span>
-              </span>
-            </label>
-            <label class="flex items-start gap-3 p-2">
-              <input type="checkbox" id="opt-redact" class="mt-1 accent-cyan-500" />
-              <span>
-                <span class="text-slate-300">Masquer les données personnelles</span>
-                <span class="block text-xs text-slate-500">Anonymise emails, téléphones et noms dans la restitution.</span>
-              </span>
-            </label>
-            <label class="flex items-start gap-3 p-2">
-              <input type="checkbox" id="opt-llm" class="mt-1 accent-cyan-500" checked />
-              <span>
-                <span class="text-slate-300">Synthèse analyste (LLM local)</span>
-                <span class="block text-xs text-slate-500">Ajoute une lecture rédigée. Le dossier reste complet sans elle.</span>
-              </span>
-            </label>
-            <div class="p-2">
-              <label for="select-template" class="block text-xs text-slate-400 mb-2">Format du rapport</label>
-              <select id="select-template" class="w-full bg-slate-900 border border-slate-700 rounded px-3 py-2 text-sm">
-                <option value="detailed" selected>Détaillé</option>
-                <option value="executive">Exécutif</option>
-                <option value="technical">Technique</option>
-                <option value="minimal">Minimal</option>
-              </select>
-            </div>
-          </div>
-        </details>
-
-        <div class="flex flex-col md:flex-row gap-3 mt-5">
-          <button id="btn-search" class="flex-1 px-6 py-3 bg-cyan-500 text-slate-900 font-bold rounded-lg hover:bg-cyan-400 transition-all">
-            <i class="fas fa-fingerprint mr-2" aria-hidden="true"></i>LANCER LA RECHERCHE
-          </button>
-          <button id="btn-search-async" class="px-6 py-3 bg-slate-800 border border-slate-700 text-slate-300 font-bold rounded-lg hover:border-cyan-500/40 transition-all">
-            <i class="fas fa-clock mr-2" aria-hidden="true"></i>EN TÂCHE DE FOND
-          </button>
-        </div>
-
-        <p class="text-[11px] text-slate-500 mt-3">
-          Sources publiques uniquement. Sur une personne physique, le RGPD s'applique :
-          la finalité déclarée conditionne ce que le moteur a le droit de collecter.
-        </p>
-      </section>
-
-      <!-- ============ PROGRESSION ============ -->
-      <section id="progress-box" class="glass-panel p-6 hidden" aria-live="polite">
-        <div class="flex items-center justify-between mb-3">
-          <span id="progress-label" class="text-sm text-slate-400">Collecte en cours...</span>
-          <span id="progress-value" class="text-sm text-cyan-400 font-bold">0%</span>
-        </div>
-        <div class="w-full h-2 bg-slate-800 rounded-full overflow-hidden">
-          <div id="progress-bar" class="h-full bg-cyan-500 transition-all duration-500" style="width:0%"></div>
-        </div>
-      </section>
-
-      <!-- ============ RÉSULTAT ============ -->
-      <section id="result-box" class="hidden space-y-6">
-
-        <!-- En-tête du dossier -->
-        <div class="glass-panel p-6">
-          <div class="flex flex-col md:flex-row md:items-start md:justify-between gap-4">
-            <div>
-              <div id="entity-kind-badge" class="inline-block px-2 py-1 rounded text-[10px] font-bold uppercase tracking-widest mb-2"></div>
-              <h2 id="entity-label" class="text-2xl font-bold text-slate-100"></h2>
-              <div id="entity-aliases" class="text-xs text-slate-500 mt-1"></div>
-            </div>
-            <div class="flex gap-4">
-              <div class="text-center">
-                <div id="confidence-score" class="text-3xl font-bold text-cyan-400">--</div>
-                <div class="text-[10px] uppercase tracking-widest text-slate-500">Confiance</div>
-              </div>
-              <div class="text-center">
-                <div id="risk-level" class="text-3xl font-bold text-slate-400">--</div>
-                <div class="text-[10px] uppercase tracking-widest text-slate-500">Risque</div>
-              </div>
-            </div>
-          </div>
-
-          <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mt-5 text-center">
-            <div class="bg-slate-900/50 rounded-lg p-3">
-              <div id="stat-entities" class="text-xl font-bold text-slate-200">0</div>
-              <div class="text-[10px] uppercase text-slate-500">Entités</div>
-            </div>
-            <div class="bg-slate-900/50 rounded-lg p-3">
-              <div id="stat-relations" class="text-xl font-bold text-slate-200">0</div>
-              <div class="text-[10px] uppercase text-slate-500">Relations</div>
-            </div>
-            <div class="bg-slate-900/50 rounded-lg p-3">
-              <div id="stat-facts" class="text-xl font-bold text-slate-200">0</div>
-              <div class="text-[10px] uppercase text-slate-500">Faits sourcés</div>
-            </div>
-            <div class="bg-slate-900/50 rounded-lg p-3">
-              <div id="stat-sources" class="text-xl font-bold text-slate-200">0</div>
-              <div class="text-[10px] uppercase text-slate-500">Sources utiles</div>
-            </div>
-          </div>
-
-          <div id="partial-warning" class="hidden mt-4 px-4 py-3 bg-amber-500/10 border border-amber-500/30 rounded text-xs text-amber-300">
-            <i class="fas fa-triangle-exclamation mr-2" aria-hidden="true"></i>
-            Collecte partielle : le budget de la recherche a été atteint avant épuisement des pistes.
-          </div>
-
-          <div class="flex flex-wrap gap-2 mt-5">
-            <button data-export="json" class="btn-export px-3 py-2 bg-slate-800 border border-slate-700 rounded text-xs hover:border-cyan-500/40">
-              <i class="fas fa-file-code mr-1" aria-hidden="true"></i>JSON
-            </button>
-            <button data-export="markdown" class="btn-export px-3 py-2 bg-slate-800 border border-slate-700 rounded text-xs hover:border-cyan-500/40">
-              <i class="fas fa-file-lines mr-1" aria-hidden="true"></i>Markdown
-            </button>
-            <button data-export="csv" class="btn-export px-3 py-2 bg-slate-800 border border-slate-700 rounded text-xs hover:border-cyan-500/40">
-              <i class="fas fa-file-csv mr-1" aria-hidden="true"></i>CSV
-            </button>
-            <button id="btn-delete-run" class="px-3 py-2 bg-red-500/10 border border-red-500/30 text-red-300 rounded text-xs hover:bg-red-500/20 ml-auto">
-              <i class="fas fa-trash mr-1" aria-hidden="true"></i>Supprimer le dossier
-            </button>
+          <div>
+            <label for="select-template" class="block text-xs text-slate-400 mb-1.5">Rapport</label>
+            <select id="select-template" class="w-full bg-slate-900 border border-slate-700 rounded px-3 py-2 text-sm">
+              <option value="detailed" selected>Détaillé</option>
+              <option value="executive">Exécutif</option>
+              <option value="technical">Technique</option>
+              <option value="minimal">Minimal</option>
+            </select>
           </div>
         </div>
 
-        <!-- Onglets -->
-        <div class="glass-panel">
-          <div class="flex flex-wrap border-b border-slate-800" role="tablist">
-            <button class="tab-btn px-5 py-3 text-xs font-bold uppercase tracking-widest text-cyan-400 border-b-2 border-cyan-500" data-tab="identity" role="tab" aria-selected="true">
-              <i class="fas fa-id-badge mr-2" aria-hidden="true"></i>Identité
-            </button>
-            <button class="tab-btn px-5 py-3 text-xs font-bold uppercase tracking-widest text-slate-500 border-b-2 border-transparent hover:text-slate-300" data-tab="risk" role="tab" aria-selected="false">
-              <i class="fas fa-shield-halved mr-2" aria-hidden="true"></i>Risques
-            </button>
-            <button class="tab-btn px-5 py-3 text-xs font-bold uppercase tracking-widest text-slate-500 border-b-2 border-transparent hover:text-slate-300" data-tab="network" role="tab" aria-selected="false">
-              <i class="fas fa-diagram-project mr-2" aria-hidden="true"></i>Réseau
-            </button>
-            <button class="tab-btn px-5 py-3 text-xs font-bold uppercase tracking-widest text-slate-500 border-b-2 border-transparent hover:text-slate-300" data-tab="timeline" role="tab" aria-selected="false">
-              <i class="fas fa-timeline mr-2" aria-hidden="true"></i>Chronologie
-            </button>
-            <button class="tab-btn px-5 py-3 text-xs font-bold uppercase tracking-widest text-slate-500 border-b-2 border-transparent hover:text-slate-300" data-tab="report" role="tab" aria-selected="false">
-              <i class="fas fa-file-lines mr-2" aria-hidden="true"></i>Rapport
-            </button>
-            <button class="tab-btn px-5 py-3 text-xs font-bold uppercase tracking-widest text-slate-500 border-b-2 border-transparent hover:text-slate-300" data-tab="sources" role="tab" aria-selected="false">
-              <i class="fas fa-plug mr-2" aria-hidden="true"></i>Sources
-            </button>
+        <div class="pt-3 border-t border-slate-800">
+          <div class="flex items-center justify-between mb-2">
+            <label for="select-llm" class="text-xs text-slate-400">Moteur IA</label>
+            <button id="btn-llm-test" class="text-[10px] text-cyan-400 hover:underline">Tester</button>
           </div>
-
-          <div class="p-6">
-            <div id="tab-identity" class="tab-panel" role="tabpanel"></div>
-            <div id="tab-risk" class="tab-panel hidden" role="tabpanel"></div>
-            <div id="tab-network" class="tab-panel hidden" role="tabpanel"></div>
-            <div id="tab-timeline" class="tab-panel hidden" role="tabpanel"></div>
-            <div id="tab-report" class="tab-panel hidden" role="tabpanel"></div>
-            <div id="tab-sources" class="tab-panel hidden" role="tabpanel"></div>
-          </div>
+          <select id="select-llm" class="w-full bg-slate-900 border border-slate-700 rounded px-3 py-2 text-sm">
+            <option value="">Chargement…</option>
+          </select>
+          <input id="input-llm-model" type="text" placeholder="Modèle (optionnel)"
+            class="w-full bg-slate-900 border border-slate-700 rounded px-3 py-2 text-xs mt-2" />
+          <input id="input-llm-endpoint" type="text" placeholder="Endpoint (ex: http://192.168.1.20:11434)"
+            class="w-full bg-slate-900 border border-slate-700 rounded px-3 py-2 text-xs mt-2" />
+          <p id="llm-status" class="text-[11px] text-slate-600 mt-2 leading-relaxed"></p>
         </div>
-      </section>
 
-      <!-- ============ HISTORIQUE ============ -->
-      <section id="history-box" class="glass-panel p-6 hidden">
-        <div class="flex items-center justify-between mb-4">
-          <h2 class="text-sm font-bold uppercase tracking-widest text-slate-500">
-            <i class="fas fa-clock-rotate-left mr-2" aria-hidden="true"></i>Dossiers précédents
-          </h2>
-          <input id="history-search" type="text" placeholder="Filtrer..."
-            class="bg-slate-900 border border-slate-700 rounded px-3 py-1 text-xs w-48" />
+        <div class="pt-2 border-t border-slate-800 space-y-2">
+          <label class="flex items-start gap-3 p-2 rounded hover:bg-slate-900/60 cursor-pointer">
+            <input type="checkbox" id="opt-person-pivot" class="mt-1 accent-cyan-500" checked />
+            <span><span class="text-slate-300">Pivot vers les personnes</span>
+              <span class="block text-[11px] text-slate-500">Remonte de la société vers ses dirigeants et son équipe publiée.</span></span>
+          </label>
+          <label class="flex items-start gap-3 p-2 rounded hover:bg-slate-900/60 cursor-pointer">
+            <input type="checkbox" id="opt-enumeration" class="mt-1 accent-cyan-500" />
+            <span><span class="text-slate-300">Recherche de pseudonyme</span>
+              <span class="block text-[11px] text-slate-500">Interroge 18 plateformes publiques. Requêtes visibles côté plateformes.</span></span>
+          </label>
+          <label class="flex items-start gap-3 p-2 rounded hover:bg-slate-900/60 cursor-pointer">
+            <input type="checkbox" id="opt-breach" class="mt-1 accent-cyan-500" />
+            <span><span class="text-slate-300">Données de fuite</span>
+              <span class="block text-[11px] text-slate-500">Réservé à la réponse à incident. Nécessite une clé HIBP.</span></span>
+          </label>
+          <label class="flex items-start gap-3 p-2 rounded hover:bg-slate-900/60 cursor-pointer">
+            <input type="checkbox" id="opt-redact" class="mt-1 accent-cyan-500" />
+            <span><span class="text-slate-300">Masquer les données personnelles</span>
+              <span class="block text-[11px] text-slate-500">Anonymise emails, téléphones et noms dans la restitution.</span></span>
+          </label>
+          <label class="flex items-start gap-3 p-2 rounded hover:bg-slate-900/60 cursor-pointer">
+            <input type="checkbox" id="opt-llm" class="mt-1 accent-cyan-500" checked />
+            <span><span class="text-slate-300">Synthèse analyste (LLM local)</span>
+              <span class="block text-[11px] text-slate-500">Le dossier reste complet sans elle.</span></span>
+          </label>
+          <label class="flex items-start gap-3 p-2 rounded hover:bg-slate-900/60 cursor-pointer">
+            <input type="checkbox" id="opt-async" class="mt-1 accent-cyan-500" />
+            <span><span class="text-slate-300">Exécuter en tâche de fond</span>
+              <span class="block text-[11px] text-slate-500">Recommandé en mode Deep. Nécessite Celery + Redis.</span></span>
+          </label>
         </div>
-        <div class="overflow-x-auto">
-          <table class="w-full text-left text-sm">
-            <thead class="text-slate-500 uppercase text-xs font-bold border-b border-slate-800">
-              <tr>
-                <th class="py-3 pr-3">Entité</th>
-                <th class="py-3 pr-3">Nature</th>
-                <th class="py-3 pr-3">Statut</th>
-                <th class="py-3 pr-3">Confiance</th>
-                <th class="py-3 pr-3">Risque</th>
-                <th class="py-3">Date</th>
-              </tr>
-            </thead>
-            <tbody id="history-body" class="divide-y divide-slate-800/50"></tbody>
-          </table>
-        </div>
-      </section>
+      </div>
+    </aside>
 
-      <!-- ============ CATALOGUE DES SOURCES ============ -->
-      <section id="sources-box" class="glass-panel p-6 hidden">
-        <h2 class="text-sm font-bold uppercase tracking-widest text-slate-500 mb-4">
+    <!-- ============================ HISTORIQUE ============================ -->
+    <aside id="history" class="slide-over absolute top-0 right-0 h-full w-full sm:w-[460px] bg-slate-950/97 backdrop-blur-xl border-l border-slate-800 z-40 flex flex-col">
+      <div class="flex items-center justify-between p-4 border-b border-slate-800 shrink-0">
+        <h2 class="text-sm font-bold uppercase tracking-widest text-slate-400">
+          <i class="fas fa-clock-rotate-left mr-2" aria-hidden="true"></i>Dossiers
+        </h2>
+        <button id="history-close" class="text-slate-500 hover:text-slate-200"><i class="fas fa-xmark"></i></button>
+      </div>
+      <div class="p-3 border-b border-slate-800 shrink-0">
+        <input id="history-search" type="text" placeholder="Filtrer…" class="w-full bg-slate-900 border border-slate-700 rounded px-3 py-1.5 text-xs" />
+      </div>
+      <div id="history-list" class="flex-1 overflow-y-auto scroll-thin p-2 space-y-1"></div>
+    </aside>
+
+    <!-- ============================ SOURCES ============================ -->
+    <aside id="sources" class="slide-over absolute top-0 right-0 h-full w-full sm:w-[460px] bg-slate-950/97 backdrop-blur-xl border-l border-slate-800 z-40 flex flex-col">
+      <div class="flex items-center justify-between p-4 border-b border-slate-800 shrink-0">
+        <h2 class="text-sm font-bold uppercase tracking-widest text-slate-400">
           <i class="fas fa-plug mr-2" aria-hidden="true"></i>Catalogue des sources
         </h2>
-        <div id="sources-list" class="grid grid-cols-1 md:grid-cols-2 gap-3"></div>
-      </section>
+        <button id="sources-close" class="text-slate-500 hover:text-slate-200"><i class="fas fa-xmark"></i></button>
+      </div>
+      <div id="sources-list" class="flex-1 overflow-y-auto scroll-thin p-3 space-y-2"></div>
+    </aside>
 
-      <div id="error-box" class="hidden px-4 py-3 bg-red-500/10 border border-red-500/30 rounded text-sm text-red-300"></div>
-    </div>
+    <!-- Erreurs -->
+    <div id="error-box" class="absolute bottom-3 left-1/2 -translate-x-1/2 px-4 py-2.5 bg-red-950/90 border border-red-500/40 rounded-lg text-sm text-red-200 z-50 hidden max-w-[90vw]"></div>
   </main>
 
   <script src="../javascript/theme.js"></script>
+  <script src="../javascript/entity-graph.js"></script>
+  <script src="../javascript/entity-demo.js"></script>
   <script src="../javascript/entity.js"></script>
 </body>
 </html>

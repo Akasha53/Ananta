@@ -36,6 +36,12 @@ from entity_research.sources.digital import (
     candidate_emails,
     infer_name_from_email,
 )
+from entity_research.sources.people import (
+    GithubOrgSource,
+    StaffDirectorySource,
+    extract_people_from_html,
+    normalize_role,
+)
 from entity_research.sources.knowledge import (
     NominatimSource,
     OrcidSource,
@@ -82,6 +88,9 @@ SOURCE_CLASSES = (
     GravatarSource,
     UsernameIntelSource,
     WebPresenceSource,
+    # Découverte de personnes
+    StaffDirectorySource,
+    GithubOrgSource,
 )
 
 
@@ -116,5 +125,7 @@ __all__ = [
     "all_sources",
     "candidate_emails",
     "infer_name_from_email",
+    "extract_people_from_html",
+    "normalize_role",
     "SOURCE_CLASSES",
 ]

@@ -65,9 +65,10 @@ NON_PIVOTABLE = frozenset({SelectorType.KEYWORD, SelectorType.HASH, SelectorType
 #: Profondeur maximale par type de sélecteur découvert (évite la dérive).
 #: Un nom de personne découvert au niveau 2 n'ouvre pas une nouvelle enquête.
 MAX_DEPTH_BY_TYPE: Dict[SelectorType, int] = {
-    SelectorType.PERSON_NAME: 1,
+    # 3 permet la chaîne domaine -> annuaire d'équipe -> personne -> ses mandats.
+    SelectorType.PERSON_NAME: 3,
     SelectorType.ORG_NAME: 2,
-    SelectorType.USERNAME: 1,
+    SelectorType.USERNAME: 2,
     SelectorType.SOCIAL_PROFILE: 1,
     SelectorType.POSTAL_ADDRESS: 1,
     SelectorType.IP: 1,

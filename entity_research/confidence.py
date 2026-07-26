@@ -51,6 +51,8 @@ SOURCE_RELIABILITY: Dict[str, float] = {
     "gravatar": 0.80,
     "hibp": 0.90,
     # Découverte ouverte
+    "staff_directory": 0.78,
+    "github_org": 0.84,
     "username_intel": 0.55,
     "web_presence": 0.50,
     # Dérivations internes
@@ -83,6 +85,9 @@ SINGLE_VALUED_ATTRIBUTES = frozenset(
 #: Demi-vie (en jours) au-delà de laquelle une observation perd de sa valeur.
 #: Les registres officiels ne se périment pas comme un scraping de page web.
 FRESHNESS_HALFLIFE_DAYS: Dict[str, float] = {
+    # Une équipe change vite : une page « notre équipe » vieillit mal.
+    "staff_directory": 180.0,
+    "github_org": 270.0,
     "web_presence": 120.0,
     "username_intel": 90.0,
     "github": 365.0,

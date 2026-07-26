@@ -15,7 +15,17 @@ from urllib.parse import urlparse
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
-from sentence_transformers import SentenceTransformer, util
+# La pile ML (torch + sentence-transformers) pèse ~3 Go et n'est utile qu'au
+# classifieur d'intention. On la rend optionnelle : sans elle, Ananta démarre
+# et fonctionne, en s'appuyant sur ses heuristiques.
+try:
+    from sentence_transformers import SentenceTransformer, util  # type: ignore
+
+    HAS_SENTENCE_TRANSFORMERS = True
+except ImportError:  # pragma: no cover - dépend de l'installation
+    SentenceTransformer = None  # type: ignore
+    util = None  # type: ignore
+    HAS_SENTENCE_TRANSFORMERS = False
 from duckduckgo_search import DDGS
 from googlesearch import search as google_search
 import whois
@@ -91,8 +101,15 @@ LLM_API_URL = LLM_CONFIG["api_url"]
 # On le charge en lazy pour éviter de pénaliser les endpoints rapides (ex: /agent/ask "salut").
 _embedding_model = None
 
-def get_embedding_model() -> SentenceTransformer:
+def get_embedding_model():
+    """Modèle d'embedding, chargé à la demande.
+
+    Renvoie None si la pile ML n'est pas installée : les appelants doivent
+    prévoir ce cas plutôt que de supposer sa présence.
+    """
     global _embedding_model
+    if not HAS_SENTENCE_TRANSFORMERS:
+        return None
     if _embedding_model is None:
         _embedding_model = SentenceTransformer("all-MiniLM-L6-v2")
     return _embedding_model
@@ -1535,17 +1552,12 @@ def ask_llm(system_prompt: str, user_prompt: str, phase: str = "default", hard_l
         hard_limit=hard_limit
     )
 
-    payload = {
-        "model": LLM_CONFIG["model_name"],
-        "messages": [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_prompt}
-        ],
-        "temperature": LLM_CONFIG["temperature"],
-        "max_tokens": max_tokens
-    }
+    # Le moteur d'inférence est interchangeable (webui, Ollama, CLI claude/codex,
+    # API compatible OpenAI, API Anthropic). Voir `llm_providers.py`.
+    from llm_providers import LLMUnavailable, current_provider_id, generate as llm_generate
 
-    logger.info(f"[LLM CALL] Model: {LLM_CONFIG['model_name']}, Phase: {phase}, max_tokens: {max_tokens}")
+    provider_id = current_provider_id()
+    logger.info(f"[LLM CALL] Provider: {provider_id}, Phase: {phase}, max_tokens: {max_tokens}")
 
     # Retry logic: 3 attempts with exponential backoff
     max_retries = 3
@@ -1553,36 +1565,27 @@ def ask_llm(system_prompt: str, user_prompt: str, phase: str = "default", hard_l
 
     for attempt in range(max_retries):
         try:
-            # Timeout tuple: (connect_timeout, read_timeout)
-            # - Connect should fail fast if LLM is down (WinError 10061)
-            # - Read can be long because local generation is slow
-            connect_timeout = float(os.getenv("LLM_CONNECT_TIMEOUT", "5"))
-            response = requests.post(
-                LLM_API_URL,
-                json=payload,
-                timeout=(connect_timeout, LLM_CONFIG["timeout"]),
+            return llm_generate(
+                system_prompt,
+                user_prompt,
+                max_tokens=max_tokens,
+                temperature=LLM_CONFIG["temperature"],
             )
 
-            if response.status_code == 200:
-                return response.json()["choices"][0]["message"]["content"]
-            else:
-                logger.error(f"Erreur LLM {response.status_code}: {response.text}")
-                last_error = f"Erreur API LLM ({response.status_code})."
-
-        except (requests.exceptions.ConnectionError, requests.exceptions.Timeout) as e:
+        except LLMUnavailable as e:
             last_error = str(e)
             if attempt < max_retries - 1:
                 wait_time = 2 ** attempt  # 1s, 2s, 4s
-                logger.warning(f"[LLM RETRY] Attempt {attempt + 1}/{max_retries} failed, retrying in {wait_time}s...")
+                logger.warning(f"[LLM RETRY] Attempt {attempt + 1}/{max_retries} failed ({e}), retrying in {wait_time}s...")
                 time.sleep(wait_time)
             else:
-                logger.exception("Erreur LLM après tous les essais")
+                logger.warning(f"[LLM] Fournisseur '{provider_id}' indisponible apres {max_retries} essais: {e}")
 
         except Exception as e:
             logger.exception("Erreur inattendue LLM")
             return f"Erreur interne IA : {str(e)}"
 
-    return f"Erreur LLM après {max_retries} tentatives: {last_error}"
+    return f"Erreur LLM ({provider_id}) apres {max_retries} tentatives: {last_error}"
 
 
 def translate_report_markdown(report_markdown: str, to_language: str, llm_hard_limit: Optional[int] = 2000) -> str:
