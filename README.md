@@ -225,6 +225,11 @@ Ananta exposes a wide API surface. The most important endpoints are grouped belo
 - `GET /entity/entity/{entity_key}/runs`
 - `DELETE /entity/run/{run_id}`
 
+Entity matching defaults to the conservative `strict` profile: names,
+acronyms and usernames alone never silently merge identities. The API also
+offers `balanced` and `exploratory` profiles, and returns an auditable
+`resolution` ledger for every merge, rejection and quarantined pivot.
+
 ### Structured Intelligence Views
 
 - `GET /osint/graph`

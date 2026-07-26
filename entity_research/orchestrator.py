@@ -128,6 +128,7 @@ def research_entity(
     run_id: Optional[str] = None,
     user_consent: bool = False,
     default_region: str = "FR",
+    match_policy: str = "strict",
 ) -> Dossier:
     """
     Recherche tout ce qui est publiquement connaissable sur une entité.
@@ -144,6 +145,8 @@ def research_entity(
         briefing_facts: faits structurés (`label`, `value`, provenance optionnelle).
         briefing_origin: analyst | client | document | tool | external_ai.
         use_llm: ajoute une lecture analyste si le LLM local est disponible.
+        match_policy: strict | balanced | exploratory. Le profil strict évite
+            les rapprochements fondés sur le seul nom.
 
     Returns:
         Un `Dossier` complet, sérialisable via `.to_dict()`.
@@ -199,6 +202,7 @@ def research_entity(
         user_consent=user_consent,
         run_id=run_id,
         default_region=default_region,
+        match_policy=match_policy,
     )
 
     # Minimisation RGPD avant toute restitution.

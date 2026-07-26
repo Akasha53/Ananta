@@ -412,6 +412,7 @@
         <button class="tab-btn px-4 py-2.5 text-[11px] font-bold uppercase tracking-widest text-cyan-400 border-b-2 border-cyan-500" data-tab="identity" role="tab">Identité</button>
         <button class="tab-btn px-4 py-2.5 text-[11px] font-bold uppercase tracking-widest text-slate-500 border-b-2 border-transparent hover:text-slate-300" data-tab="people" role="tab">Personnes</button>
         <button class="tab-btn px-4 py-2.5 text-[11px] font-bold uppercase tracking-widest text-slate-500 border-b-2 border-transparent hover:text-slate-300" data-tab="risk" role="tab">Risques</button>
+        <button class="tab-btn px-4 py-2.5 text-[11px] font-bold uppercase tracking-widest text-slate-500 border-b-2 border-transparent hover:text-slate-300" data-tab="resolution" role="tab">Rapprochements</button>
         <button class="tab-btn px-4 py-2.5 text-[11px] font-bold uppercase tracking-widest text-slate-500 border-b-2 border-transparent hover:text-slate-300" data-tab="changes" role="tab">Changements</button>
         <button class="tab-btn px-4 py-2.5 text-[11px] font-bold uppercase tracking-widest text-slate-500 border-b-2 border-transparent hover:text-slate-300" data-tab="timeline" role="tab">Chronologie</button>
         <button class="tab-btn px-4 py-2.5 text-[11px] font-bold uppercase tracking-widest text-slate-500 border-b-2 border-transparent hover:text-slate-300" data-tab="report" role="tab">Rapport</button>
@@ -421,6 +422,7 @@
         <div id="tab-identity" class="tab-panel"></div>
         <div id="tab-people" class="tab-panel hidden"></div>
         <div id="tab-risk" class="tab-panel hidden"></div>
+        <div id="tab-resolution" class="tab-panel hidden"></div>
         <div id="tab-changes" class="tab-panel hidden"></div>
         <div id="tab-timeline" class="tab-panel hidden"></div>
         <div id="tab-report" class="tab-panel hidden"></div>
@@ -461,6 +463,21 @@
           </select>
           <p class="text-[11px] text-slate-600 mt-1.5 leading-relaxed">
             La finalité conditionne ce que le moteur a le droit de collecter sur une personne physique.
+          </p>
+        </div>
+        <div>
+          <label for="select-match-policy" class="block text-xs text-slate-400 mb-1.5">
+            Tolérance des rapprochements
+          </label>
+          <select id="select-match-policy"
+            class="w-full bg-slate-900 border border-slate-700 rounded px-3 py-2 text-sm">
+            <option value="strict" selected>Strict — faux positifs minimisés</option>
+            <option value="balanced">Équilibré — candidats élargis</option>
+            <option value="exploratory">Exploratoire — hypothèses faibles</option>
+          </select>
+          <p class="text-[11px] text-slate-600 mt-1.5 leading-relaxed">
+            En mode strict, un nom commun ou un pseudo identique ne suffit jamais à fusionner
+            deux identités. Les cas ambigus restent visibles mais sont mis en quarantaine.
           </p>
         </div>
         <div id="authorized-investigation-panel"

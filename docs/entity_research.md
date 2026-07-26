@@ -45,7 +45,12 @@ mural, nombre d'entités.
 ```python
 from entity_research import research_entity
 
-dossier = research_entity("ACME INDUSTRIES SAS", mode="standard", purpose="due_diligence")
+dossier = research_entity(
+    "ACME INDUSTRIES SAS",
+    mode="standard",
+    purpose="due_diligence",
+    match_policy="strict",
+)
 
 print(dossier.report_markdown)      # rapport lisible
 print(dossier.confidence_score())   # 0-100
@@ -56,7 +61,8 @@ print(dossier.graph())              # nœuds + arêtes pour un rendu visuel
 
 ```bash
 python -m tools.entity_lookup "552 100 554"
-python -m tools.entity_lookup "contact@acme.fr" --mode deep --purpose fraud_investigation
+python -m tools.entity_lookup "contact@acme.fr" --mode deep \
+  --purpose fraud_investigation --match-policy strict
 python -m tools.entity_lookup "Jean Dupont" --preview        # sans rien interroger
 python -m tools.entity_lookup --sources                      # catalogue des sources
 ```
@@ -72,7 +78,7 @@ curl -X POST http://localhost:8010/entity/preview \
 # Recherche synchrone
 curl -X POST http://localhost:8010/entity/research \
   -H "Content-Type: application/json" \
-  -d '{"query": "552 100 554", "mode": "standard", "purpose": "due_diligence"}'
+  -d '{"query": "552 100 554", "mode": "standard", "purpose": "due_diligence", "match_policy": "strict"}'
 
 # Recherche en tâche de fond
 curl -X POST http://localhost:8010/entity/research_async \
@@ -118,6 +124,28 @@ curl -X POST http://localhost:8010/entity/research \
 La réponse expose `briefing` (matière injectée) et `briefing_verdict`
 (recoupement effectué). Le rapport Markdown et la synthèse IA distinguent
 explicitement ces informations des faits établis par des sources indépendantes.
+
+### Résolution d'identité et faux positifs
+
+Le profil `match_policy` contrôle la tolérance des rapprochements :
+
+| Profil | Comportement |
+|---|---|
+| `strict` | Défaut. Exige un identifiant stable ou plusieurs preuves indépendantes ; met les pivots faibles en quarantaine. |
+| `balanced` | Autorise certains noms d'organisation canoniques uniques, mais conserve les homonymes humains séparés. |
+| `exploratory` | Suit davantage d'hypothèses ; chaque décision reste marquée et vérifiable. |
+
+Un SIREN, LEI, numéro de TVA, CIK, DUNS ou ORCID partagé pèse beaucoup plus
+qu'un nom. Une contradiction sur ces identifiants interdit la fusion. Un nom,
+un sigle, un pseudo ou un résultat web ne suffit pas seul. Les alertes
+OpenSanctions fondées uniquement sur un nom sont placées en revue manuelle et
+ne deviennent pas un risque critique tant qu'un identifiant secondaire ne les
+confirme pas.
+
+La réponse expose `resolution`, un journal contenant le verdict, le score, les
+preuves positives, les contradictions et l'action (`merge`, `keep_separate`,
+`pivot`, `quarantine`). L'onglet **Rapprochements** et le rapport Markdown le
+rendent lisible sans examiner le JSON.
 
 ---
 

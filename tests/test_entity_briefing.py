@@ -48,6 +48,7 @@ def test_external_ai_information_has_lower_initial_confidence():
 
     assert briefing.origin.reliability == 0.45
     assert briefing.attributes[0].confidence == 0.45
+    assert briefing.selectors[0].confidence == 0.45
 
 
 def test_briefing_is_injected_into_dossier_graph_and_report():

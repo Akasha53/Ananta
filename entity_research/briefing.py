@@ -11,7 +11,7 @@ vérifiés.
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 from entity_research.identifiers import (
@@ -417,7 +417,13 @@ def parse_briefing(
         )
         if selector.type in _STRONG_TEXT_SELECTORS
     )
-    briefing.selectors = dedupe_selectors(selectors)[:MAX_SELECTORS]
+    briefing.selectors = [
+        replace(
+            selector,
+            confidence=min(selector.confidence, resolved_origin.reliability),
+        )
+        for selector in dedupe_selectors(selectors)[:MAX_SELECTORS]
+    ]
 
     _build_entities(briefing, default_region=default_region)
     return briefing

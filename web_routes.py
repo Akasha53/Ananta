@@ -3823,6 +3823,7 @@ def _research_kwargs(body: EntityResearchRequest) -> Dict:
     return {
         "mode": body.mode,
         "purpose": body.purpose,
+        "match_policy": body.match_policy,
         "entity_kind": body.entity_kind,
         "language": body.language,
         "template": body.report_template,

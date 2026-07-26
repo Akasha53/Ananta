@@ -259,6 +259,13 @@ class EntityResearchRequest(BaseModel):
         default="due_diligence",
         description="Finalité déclarée (base légale du traitement, RGPD art. 6)",
     )
+    match_policy: Literal["strict", "balanced", "exploratory"] = Field(
+        default="strict",
+        description=(
+            "Tolérance du rapprochement d'identité : strict minimise les faux positifs, "
+            "balanced élargit les candidats, exploratory autorise les hypothèses faibles"
+        ),
+    )
     language: Literal["fr", "en", "es", "de"] = Field(default="fr")
     report_template: Literal["detailed", "executive", "technical", "minimal"] = Field(
         default="detailed"

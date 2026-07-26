@@ -23,10 +23,12 @@ from entity_research.identifiers import (
     SelectorType,
     email_facets,
     normalize_domain,
+    normalize_name,
     normalize_phone,
     parse_selectors,
     parse_social_url,
 )
+from entity_research.resolution import name_similarity
 from entity_research.schema import Sensitivity, SourceResult, SourceStatus, make_relationship
 from entity_research.sources._helpers import (
     SELF,
@@ -1070,20 +1072,16 @@ class UsernameIntelSource(BaseSource):
                 found.append(platform)
                 result.attributes.append(
                     attr(
-                        "social_profile",
+                        "candidate_social_profile",
                         f"{platform}: {url}",
                         self.id,
                         category="digital",
                         url=url,
                         reliability=0.55,
                         sensitivity=Sensitivity.PERSONAL,
-                        label="Profil trouvé (pseudo identique)",
+                        label="Profil candidat (pseudo identique)",
                     )
                 )
-                if platform == "github":
-                    github_sel = selector(SelectorType.USERNAME, username, self.id, confidence=0.7, platform="github")
-                    if github_sel:
-                        result.discovered.append(github_sel)
 
         if not found:
             raise SourceNotFound(f"Aucun profil trouvé pour '{username}' sur {checked} plateformes")
@@ -1108,6 +1106,51 @@ class UsernameIntelSource(BaseSource):
 
 _DDG_RESULT_RE = re.compile(r'<a[^>]+class="result__a"[^>]+href="([^"]+)"[^>]*>(.*?)</a>', re.DOTALL)
 _DDG_LITE_RE = re.compile(r'<a[^>]+href="(https?://[^"]+)"[^>]*>(.*?)</a>', re.DOTALL)
+
+
+def _web_hit_relevance(
+    sel: Selector,
+    url: str,
+    title: str,
+    entity_kind: EntityKind,
+) -> float:
+    """Score local et explicable, indépendant du classement du moteur web."""
+    if sel.type in {SelectorType.EMAIL, SelectorType.PHONE}:
+        return 0.95
+
+    expected_kind = entity_kind
+    if expected_kind is EntityKind.UNKNOWN:
+        expected_kind = (
+            EntityKind.PERSON
+            if sel.type is SelectorType.PERSON_NAME
+            else EntityKind.ORGANIZATION
+        )
+
+    parsed = urlparse(url)
+    path_parts = [
+        normalize_name(part.replace("-", " ").replace("_", " "))
+        for part in parsed.path.split("/")
+        if part and part not in {"in", "company", "user", "profile"}
+    ]
+    domain = normalize_domain(url) or ""
+    domain_stem = domain.rsplit(".", 1)[0].replace("-", " ").replace(".", " ")
+    candidates = [title, domain_stem, *path_parts[-2:]]
+    score = max(
+        (
+            name_similarity(sel.value, candidate, expected_kind)
+            for candidate in candidates
+            if candidate
+        ),
+        default=0.0,
+    )
+
+    target_tokens = set(normalize_name(sel.value).split())
+    title_tokens = set(normalize_name(title).split())
+    if len(target_tokens) >= 2 and target_tokens.issubset(title_tokens):
+        score = max(score, 0.92)
+    elif len(target_tokens) == 1 and target_tokens.issubset(title_tokens):
+        score = max(score, 0.8)
+    return round(min(1.0, score), 4)
 
 
 class WebPresenceSource(BaseSource):
@@ -1148,32 +1191,50 @@ class WebPresenceSource(BaseSource):
         seen_socials: set = set()
 
         for url, title in hits[: self.MAX_RESULTS]:
+            relevance = _web_hit_relevance(sel, url, title, ctx.entity_kind)
             social = parse_social_url(url)
             if social:
                 if social["url"] in seen_socials:
                     continue
                 seen_socials.add(social["url"])
-                result.attributes.append(
-                    attr(
-                        "social_profile",
-                        f"{social['platform']}: {social['url']}",
-                        self.id,
-                        category="digital",
-                        url=url,
-                        reliability=0.55,
-                        method="scrape",
+                result.candidates.append(
+                    {
+                        "type": "social_profile",
+                        "url": social["url"],
+                        "title": title,
+                        "score": round(relevance, 3),
+                        "status": "manual_review" if relevance >= 0.8 else "rejected",
+                    }
+                )
+                if relevance >= 0.8:
+                    result.attributes.append(
+                        attr(
+                            "candidate_social_profile",
+                            f"{social['platform']}: {social['url']}",
+                            self.id,
+                            category="digital",
+                            url=url,
+                            reliability=0.55,
+                            confidence=min(0.72, relevance * 0.75),
+                            method="inference",
+                            label="Profil social candidat",
+                        )
                     )
-                )
-                social_sel = selector(
-                    SelectorType.SOCIAL_PROFILE, social["url"], self.id, confidence=0.55,
-                    platform=social["platform"],
-                )
-                if social_sel:
-                    result.discovered.append(social_sel)
                 continue
 
             domain = normalize_domain(url)
             if not domain or _is_generic_domain(domain):
+                continue
+            result.candidates.append(
+                {
+                    "type": "web_result",
+                    "url": url,
+                    "title": title,
+                    "score": round(relevance, 3),
+                    "status": "retained" if relevance >= 0.72 else "rejected",
+                }
+            )
+            if relevance < 0.72:
                 continue
             seen_domains[domain] = seen_domains.get(domain, 0) + 1
             result.attributes.append(
@@ -1190,30 +1251,37 @@ class WebPresenceSource(BaseSource):
 
         # Domaine le plus représenté et proche du nom => site officiel probable.
         if seen_domains:
-            from entity_research.identifiers import normalize_name
-
-            target_tokens = set(normalize_name(sel.value).split())
             best_domain, best_score = None, 0.0
             for domain, count in seen_domains.items():
                 stem = domain.rsplit(".", 1)[0].replace("-", " ").replace(".", " ")
-                stem_tokens = set(normalize_name(stem).split())
-                overlap = len(target_tokens & stem_tokens) / max(1, len(target_tokens))
-                score = overlap * 2 + count * 0.15
+                expected_kind = (
+                    ctx.entity_kind
+                    if ctx.entity_kind is not EntityKind.UNKNOWN
+                    else EntityKind.ORGANIZATION
+                )
+                score = name_similarity(sel.value, stem, expected_kind)
+                score = min(1.0, score + min(0.08, (count - 1) * 0.03))
                 if score > best_score:
                     best_domain, best_score = domain, score
-            if best_domain and best_score >= 0.6:
+            if best_domain and best_score >= 0.9:
                 result.attributes.append(
                     attr(
                         "likely_official_website",
                         f"https://{best_domain}",
                         self.id,
                         category="digital",
-                        reliability=0.6,
+                        reliability=0.72,
+                        confidence=min(0.82, best_score * 0.82),
                         method="inference",
                         label="Site officiel probable",
                     )
                 )
-                domain_sel = selector(SelectorType.DOMAIN, best_domain, self.id, confidence=0.65)
+                domain_sel = selector(
+                    SelectorType.DOMAIN,
+                    best_domain,
+                    self.id,
+                    confidence=min(0.85, best_score * 0.85),
+                )
                 if domain_sel:
                     result.discovered.append(domain_sel)
 

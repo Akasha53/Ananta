@@ -7,6 +7,7 @@ décision : peut-on entrer en relation d'affaires avec cette entité ?
 
 from __future__ import annotations
 
+import re
 from typing import Any, Dict, Optional
 
 from entity_research.identifiers import (
@@ -118,15 +119,18 @@ class OpenSanctionsSource(BaseSource):
 
         target = normalize_name(sel.value)
         matches = []
+        nominal_candidates = []
         for item in results:
             caption = clean(item.get("caption")) or ""
             score = float(item.get("score") or 0.0)
             similarity = _similarity(target, normalize_name(caption))
             if sel.type in {SelectorType.LEI, SelectorType.SIREN}:
-                # Match par identifiant : on fait confiance au moteur.
-                matches.append((item, max(score, 0.85)))
-            elif similarity >= 0.85 or score >= 0.85:
-                matches.append((item, max(score, similarity)))
+                # Même une recherche par identifiant doit être corroborée par
+                # les propriétés retournées, pas uniquement par le score API.
+                if _properties_contain_identifier(item.get("properties"), sel.value):
+                    matches.append((item, max(score, 0.9)))
+            elif similarity >= 0.92:
+                nominal_candidates.append((item, max(score, similarity), similarity))
 
         result = self.result(sel, raw={"total": dig(payload, "total", "value")})
         result.candidates = [
@@ -134,21 +138,42 @@ class OpenSanctionsSource(BaseSource):
                 "caption": clean(item.get("caption")),
                 "schema": item.get("schema"),
                 "score": round(float(item.get("score") or 0.0), 3),
+                "name_similarity": round(
+                    _similarity(target, normalize_name(clean(item.get("caption")) or "")),
+                    3,
+                ),
+                "match_status": (
+                    "confirmed"
+                    if any(match[0] is item for match in matches)
+                    else "manual_review"
+                    if any(candidate[0] is item for candidate in nominal_candidates)
+                    else "rejected"
+                ),
                 "datasets": (item.get("datasets") or [])[:5],
             }
             for item in results[:8]
         ]
 
         if not matches:
-            # Absence de correspondance = information de conformité utile.
+            if nominal_candidates:
+                screening = (
+                    f"{len(nominal_candidates)} correspondance(s) nominale(s) "
+                    "potentielle(s), placée(s) en revue manuelle. Aucun signal de "
+                    "sanction confirmé sans identifiant secondaire."
+                )
+            else:
+                screening = (
+                    "Aucune correspondance confirmée dans les listes de sanctions "
+                    "et PEP consultées"
+                )
             result.attributes = collect(
                 attr(
                     "sanctions_screening",
-                    "Aucune correspondance dans les listes de sanctions et PEP consultées",
+                    screening,
                     self.id,
                     category="risk",
                     url="https://www.opensanctions.org",
-                    reliability=0.9,
+                    reliability=0.92,
                     label="Criblage sanctions",
                 )
             )
@@ -236,6 +261,28 @@ def _similarity(a: str, b: str) -> float:
         return 0.0
     intersection = tokens_a & tokens_b
     return len(intersection) / max(len(tokens_a), len(tokens_b))
+
+
+def _properties_contain_identifier(properties: Any, expected: str) -> bool:
+    """Vérifie qu'un identifiant demandé figure réellement dans la réponse."""
+    wanted = re.sub(r"[^a-z0-9]", "", str(expected or "").lower())
+    if not wanted or not isinstance(properties, dict):
+        return False
+
+    def values(value: Any):
+        if isinstance(value, dict):
+            for nested in value.values():
+                yield from values(nested)
+        elif isinstance(value, (list, tuple, set)):
+            for nested in value:
+                yield from values(nested)
+        else:
+            yield value
+
+    return any(
+        re.sub(r"[^a-z0-9]", "", str(value or "").lower()) == wanted
+        for value in values(properties)
+    )
 
 
 # ============================================================================

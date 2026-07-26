@@ -215,6 +215,7 @@ function buildRequest() {
     mode: $("select-mode").value,
     entity_kind: $("select-kind").value || null,
     purpose: $("select-purpose").value,
+    match_policy: $("select-match-policy").value,
     language: $("select-language").value,
     report_template: $("select-template").value,
     allow_account_enumeration: $("opt-enumeration").checked,
@@ -634,10 +635,80 @@ function renderDetails(dossier) {
   renderIdentityTab(root);
   renderPeopleTab(dossier);
   renderRiskTab(dossier);
+  renderResolutionTab(dossier);
   renderChangesTab();
   renderTimelineTab(dossier);
   renderReportTab(dossier);
   renderSourcesTab(dossier);
+}
+
+function renderResolutionTab(dossier) {
+  const container = $("tab-resolution");
+  const decisions = dossier.resolution || [];
+  const labels = {
+    confirmed: ["Confirmé", "text-emerald-300", "border-emerald-500/30 bg-emerald-500/5"],
+    probable: ["Probable", "text-cyan-300", "border-cyan-500/30 bg-cyan-500/5"],
+    ambiguous: ["Ambigu", "text-amber-300", "border-amber-500/30 bg-amber-500/5"],
+    rejected: ["Rejeté", "text-red-300", "border-red-500/30 bg-red-500/5"],
+    quarantined: ["Quarantaine", "text-violet-300", "border-violet-500/30 bg-violet-500/5"],
+  };
+  const counts = decisions.reduce((acc, item) => {
+    acc[item.verdict] = (acc[item.verdict] || 0) + 1;
+    return acc;
+  }, {});
+  const policy = dossier.stats?.match_policy || "strict";
+  const policyLabels = {
+    strict: "Strict",
+    balanced: "Équilibré",
+    exploratory: "Exploratoire",
+  };
+
+  if (!decisions.length) {
+    container.innerHTML = `<div class="p-4 border border-emerald-500/30 bg-emerald-500/5 rounded-lg">
+      <div class="text-emerald-300 text-sm font-bold">Aucun rapprochement incertain</div>
+      <p class="text-xs text-slate-500 mt-1">Le profil ${escapeHtml(policyLabels[policy] || policy)} n'a rencontré ni collision d'identité ni pivot faible.</p>
+    </div>`;
+    return;
+  }
+
+  const cards = Object.entries(labels).map(([key, meta]) => `
+    <div class="p-2.5 border ${meta[2]} rounded">
+      <div class="text-[9px] uppercase tracking-wider text-slate-500">${meta[0]}</div>
+      <div class="text-xl font-bold ${meta[1]}">${Number(counts[key] || 0)}</div>
+    </div>`).join("");
+
+  const rows = decisions.map((item) => {
+    const meta = labels[item.verdict] || [humanize(item.verdict), "text-slate-300", "border-slate-700"];
+    const evidence = (item.evidence || []).map((entry) => {
+      const value = entry.value === undefined ? "" : ` : ${formatValue(entry.value)}`;
+      return `${humanize(entry.field || "preuve")}${value}`;
+    });
+    const conflicts = (item.conflicts || []).map((entry) =>
+      `Contradiction ${humanize(entry.field || "")}`
+    );
+    const reasons = [...(item.reasons || []), ...evidence, ...conflicts];
+    return `<div class="p-3 border ${meta[2]} rounded-lg">
+      <div class="flex items-start justify-between gap-3">
+        <div class="min-w-0">
+          <span class="text-[9px] uppercase tracking-widest ${meta[1]}">${meta[0]}</span>
+          <div class="text-sm text-slate-200 font-bold break-words">${escapeHtml(item.label || item.right_key || "Décision de rapprochement")}</div>
+          <div class="text-[10px] text-slate-600 mt-0.5">${escapeHtml(item.source || "moteur")} · ${escapeHtml(item.action || "")}</div>
+        </div>
+        <span class="text-sm font-bold ${meta[1]}">${Math.round(Number(item.score || 0) * 100)}%</span>
+      </div>
+      ${reasons.length ? `<ul class="mt-2 space-y-1 text-[11px] text-slate-400">${reasons.map((reason) => `<li>• ${escapeHtml(reason)}</li>`).join("")}</ul>` : ""}
+    </div>`;
+  }).join("");
+
+  container.innerHTML = `
+    <div class="flex items-center justify-between gap-3 mb-3">
+      <div>
+        <div class="text-sm font-bold text-slate-200">Journal de résolution d'identité</div>
+        <div class="text-[11px] text-slate-500">Profil ${escapeHtml(policyLabels[policy] || policy)} · décisions explicables, aucune fusion silencieuse.</div>
+      </div>
+    </div>
+    <div class="grid grid-cols-2 md:grid-cols-5 gap-2 mb-4">${cards}</div>
+    <div class="space-y-2">${rows}</div>`;
 }
 
 async function renderChangesTab() {

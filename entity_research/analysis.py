@@ -19,7 +19,7 @@ from typing import Any, Dict, List, Optional, Sequence
 
 from entity_research.confidence import parse_iso
 from entity_research.identifiers import EntityKind, SelectorType
-from entity_research.schema import Dossier
+from entity_research.schema import Dossier, SourceStatus
 
 SEVERITY_ORDER = {"critical": 0, "high": 1, "medium": 2, "low": 3, "info": 4}
 
@@ -190,7 +190,13 @@ def build_risk_flags(dossier: Dossier) -> List[Dict[str, Any]]:
         )
 
     # -- Anonymisation du titulaire ----------------------------------------
-    if root.get("domain") and not root.get("domain_registrant"):
+    whois_completed = any(
+        result.source_id == "domain_pivot"
+        and result.status is SourceStatus.OK
+        and result.selector.type is SelectorType.DOMAIN
+        for result in dossier.source_results
+    )
+    if whois_completed and not root.get("domain_registrant"):
         add(
             "whois_redacted",
             "info",

@@ -280,6 +280,7 @@ class Dossier:
     resolved_selectors: List[Selector] = field(default_factory=list)
     source_results: List[SourceResult] = field(default_factory=list)
     conflicts: List[Dict[str, Any]] = field(default_factory=list)
+    resolution: List[Dict[str, Any]] = field(default_factory=list)
     gaps: List[Dict[str, Any]] = field(default_factory=list)
     risk_flags: List[Dict[str, Any]] = field(default_factory=list)
     timeline: List[Dict[str, Any]] = field(default_factory=list)
@@ -374,6 +375,7 @@ class Dossier:
             "resolved_selectors": [s.to_dict() for s in self.resolved_selectors],
             "sources": [r.to_dict(include_raw=include_raw) for r in self.source_results],
             "conflicts": self.conflicts,
+            "resolution": self.resolution,
             "gaps": self.gaps,
             "risk_flags": self.risk_flags,
             "timeline": self.timeline,

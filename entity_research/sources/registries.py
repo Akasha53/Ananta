@@ -31,6 +31,7 @@ from entity_research.identifiers import (
     normalize_name,
 )
 from entity_research.schema import Sensitivity, SourceResult, SourceStatus
+from entity_research.resolution import name_similarity
 from entity_research.sources._helpers import (
     SELF,
     attr,
@@ -318,9 +319,11 @@ def _pick_best_sirene(results: List[Dict[str, Any]], sel: Selector) -> Optional[
         return None
 
     if sel.type is SelectorType.PERSON_NAME:
-        # Pour une personne, on ne retient un résultat que s'il la cite comme dirigeant.
+        # Un même nom peut apparaître comme dirigeant de nombreuses sociétés.
+        # Sans date de naissance ou autre identifiant, une seule société
+        # candidate et une égalité nominale stricte sont exigées.
         target = normalize_name(sel.value)
-        target_tokens = set(target.split())
+        matching: List[Dict[str, Any]] = []
         for item in results:
             for officer in item.get("dirigeants") or []:
                 if not isinstance(officer, dict):
@@ -332,33 +335,52 @@ def _pick_best_sirene(results: List[Dict[str, Any]], sel: Selector) -> Optional[
                 )
                 if not full:
                     continue
-                tokens = set(full.split())
-                if target_tokens and target_tokens.issubset(tokens):
-                    return item
-        return None
+                if target and full == target:
+                    matching.append(item)
+                    break
+        unique = {
+            clean(item.get("siren")) or f"row:{index}": item
+            for index, item in enumerate(matching)
+        }
+        return next(iter(unique.values())) if len(unique) == 1 else None
 
     # Nom d'organisation : exiger une similarité forte pour éviter les faux positifs.
-    target = normalize_name(sel.value)
+    target = sel.value
     if not target:
         return None
-    best: Optional[Dict[str, Any]] = None
-    best_score = 0.0
+    ranked: List[tuple[float, Dict[str, Any]]] = []
     for item in results:
-        for candidate in (item.get("nom_raison_sociale"), item.get("nom_complet"), item.get("sigle")):
-            score = _name_similarity(target, normalize_name(candidate or ""))
-            if score > best_score:
-                best_score, best = score, item
-    return best if best_score >= 0.72 else None
+        legal_scores = [
+            name_similarity(target, candidate or "", EntityKind.ORGANIZATION)
+            for candidate in (
+                item.get("nom_raison_sociale"),
+                item.get("nom_complet"),
+            )
+        ]
+        score = max(legal_scores, default=0.0)
+        sigle = clean(item.get("sigle"))
+        if sigle:
+            sigle_score = name_similarity(target, sigle, EntityKind.ORGANIZATION)
+            # Un sigle seul est rarement unique à l'échelle d'un registre.
+            score = max(score, min(sigle_score, 0.82))
+        ranked.append((score, item))
+
+    ranked.sort(key=lambda candidate: candidate[0], reverse=True)
+    if not ranked or ranked[0][0] < 0.9:
+        return None
+    if len(ranked) > 1 and ranked[0][0] - ranked[1][0] < 0.08:
+        return None
+    return ranked[0][1]
 
 
 def _name_similarity(a: str, b: str) -> float:
-    """Similarité de noms : Jaccard sur les tokens + bonus égalité stricte."""
+    """Compatibilité des autres registres avec le score historique."""
     if not a or not b:
         return 0.0
     if a == b:
         return 1.0
-    tokens_a = {t for t in a.split() if len(t) > 1}
-    tokens_b = {t for t in b.split() if len(t) > 1}
+    tokens_a = {token for token in a.split() if len(token) > 1}
+    tokens_b = {token for token in b.split() if len(token) > 1}
     if not tokens_a or not tokens_b:
         return 0.0
     intersection = tokens_a & tokens_b

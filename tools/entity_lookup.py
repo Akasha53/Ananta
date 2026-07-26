@@ -76,6 +76,7 @@ def cmd_research(args: argparse.Namespace) -> int:
         args.query,
         mode=args.mode,
         purpose=args.purpose,
+        match_policy=args.match_policy,
         entity_kind=args.kind,
         language=args.language,
         template=args.template,
@@ -131,6 +132,12 @@ def main(argv: Optional[list] = None) -> int:
     parser.add_argument("--sources", action="store_true", help="Liste le catalogue des sources")
 
     parser.add_argument("--mode", default="standard", choices=["passive", "standard", "deep"])
+    parser.add_argument(
+        "--match-policy",
+        default="strict",
+        choices=["strict", "balanced", "exploratory"],
+        help="Tolérance du rapprochement d'identité (défaut: strict)",
+    )
     parser.add_argument("--kind", default=None, choices=["person", "organization"])
     parser.add_argument(
         "--purpose",

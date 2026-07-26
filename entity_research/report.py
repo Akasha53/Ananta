@@ -34,6 +34,7 @@ LABELS: Dict[str, Dict[str, str]] = {
         "unknown": "Nature indéterminée",
         "summary": "Synthèse",
         "briefing": "Informations fournies",
+        "resolution": "Résolution d'identité",
         "identity": "Identité",
         "legal": "Situation légale et administrative",
         "financial": "Éléments financiers",
@@ -77,6 +78,7 @@ LABELS: Dict[str, Dict[str, str]] = {
         "unknown": "Undetermined type",
         "summary": "Summary",
         "briefing": "Provided information",
+        "resolution": "Identity resolution",
         "identity": "Identity",
         "legal": "Legal and administrative status",
         "financial": "Financial data",
@@ -120,6 +122,7 @@ LABELS: Dict[str, Dict[str, str]] = {
         "unknown": "Naturaleza indeterminada",
         "summary": "Resumen",
         "briefing": "Información proporcionada",
+        "resolution": "Resolución de identidad",
         "identity": "Identidad",
         "legal": "Situación legal y administrativa",
         "financial": "Datos financieros",
@@ -163,6 +166,7 @@ LABELS: Dict[str, Dict[str, str]] = {
         "unknown": "Unbestimmte Art",
         "summary": "Zusammenfassung",
         "briefing": "Bereitgestellte Informationen",
+        "resolution": "Identitätsauflösung",
         "identity": "Identität",
         "legal": "Rechtlicher und administrativer Status",
         "financial": "Finanzdaten",
@@ -206,14 +210,15 @@ TEMPLATE_SECTIONS: Dict[Template, Sequence[str]] = {
     "detailed": (
         "header", "summary", "briefing", "risk", "identity", "legal", "financial",
         "network", "digital", "contact", "timeline", "conflicts", "gaps",
-        "sources", "compliance",
+        "resolution", "sources", "compliance",
     ),
     "executive": (
-        "header", "summary", "briefing", "risk", "identity", "network", "gaps", "compliance"
+        "header", "summary", "briefing", "risk", "identity", "network", "gaps",
+        "resolution", "compliance",
     ),
     "technical": (
         "header", "briefing", "identity", "digital", "contact", "network", "sources",
-        "compliance",
+        "resolution", "compliance",
     ),
     "minimal": ("header", "summary", "briefing", "risk", "identity", "compliance"),
 }
@@ -283,6 +288,8 @@ def render_markdown(
             parts.append(_render_gaps(dossier, L))
         elif section == "sources":
             parts.append(_render_sources(dossier, L))
+        elif section == "resolution":
+            parts.append(_render_resolution(dossier, L))
         elif section == "compliance":
             parts.append(_render_compliance(dossier, L))
 
@@ -578,6 +585,43 @@ def _render_compliance(dossier: Dossier, L: Dict[str, str]) -> str:
     if compliance.get("disclaimer"):
         lines.append("")
         lines.append(f"> {compliance['disclaimer']}")
+    return "\n".join(lines)
+
+
+def _render_resolution(dossier: Dossier, L: Dict[str, str]) -> str:
+    important = [
+        item
+        for item in dossier.resolution
+        if item.get("action") in {"merge", "quarantine"}
+        or item.get("verdict") in {"ambiguous", "rejected"}
+    ]
+    if not important:
+        return ""
+
+    labels = {
+        "confirmed": "✅ confirmé",
+        "probable": "ℹ️ probable",
+        "ambiguous": "⚠️ ambigu",
+        "rejected": "⛔ rejeté",
+        "quarantined": "🔒 quarantaine",
+    }
+    lines = [
+        f"## {L['resolution']}",
+        "",
+        f"Profil de rapprochement : **{dossier.stats.get('match_policy', 'strict')}**.",
+        "",
+        "| Candidat | Verdict | Score | Décision | Justification |",
+        "|---|---|---:|---|---|",
+    ]
+    for item in important[:50]:
+        reasons = "; ".join(item.get("reasons") or []) or "—"
+        lines.append(
+            f"| {_escape_cell(item.get('label') or item.get('right_key') or '—')} | "
+            f"{labels.get(item.get('verdict'), item.get('verdict', '—'))} | "
+            f"{int(float(item.get('score') or 0) * 100)}% | "
+            f"{_escape_cell(item.get('action') or '—')} | "
+            f"{_escape_cell(reasons)} |"
+        )
     return "\n".join(lines)
 
 

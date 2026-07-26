@@ -223,9 +223,17 @@ def _dedupe_result(result: SourceResult) -> None:
     seen_entities = set()
     unique_entities = []
     for entity in result.entities:
-        if entity.key in seen_entities:
+        # Deux homonymes partagent volontairement la même clé nominale avant
+        # la résolution d'identité. Ne pas en supprimer un ici : le moteur
+        # comparera ensuite leurs identifiants et les gardera séparés si besoin.
+        signature = (
+            entity.key,
+            tuple(sorted(selector.key for selector in entity.selectors)),
+            tuple(sorted(attribute.fingerprint for attribute in entity.attributes)),
+        )
+        if signature in seen_entities:
             continue
-        seen_entities.add(entity.key)
+        seen_entities.add(signature)
         unique_entities.append(entity)
     result.entities = unique_entities
 

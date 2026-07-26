@@ -175,6 +175,34 @@ class TestEntityResearch:
         response = client.post("/entity/research", json={"query": "acme.fr", "mode": "ultra"})
         assert response.status_code == 422
 
+    def test_invalid_match_policy_rejected(self, client):
+        response = client.post(
+            "/entity/research",
+            json={"query": "acme.fr", "match_policy": "reckless"},
+        )
+        assert response.status_code == 422
+
+    def test_match_policy_is_forwarded_to_engine(self, client, monkeypatch):
+        import entity_research
+
+        captured = {}
+
+        def fake_research_entity(query, **kwargs):
+            captured.update(kwargs)
+            return build_fake_dossier("match_policy_api")
+
+        monkeypatch.setattr(entity_research, "research_entity", fake_research_entity)
+        response = client.post(
+            "/entity/research",
+            json={
+                "query": "acme.fr",
+                "match_policy": "balanced",
+                "use_llm": False,
+            },
+        )
+        assert response.status_code == 200
+        assert captured["match_policy"] == "balanced"
+
     def test_authorized_investigation_requires_acknowledgement(self, client, patched_engine):
         response = client.post(
             "/entity/research",

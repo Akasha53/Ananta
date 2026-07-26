@@ -41,6 +41,15 @@ from entity_research.identifiers import (
     primary_label,
     selector_specificity,
 )
+from entity_research.resolution import (
+    MatchPolicy,
+    MatchVerdict,
+    ResolutionDecision,
+    compare_entities,
+    disambiguated_entity_key,
+    parse_match_policy,
+    selector_pivot_decision,
+)
 from entity_research.schema import (
     Attribute,
     Dossier,
@@ -85,7 +94,11 @@ class PivotStats:
     waves: int = 0
     selectors_explored: int = 0
     selectors_discovered: int = 0
+    selectors_quarantined: int = 0
     entities_found: int = 0
+    matches_merged: int = 0
+    matches_ambiguous: int = 0
+    matches_rejected: int = 0
     attributes_collected: int = 0
     sources_ok: int = 0
     sources_skipped: int = 0
@@ -101,7 +114,11 @@ class PivotStats:
             "waves": self.waves,
             "selectors_explored": self.selectors_explored,
             "selectors_discovered": self.selectors_discovered,
+            "selectors_quarantined": self.selectors_quarantined,
             "entities_found": self.entities_found,
+            "matches_merged": self.matches_merged,
+            "matches_ambiguous": self.matches_ambiguous,
+            "matches_rejected": self.matches_rejected,
             "attributes_collected": self.attributes_collected,
             "sources_ok": self.sources_ok,
             "sources_skipped": self.sources_skipped,
@@ -156,6 +173,7 @@ class PivotEngine:
         user_consent: bool = False,
         run_id: Optional[str] = None,
         default_region: str = "FR",
+        match_policy: str | MatchPolicy = MatchPolicy.STRICT,
     ) -> Dossier:
         """
         Lance une recherche complète à partir d'une requête libre.
@@ -173,12 +191,15 @@ class PivotEngine:
             user_consent: consentement explicite pour les sources qui l'exigent.
             run_id: identifiant de run (généré si absent).
             default_region: région par défaut pour les numéros de téléphone.
+            match_policy: tolérance de rapprochement (`strict`, `balanced`,
+                `exploratory`).
 
         Returns:
             Un `Dossier` complet (jamais d'exception pour une source défaillante).
         """
         started_monotonic = time.monotonic()
         policy = policy or CompliancePolicy()
+        resolved_match_policy = parse_match_policy(match_policy)
         run_id = run_id or f"entity_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:8]}"
 
         # 1. Sélecteurs de départ
@@ -235,6 +256,7 @@ class PivotEngine:
 
         # 3. État du parcours
         stats = PivotStats()
+        resolution_events: List[Dict[str, Any]] = []
         entities: Dict[str, EntityNode] = {}
         root = EntityNode(
             kind=kind,
@@ -263,7 +285,6 @@ class PivotEngine:
                     continue
                 entities[node.key] = node
                 attributes_by_entity.setdefault(node.key, []).extend(node.attributes)
-                node.attributes = []
             for relationship in briefing.relationships:
                 resolved = self._resolve_relationship(relationship, root_key)
                 if resolved is not None:
@@ -273,6 +294,14 @@ class PivotEngine:
         frontier: List[_QueuedSelector] = []
         for sel in allowed_seeds:
             if sel.type in NON_PIVOTABLE:
+                continue
+            decision = selector_pivot_decision(
+                sel,
+                policy=resolved_match_policy,
+                is_seed=True,
+            )
+            if decision.action != "pivot":
+                self._record_resolution(decision, resolution_events, stats)
                 continue
             frontier.append(_QueuedSelector(sel, 0, root_key))
             queued_keys.add(sel.key)
@@ -335,7 +364,7 @@ class PivotEngine:
                     continue
 
                 owner_key = queued.owner_key
-                self._absorb(
+                node_key_map = self._absorb(
                     source_result,
                     owner_key=owner_key,
                     entities=entities,
@@ -343,6 +372,8 @@ class PivotEngine:
                     relationships=relationships,
                     stats=stats,
                     budget=self.budget,
+                    match_policy=resolved_match_policy,
+                    resolution_events=resolution_events,
                 )
 
                 # Nouveaux sélecteurs -> vague suivante
@@ -358,6 +389,13 @@ class PivotEngine:
                     type_cap = MAX_DEPTH_BY_TYPE.get(discovered.type, self.budget.max_depth)
                     if next_depth > min(self.budget.max_depth, type_cap):
                         continue
+                    decision = selector_pivot_decision(
+                        discovered,
+                        policy=resolved_match_policy,
+                    )
+                    self._record_resolution(decision, resolution_events, stats)
+                    if decision.action != "pivot":
+                        continue
                     queued_keys.add(discovered.key)
                     frontier.append(_QueuedSelector(discovered, next_depth, owner_key))
                     owner = entities.get(owner_key)
@@ -366,6 +404,7 @@ class PivotEngine:
 
                 # Sélecteurs portés par les entités découvertes (structure de groupe)
                 for node in source_result.entities:
+                    resolved_node_key = node_key_map.get(node.key, node.key)
                     for node_selector in node.selectors:
                         if node_selector.key in queued_keys:
                             continue
@@ -375,8 +414,17 @@ class PivotEngine:
                             continue
                         if len(queued_keys) >= self.budget.max_selectors:
                             break
+                        decision = selector_pivot_decision(
+                            node_selector,
+                            policy=resolved_match_policy,
+                        )
+                        self._record_resolution(decision, resolution_events, stats)
+                        if decision.action != "pivot":
+                            continue
                         queued_keys.add(node_selector.key)
-                        frontier.append(_QueuedSelector(node_selector, next_depth, node.key))
+                        frontier.append(
+                            _QueuedSelector(node_selector, next_depth, resolved_node_key)
+                        )
 
             progress = min(85, 5 + int(80 * stats.source_calls / max(1, self.budget.max_source_calls)))
             self._notify(progress, f"{stats.source_calls} sources interrogées, {len(entities)} entités")
@@ -385,7 +433,13 @@ class PivotEngine:
         self._notify(88, "Consolidation des faits et calcul de confiance")
 
         self._merge_duplicate_entities(
-            entities, attributes_by_entity, relationships, root_key
+            entities,
+            attributes_by_entity,
+            relationships,
+            root_key,
+            match_policy=resolved_match_policy,
+            resolution_events=resolution_events,
+            stats=stats,
         )
 
         for key, node in entities.items():
@@ -403,7 +457,9 @@ class PivotEngine:
             [s for node in dossier.entities for s in node.selectors]
         )
         dossier.conflicts = detect_conflicts(root.attributes)
+        dossier.resolution = resolution_events
         dossier.stats = stats.to_dict()
+        dossier.stats["match_policy"] = resolved_match_policy.value
         if briefing and not briefing.is_empty:
             dossier.stats["briefing"] = {
                 "facts": len(briefing.facts),
@@ -457,29 +513,75 @@ class PivotEngine:
         relationships: Dict[str, Relationship],
         stats: PivotStats,
         budget: ResearchBudget,
-    ) -> None:
+        match_policy: MatchPolicy,
+        resolution_events: List[Dict[str, Any]],
+    ) -> Dict[str, str]:
         """Intègre un résultat de source dans le graphe."""
         attributes_by_entity.setdefault(owner_key, []).extend(result.attributes)
+        node_key_map: Dict[str, str] = {}
 
         for node in result.entities:
+            original_key = node.key
             if node.key == owner_key:
                 attributes_by_entity.setdefault(owner_key, []).extend(node.attributes)
+                node_key_map[original_key] = owner_key
                 continue
             existing = entities.get(node.key)
             if existing is None:
                 if len(entities) >= budget.max_entities:
                     continue
                 entities[node.key] = node
+                node_key_map[original_key] = node.key
                 attributes_by_entity.setdefault(node.key, []).extend(node.attributes)
-                node.attributes = []
             else:
-                attributes_by_entity.setdefault(node.key, []).extend(node.attributes)
-                for sel in node.selectors:
-                    if sel.key not in {s.key for s in existing.selectors}:
-                        existing.selectors.append(sel)
-                existing.aliases = sorted({*existing.aliases, *node.aliases})
+                decision = compare_entities(
+                    existing,
+                    node,
+                    policy=match_policy,
+                    source=result.source_id,
+                )
+                self._record_resolution(decision, resolution_events, stats)
+                if decision.action == "merge":
+                    node_key_map[original_key] = existing.key
+                    attributes_by_entity.setdefault(existing.key, []).extend(node.attributes)
+                    known = {selector.key for selector in existing.selectors}
+                    existing.selectors.extend(
+                        selector
+                        for selector in node.selectors
+                        if selector.key not in known
+                    )
+                    existing.aliases = sorted({*existing.aliases, *node.aliases})
+                    continue
+
+                if len(entities) >= budget.max_entities:
+                    continue
+                ordinal = 0
+                distinct_key = disambiguated_entity_key(
+                    node,
+                    source=result.source_id,
+                    ordinal=ordinal,
+                )
+                while distinct_key in entities:
+                    ordinal += 1
+                    distinct_key = disambiguated_entity_key(
+                        node,
+                        source=result.source_id,
+                        ordinal=ordinal,
+                    )
+                node.key = distinct_key
+                node_key_map[original_key] = distinct_key
+                entities[distinct_key] = node
+                attributes_by_entity.setdefault(distinct_key, []).extend(node.attributes)
 
         for relationship in result.relationships:
+            relationship.source_key = node_key_map.get(
+                relationship.source_key,
+                relationship.source_key,
+            )
+            relationship.target_key = node_key_map.get(
+                relationship.target_key,
+                relationship.target_key,
+            )
             resolved = self._resolve_relationship(relationship, owner_key)
             if resolved is None:
                 continue
@@ -488,6 +590,7 @@ class PivotEngine:
                 relationships[resolved.key] = resolved
             elif resolved.confidence > existing.confidence:
                 relationships[resolved.key] = resolved
+        return node_key_map
 
     def _merge_duplicate_entities(
         self,
@@ -495,6 +598,10 @@ class PivotEngine:
         attributes_by_entity: Dict[str, List[Attribute]],
         relationships: Dict[str, Relationship],
         root_key: str,
+        *,
+        match_policy: MatchPolicy,
+        resolution_events: List[Dict[str, Any]],
+        stats: PivotStats,
     ) -> None:
         """
         Fusionne les entités qui désignent la même chose.
@@ -505,10 +612,11 @@ class PivotEngine:
         """
         groups: Dict[Tuple[str, str], List[str]] = {}
         for key, node in entities.items():
-            if node.kind is EntityKind.ORGANIZATION:
-                canonical = canonical_org_name(node.label)
-            else:
-                canonical = normalize_name(node.label)
+            canonical = (
+                canonical_org_name(node.label)
+                if node.kind is EntityKind.ORGANIZATION
+                else normalize_name(node.label)
+            )
             if not canonical:
                 continue
             groups.setdefault((node.kind.value, canonical), []).append(key)
@@ -524,6 +632,15 @@ class PivotEngine:
             )
             for key in keys:
                 if key == winner:
+                    continue
+                decision = compare_entities(
+                    entities[winner],
+                    entities[key],
+                    policy=match_policy,
+                    source="consolidation",
+                )
+                self._record_resolution(decision, resolution_events, stats)
+                if decision.action != "merge":
                     continue
                 remap[key] = winner
                 loser = entities.pop(key, None)
@@ -554,6 +671,23 @@ class PivotEngine:
                 merged[relationship.key] = relationship
         relationships.clear()
         relationships.update(merged)
+
+    def _record_resolution(
+        self,
+        decision: ResolutionDecision,
+        resolution_events: List[Dict[str, Any]],
+        stats: PivotStats,
+    ) -> None:
+        """Ajoute une décision au journal et alimente ses compteurs."""
+        resolution_events.append(decision.to_dict())
+        if decision.action == "merge":
+            stats.matches_merged += 1
+        elif decision.verdict is MatchVerdict.AMBIGUOUS:
+            stats.matches_ambiguous += 1
+        elif decision.verdict is MatchVerdict.REJECTED:
+            stats.matches_rejected += 1
+        elif decision.verdict is MatchVerdict.QUARANTINED:
+            stats.selectors_quarantined += 1
 
     def _resolve_relationship(
         self, relationship: Relationship, owner_key: str

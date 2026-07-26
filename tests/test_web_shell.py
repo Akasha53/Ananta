@@ -42,6 +42,10 @@ def test_entity_ui_keeps_run_permalink_and_exposes_system_prompt():
     assert 'value="authorized_investigation"' in html
     assert 'id="opt-authorized-investigation"' in html
     assert 'body.purpose === "authorized_investigation"' in javascript
+    assert 'id="select-match-policy"' in html
+    assert 'data-tab="resolution"' in html
+    assert 'match_policy: $("select-match-policy").value' in javascript
+    assert "function renderResolutionTab(dossier)" in javascript
 
 
 def test_unified_launcher_is_present():

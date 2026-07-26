@@ -249,15 +249,29 @@ class WikidataSource(BaseSource):
             return None, None, None
 
         target = normalize_name(term)
-        best, best_score = None, 0.0
+        ranked: List[Tuple[float, Dict[str, Any]]] = []
         for item in candidates:
-            for candidate_label in [item.get("label"), item.get("match", {}).get("text")]:
-                score = _similar(target, normalize_name(candidate_label or ""))
-                if score > best_score:
-                    best, best_score = item, score
+            scores = [
+                _similar(target, normalize_name(candidate_label or ""))
+                for candidate_label in [
+                    item.get("label"),
+                    item.get("match", {}).get("text"),
+                ]
+            ]
+            ranked.append((max(scores, default=0.0), item))
 
-        if not best or best_score < 0.8:
+        ranked.sort(key=lambda candidate: candidate[0], reverse=True)
+        if not ranked or ranked[0][0] < 0.9:
             return None, None, None
+        best_score, best = ranked[0]
+
+        # Wikidata renvoie fréquemment plusieurs homonymes exacts. Sans
+        # identifiant secondaire, en choisir un arbitrairement fabriquerait
+        # une identité et tous les pivots qui en découlent.
+        if len(ranked) > 1:
+            runner_up_score = ranked[1][0]
+            if runner_up_score >= 0.9 and best_score - runner_up_score < 0.08:
+                return None, None, None
         return best.get("id"), clean(best.get("label")), clean(best.get("description"))
 
     def _resolve_labels(self, qids: List[str], ctx: ResearchContext) -> Dict[str, str]:

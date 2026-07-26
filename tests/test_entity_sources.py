@@ -252,6 +252,22 @@ class TestWikidata:
         assert result.status is SourceStatus.NOT_FOUND
         assert "personne" in result.reason.lower()
 
+    def test_two_equally_named_wikidata_candidates_are_rejected(self):
+        ambiguous = {
+            "search": [
+                {"id": "Q42", "label": "Contoso", "description": "entreprise A"},
+                {"id": "Q99", "label": "Contoso", "description": "entreprise B"},
+            ]
+        }
+        ctx = context(
+            {"action=wbsearchentities": ambiguous},
+            kind=EntityKind.ORGANIZATION,
+        )
+        result = WikidataSource().run(
+            make_selector(SelectorType.ORG_NAME, "Contoso"), ctx
+        )
+        assert result.status is SourceStatus.NOT_FOUND
+
 
 # ============================================================================
 # ORCID
@@ -359,7 +375,7 @@ class TestNominatim:
 
 
 class TestOpenSanctions:
-    def test_match_produces_critical_risk_attributes(self):
+    def test_verified_identifier_match_produces_critical_risk_attributes(self):
         payload = {
             "results": [
                 {
@@ -368,14 +384,18 @@ class TestOpenSanctions:
                     "schema": "Company",
                     "score": 0.95,
                     "datasets": ["eu_fsf", "us_ofac_sdn"],
-                    "properties": {"topics": ["sanction"], "country": ["ru"]},
+                    "properties": {
+                        "topics": ["sanction"],
+                        "country": ["ru"],
+                        "registrationNumber": ["552100554"],
+                    },
                 }
             ],
             "total": {"value": 1},
         }
         ctx = context({"/search/default": payload}, env={"OPENSANCTIONS_API_KEY": "k"})
         result = OpenSanctionsSource().run(
-            make_selector(SelectorType.ORG_NAME, "Contoso Trading"), ctx
+            make_selector(SelectorType.SIREN, "552100554"), ctx
         )
 
         assert result.status is SourceStatus.OK
@@ -383,6 +403,28 @@ class TestOpenSanctions:
         assert "Entité sanctionnée" in str(match.value)
         assert match.sensitivity.value == "sensitive"
         assert values(result)["risk_severity"] == "critical"
+
+    def test_name_only_match_is_quarantined_for_manual_review(self):
+        payload = {
+            "results": [
+                {
+                    "id": "NK-abc",
+                    "caption": "Contoso Trading",
+                    "schema": "Company",
+                    "score": 0.99,
+                    "datasets": ["eu_fsf"],
+                    "properties": {"topics": ["sanction"]},
+                }
+            ]
+        }
+        ctx = context({"/search/default": payload}, env={"OPENSANCTIONS_API_KEY": "k"})
+        result = OpenSanctionsSource().run(
+            make_selector(SelectorType.ORG_NAME, "Contoso Trading"), ctx
+        )
+
+        assert not any(a.name == "sanctions_match" for a in result.attributes)
+        assert "revue manuelle" in values(result)["sanctions_screening"]
+        assert result.candidates[0]["match_status"] == "manual_review"
 
     def test_absence_of_match_is_reported_as_a_fact(self):
         ctx = context({"/search/default": {"results": []}}, env={"OPENSANCTIONS_API_KEY": "k"})
@@ -397,7 +439,7 @@ class TestOpenSanctions:
                 {
                     "id": "NK-x",
                     "caption": "Une Toute Autre Société",
-                    "score": 0.4,
+                    "score": 0.99,
                     "datasets": ["eu_fsf"],
                     "properties": {"topics": ["sanction"]},
                 }
@@ -722,8 +764,11 @@ class TestUsernameIntel:
         result = UsernameIntelSource().run(make_selector(SelectorType.USERNAME, "octodev"), ctx)
 
         assert result.status is SourceStatus.OK
-        profiles = [a for a in result.attributes if a.name == "social_profile"]
+        profiles = [
+            a for a in result.attributes if a.name == "candidate_social_profile"
+        ]
         assert profiles and all(a.confidence <= 0.6 for a in profiles)
+        assert not result.discovered
         assert all(a.sensitivity.value == "personal" for a in profiles)
 
     def test_denied_without_opt_in(self):
@@ -779,7 +824,10 @@ class TestWebPresence:
         assert result.status is SourceStatus.OK
         parsed = values(result)
         assert parsed["likely_official_website"] == "https://contoso.example"
-        assert any("linkedin" in str(v) for v in all_values(result, "social_profile"))
+        assert any(
+            "linkedin" in str(v)
+            for v in all_values(result, "candidate_social_profile")
+        )
         # Wikipédia est générique : pas retenu comme site officiel
         assert "wikipedia" not in parsed["likely_official_website"]
 
@@ -789,12 +837,31 @@ class TestWebPresence:
             policy=CompliancePolicy(mode=ResearchMode.STANDARD),
         )
         result = WebPresenceSource().run(make_selector(SelectorType.ORG_NAME, "Contoso"), ctx)
-        assert all(a.confidence <= 0.65 for a in result.attributes)
+        assert all(a.confidence <= 0.82 for a in result.attributes)
 
     def test_layer2_blocked_in_passive_mode(self, no_ddg_library):
         ctx = context({}, policy=CompliancePolicy(mode=ResearchMode.PASSIVE))
         result = WebPresenceSource().run(make_selector(SelectorType.ORG_NAME, "Contoso"), ctx)
         assert result.status is SourceStatus.DENIED
+
+    def test_unrelated_results_are_rejected_but_kept_as_candidates(
+        self, no_ddg_library
+    ):
+        html = """
+        <a class="result__a" href="https://unrelated.example/">Autre société</a>
+        <a class="result__a" href="https://example.net/jean-martin">Jean Martin</a>
+        """
+        ctx = context(
+            {"html.duckduckgo.com": html},
+            policy=CompliancePolicy(mode=ResearchMode.STANDARD),
+        )
+        result = WebPresenceSource().run(
+            make_selector(SelectorType.ORG_NAME, "Contoso"), ctx
+        )
+        assert result.status is SourceStatus.NOT_FOUND
+        assert not any(attribute.name == "web_mention" for attribute in result.attributes)
+        assert result.candidates
+        assert all(candidate["status"] == "rejected" for candidate in result.candidates)
 
 
 # ============================================================================
