@@ -159,6 +159,7 @@ const TRANSLATIONS = {
 
         // Sidebar
         'central_console': 'Console Centrale',
+        'entity_research': 'Entités',
         'database': 'Base de données',
         'user': 'Utilisateur',
         'root_access': 'Accès Root',
@@ -261,6 +262,7 @@ const TRANSLATIONS = {
 
         // Sidebar
         'central_console': 'Central Console',
+        'entity_research': 'Entities',
         'database': 'Database',
         'user': 'User',
         'root_access': 'Root Access',
@@ -363,6 +365,7 @@ const TRANSLATIONS = {
 
         // Sidebar
         'central_console': 'Consola Central',
+        'entity_research': 'Entidades',
         'database': 'Base de datos',
         'user': 'Usuario',
         'root_access': 'Acceso Root',
@@ -465,6 +468,7 @@ const TRANSLATIONS = {
 
         // Sidebar
         'central_console': 'Zentrale Konsole',
+        'entity_research': 'Entitäten',
         'database': 'Datenbank',
         'user': 'Benutzer',
         'root_access': 'Root-Zugang',

@@ -18,8 +18,19 @@ from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
-from main import app
 from database import Base, get_db
+
+
+def _get_app():
+    """Import the FastAPI app lazily.
+
+    `main` pulls in the full analysis stack (torch, sentence-transformers).
+    Importing it at module level would make *every* test file — including pure
+    unit tests — depend on those heavy packages just to be collected.
+    """
+    from main import app
+
+    return app
 
 
 # ==================== DATABASE FIXTURES ====================
@@ -75,6 +86,8 @@ def db_session() -> Generator:
 @pytest.fixture(scope="module")
 def client() -> Generator:
     """Create a test client for the FastAPI app."""
+    app = _get_app()
+
     # Override the database dependency
     app.dependency_overrides[get_db] = override_get_db
 
@@ -92,6 +105,7 @@ def client() -> Generator:
 @pytest.fixture(scope="function")
 def fresh_client(db_session) -> Generator:
     """Create a fresh test client for each test (isolated)."""
+    app = _get_app()
     app.dependency_overrides[get_db] = lambda: db_session
 
     with TestClient(app) as test_client:

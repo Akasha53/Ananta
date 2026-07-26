@@ -185,6 +185,141 @@ class DomainRequest(BaseModel):
         return v
 
 
+# ==================== ENTITY RESEARCH ====================
+
+
+def validate_entity_query(value: str) -> str:
+    """
+    Valide une requête de recherche d'entité.
+
+    Bien plus permissif que `validate_target` : l'entrée peut être un nom, un
+    email, un téléphone, un SIREN ou une phrase mêlant plusieurs indices. On
+    bloque uniquement ce qui ressemble à une tentative d'injection shell.
+    """
+    if not value or not value.strip():
+        raise ValueError("La requête ne peut pas être vide")
+
+    value = value.strip()
+    if len(value) > 500:
+        raise ValueError("La requête est trop longue (max 500 caractères)")
+
+    if re.search(r"[;`$\\]|\|\||&&", value):
+        raise ValueError("La requête contient des caractères non autorisés")
+
+    return value
+
+
+class EntityResearchRequest(BaseModel):
+    """Requête de recherche d'entité (personne physique ou morale)."""
+
+    query: str = Field(
+        ...,
+        min_length=1,
+        max_length=500,
+        description=(
+            "Tout indice connu : nom, raison sociale, email, téléphone, domaine, "
+            "SIREN/SIRET, numéro de TVA, LEI, pseudonyme, ou plusieurs à la fois"
+        ),
+    )
+    mode: Literal["passive", "standard", "deep"] = Field(
+        default="standard",
+        description=(
+            "passive: registres officiels uniquement (couche 1) | "
+            "standard: + agrégateurs et web public (couche 2) | "
+            "deep: exploration étendue"
+        ),
+    )
+    entity_kind: Optional[Literal["person", "organization"]] = Field(
+        default=None,
+        description="Nature de l'entité si connue, sinon déduite automatiquement",
+    )
+    purpose: Literal[
+        "due_diligence",
+        "kyc_aml",
+        "fraud_investigation",
+        "security_assessment",
+        "journalism",
+        "recruitment",
+        "legal_proceedings",
+        "self_check",
+        "research",
+    ] = Field(
+        default="due_diligence",
+        description="Finalité déclarée (base légale du traitement, RGPD art. 6)",
+    )
+    language: Literal["fr", "en", "es", "de"] = Field(default="fr")
+    report_template: Literal["detailed", "executive", "technical", "minimal"] = Field(
+        default="detailed"
+    )
+    jurisdiction: str = Field(default="EU", max_length=10)
+    default_region: str = Field(
+        default="FR",
+        max_length=2,
+        description="Région par défaut pour interpréter un numéro de téléphone national",
+    )
+
+    allow_account_enumeration: bool = Field(
+        default=False,
+        description="Autorise la recherche d'un pseudonyme sur les plateformes publiques",
+    )
+    allow_breach_data: bool = Field(
+        default=False,
+        description="Autorise la consultation des bases de fuites de données",
+    )
+    allow_person_pivot: bool = Field(
+        default=True,
+        description="Autorise le pivot d'une société vers ses dirigeants",
+    )
+    redact_personal_data: bool = Field(
+        default=False, description="Masque les données personnelles dans la restitution"
+    )
+
+    only_sources: Optional[List[str]] = Field(
+        default=None, description="Restreindre à ces sources (identifiants)"
+    )
+    exclude_sources: Optional[List[str]] = Field(
+        default=None, description="Exclure ces sources"
+    )
+    use_llm: bool = Field(default=True, description="Ajoute une synthèse analyste si le LLM local répond")
+    llm_hard_limit: Optional[int] = Field(default=1200, ge=200, le=5000)
+
+    @field_validator("query")
+    @classmethod
+    def validate_query_field(cls, v: str) -> str:
+        return validate_entity_query(v)
+
+    @field_validator("only_sources", "exclude_sources")
+    @classmethod
+    def validate_source_ids(cls, v: Optional[List[str]]) -> Optional[List[str]]:
+        if v is None:
+            return None
+        for source_id in v:
+            if not re.fullmatch(r"[a-z0-9_]{2,40}", source_id or ""):
+                raise ValueError(f"Identifiant de source invalide: '{source_id}'")
+        return v
+
+    @field_validator("default_region")
+    @classmethod
+    def validate_region(cls, v: str) -> str:
+        v = (v or "FR").strip().upper()
+        if not re.fullmatch(r"[A-Z]{2}", v):
+            raise ValueError("La région doit être un code ISO à 2 lettres (ex: FR, BE, US)")
+        return v
+
+
+class EntityPreviewRequest(BaseModel):
+    """Analyse d'une requête sans lancer de collecte."""
+
+    query: str = Field(..., min_length=1, max_length=500)
+    entity_kind: Optional[Literal["person", "organization"]] = Field(default=None)
+    default_region: str = Field(default="FR", max_length=2)
+
+    @field_validator("query")
+    @classmethod
+    def validate_query_field(cls, v: str) -> str:
+        return validate_entity_query(v)
+
+
 # ==================== API KEY MODELS ====================
 
 class APIKeyCreate(BaseModel):
@@ -368,9 +503,20 @@ class ScheduledScanUpdate(BaseModel):
     llm_hard_limit: Optional[int] = Field(default=None, ge=200, le=5000)
 
     @model_validator(mode="after")
-    def validate_different_reports(self):
-        if self.report_id_1 == self.report_id_2:
-            raise ValueError("Les deux rapports doivent être différents")
+    def validate_has_at_least_one_field(self):
+        """Une mise à jour partielle vide n'a pas de sens : on la refuse."""
+        if all(
+            getattr(self, name) is None
+            for name in (
+                "name",
+                "is_active",
+                "notify_email",
+                "notify_on_change",
+                "notify_on_error",
+                "llm_hard_limit",
+            )
+        ):
+            raise ValueError("Aucun champ à mettre à jour")
         return self
 
 
