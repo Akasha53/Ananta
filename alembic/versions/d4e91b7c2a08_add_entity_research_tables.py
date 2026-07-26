@@ -22,7 +22,11 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
-    op.create_table(
+    bind = op.get_bind()
+    existing_tables = set(sa.inspect(bind).get_table_names())
+
+    if "entity_research_runs" not in existing_tables:
+        op.create_table(
         "entity_research_runs",
         sa.Column("id", sa.Integer(), nullable=False),
         sa.Column("run_id", sa.String(), nullable=False),
@@ -51,17 +55,27 @@ def upgrade() -> None:
         sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=True),
         sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=True),
         sa.PrimaryKeyConstraint("id"),
-    )
-    op.create_index("ix_entity_research_runs_id", "entity_research_runs", ["id"])
-    op.create_index("ix_entity_research_runs_run_id", "entity_research_runs", ["run_id"], unique=True)
-    op.create_index("ix_entity_research_runs_job_id", "entity_research_runs", ["job_id"])
-    op.create_index("ix_entity_runs_status", "entity_research_runs", ["status"])
-    op.create_index("ix_entity_runs_kind", "entity_research_runs", ["entity_kind"])
-    op.create_index("ix_entity_runs_created_at", "entity_research_runs", ["created_at"])
-    op.create_index("ix_entity_runs_label", "entity_research_runs", ["label"])
-    op.create_index("ix_entity_runs_kind_created", "entity_research_runs", ["entity_kind", "created_at"])
+        )
 
-    op.create_table(
+    run_indexes = {
+        index["name"]
+        for index in sa.inspect(bind).get_indexes("entity_research_runs")
+    }
+    for name, columns, unique in (
+        ("ix_entity_research_runs_id", ["id"], False),
+        ("ix_entity_research_runs_run_id", ["run_id"], True),
+        ("ix_entity_research_runs_job_id", ["job_id"], False),
+        ("ix_entity_runs_status", ["status"], False),
+        ("ix_entity_runs_kind", ["entity_kind"], False),
+        ("ix_entity_runs_created_at", ["created_at"], False),
+        ("ix_entity_runs_label", ["label"], False),
+        ("ix_entity_runs_kind_created", ["entity_kind", "created_at"], False),
+    ):
+        if name not in run_indexes:
+            op.create_index(name, "entity_research_runs", columns, unique=unique)
+
+    if "research_entities" not in existing_tables:
+        op.create_table(
         "research_entities",
         sa.Column("id", sa.Integer(), nullable=False),
         sa.Column("run_id", sa.String(), nullable=False),
@@ -80,17 +94,26 @@ def upgrade() -> None:
         sa.Column("relations", sa.JSON(), nullable=True),
         sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=True),
         sa.PrimaryKeyConstraint("id"),
-    )
-    op.create_index("ix_research_entities_id", "research_entities", ["id"])
-    op.create_index("ix_research_entities_run", "research_entities", ["run_id"])
-    op.create_index("ix_research_entities_key", "research_entities", ["entity_key"])
-    op.create_index("ix_research_entities_kind", "research_entities", ["entity_kind"])
-    op.create_index("ix_research_entities_label", "research_entities", ["label"])
-    op.create_index("ix_research_entities_siren", "research_entities", ["siren"])
-    op.create_index("ix_research_entities_lei", "research_entities", ["lei"])
-    op.create_index("ix_research_entities_vat_number", "research_entities", ["vat_number"])
-    op.create_index("ix_research_entities_domain", "research_entities", ["domain"])
-    op.create_index("ix_research_entities_email", "research_entities", ["email"])
+        )
+
+    entity_indexes = {
+        index["name"]
+        for index in sa.inspect(bind).get_indexes("research_entities")
+    }
+    for name, columns in (
+        ("ix_research_entities_id", ["id"]),
+        ("ix_research_entities_run", ["run_id"]),
+        ("ix_research_entities_key", ["entity_key"]),
+        ("ix_research_entities_kind", ["entity_kind"]),
+        ("ix_research_entities_label", ["label"]),
+        ("ix_research_entities_siren", ["siren"]),
+        ("ix_research_entities_lei", ["lei"]),
+        ("ix_research_entities_vat_number", ["vat_number"]),
+        ("ix_research_entities_domain", ["domain"]),
+        ("ix_research_entities_email", ["email"]),
+    ):
+        if name not in entity_indexes:
+            op.create_index(name, "research_entities", columns)
 
 
 def downgrade() -> None:

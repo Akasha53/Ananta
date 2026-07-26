@@ -609,9 +609,9 @@
               <span class="block text-[11px] text-slate-500">Fonctionne avec un modèle local, une API ou une CLI. Le dossier reste complet sans elle.</span></span>
           </label>
           <label class="flex items-start gap-3 p-2 rounded hover:bg-slate-900/60 cursor-pointer">
-            <input type="checkbox" id="opt-async" class="mt-1 accent-cyan-500" />
+            <input type="checkbox" id="opt-async" class="mt-1 accent-cyan-500" checked />
             <span><span class="text-slate-300">Exécuter en tâche de fond</span>
-              <span class="block text-[11px] text-slate-500">Recommandé en mode Deep. Nécessite Celery + Redis.</span></span>
+              <span id="opt-async-help" class="block text-[11px] text-slate-500">Activé par défaut. Le mode Deep l’impose et utilise Celery + Redis.</span></span>
           </label>
         </div>
       </div>

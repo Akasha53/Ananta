@@ -26,6 +26,7 @@ const state = {
   dossier: null,
   runId: null,
   pollTimer: null,
+  pollFailures: 0,
   previewTimer: null,
   historyTimer: null,
   selected: null,
@@ -229,6 +230,18 @@ function buildRequest() {
   };
 }
 
+function syncBackgroundExecution() {
+  const deep = $("select-mode").value === "deep";
+  const option = $("opt-async");
+  const help = $("opt-async-help");
+
+  if (deep) option.checked = true;
+  option.disabled = deep;
+  help.textContent = deep
+    ? "Obligatoire en mode Deep. La recherche utilise Celery + Redis."
+    : "Activé par défaut. Décochez-le uniquement pour une recherche synchrone courte.";
+}
+
 async function runSearch() {
   const body = buildRequest();
   if (!body.query) {
@@ -246,7 +259,8 @@ async function runSearch() {
   $("preview-box").classList.add("hidden");
 
   try {
-    if ($("opt-async").checked) {
+    const runInBackground = body.mode === "deep" || $("opt-async").checked;
+    if (runInBackground) {
       const payload = await api("/entity/research_async", {
         method: "POST",
         body: JSON.stringify(body),
@@ -273,10 +287,12 @@ async function runSearch() {
 
 function pollRun(runId) {
   if (state.pollTimer) clearInterval(state.pollTimer);
+  state.pollFailures = 0;
 
   state.pollTimer = setInterval(async () => {
     try {
       const run = await api(`/entity/run/${encodeURIComponent(runId)}`);
+      state.pollFailures = 0;
       setProgress(run.progress || 5, `Statut : ${run.status}`);
 
       if (run.status === "COMPLETED" && run.dossier) {
@@ -291,10 +307,18 @@ function pollRun(runId) {
         showError(`Recherche échouée : ${run.error_message || "raison inconnue"}`);
       }
     } catch (error) {
-      clearInterval(state.pollTimer);
-      state.pollTimer = null;
-      hideProgress();
-      showError(`Suivi interrompu : ${error.message}`);
+      state.pollFailures += 1;
+      if (state.pollFailures >= 3) {
+        clearInterval(state.pollTimer);
+        state.pollTimer = null;
+        hideProgress();
+        showError(`Suivi interrompu après 3 tentatives : ${error.message}`);
+      } else {
+        setProgress(
+          5,
+          `Connexion momentanément indisponible — nouvelle tentative (${state.pollFailures}/3)…`,
+        );
+      }
     }
   }, 3000);
 }
@@ -1503,7 +1527,9 @@ document.addEventListener("DOMContentLoaded", () => {
     } else {
       $("opt-authorized-investigation").checked = false;
     }
+    syncBackgroundExecution();
   };
+  $("select-mode").addEventListener("change", syncBackgroundExecution);
   $("select-purpose").addEventListener("change", applyPurposeProfile);
   applyPurposeProfile();
 

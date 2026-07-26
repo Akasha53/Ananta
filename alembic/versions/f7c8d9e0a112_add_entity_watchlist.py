@@ -17,7 +17,9 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
-    op.create_table(
+    bind = op.get_bind()
+    if not sa.inspect(bind).has_table("entity_watches"):
+        op.create_table(
         "entity_watches",
         sa.Column("id", sa.Integer(), nullable=False),
         sa.Column("query", sa.String(), nullable=False),
@@ -48,20 +50,20 @@ def upgrade() -> None:
             nullable=True,
         ),
         sa.PrimaryKeyConstraint("id"),
-    )
-    op.create_index("ix_entity_watches_id", "entity_watches", ["id"])
-    op.create_index("ix_entity_watches_root_key", "entity_watches", ["root_key"])
-    op.create_index("ix_entity_watches_created_by", "entity_watches", ["created_by"])
-    op.create_index(
-        "ix_entity_watches_owner_active",
-        "entity_watches",
-        ["created_by", "is_active"],
-    )
-    op.create_index(
-        "ix_entity_watches_root_owner",
-        "entity_watches",
-        ["root_key", "created_by"],
-    )
+        )
+
+    indexes = {
+        index["name"] for index in sa.inspect(bind).get_indexes("entity_watches")
+    }
+    for name, columns in (
+        ("ix_entity_watches_id", ["id"]),
+        ("ix_entity_watches_root_key", ["root_key"]),
+        ("ix_entity_watches_created_by", ["created_by"]),
+        ("ix_entity_watches_owner_active", ["created_by", "is_active"]),
+        ("ix_entity_watches_root_owner", ["root_key", "created_by"]),
+    ):
+        if name not in indexes:
+            op.create_index(name, "entity_watches", columns)
 
 
 def downgrade() -> None:

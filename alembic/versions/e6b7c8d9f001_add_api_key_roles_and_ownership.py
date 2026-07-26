@@ -17,13 +17,23 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
-    op.add_column(
-        "api_keys",
-        sa.Column("role", sa.String(), nullable=False, server_default="admin"),
-    )
-    op.add_column("api_keys", sa.Column("scopes", sa.JSON(), nullable=True))
-    op.add_column("api_keys", sa.Column("owner_id", sa.String(), nullable=True))
-    op.create_index("ix_api_keys_owner_id", "api_keys", ["owner_id"], unique=False)
+    bind = op.get_bind()
+    columns = {
+        column["name"] for column in sa.inspect(bind).get_columns("api_keys")
+    }
+    if "role" not in columns:
+        op.add_column(
+            "api_keys",
+            sa.Column("role", sa.String(), nullable=False, server_default="admin"),
+        )
+    if "scopes" not in columns:
+        op.add_column("api_keys", sa.Column("scopes", sa.JSON(), nullable=True))
+    if "owner_id" not in columns:
+        op.add_column("api_keys", sa.Column("owner_id", sa.String(), nullable=True))
+
+    indexes = {index["name"] for index in sa.inspect(bind).get_indexes("api_keys")}
+    if "ix_api_keys_owner_id" not in indexes:
+        op.create_index("ix_api_keys_owner_id", "api_keys", ["owner_id"], unique=False)
 
 
 def downgrade() -> None:

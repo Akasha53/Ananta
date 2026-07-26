@@ -49,6 +49,13 @@ def test_entity_ui_keeps_run_permalink_and_exposes_system_prompt():
     assert "/observations" in javascript
     assert "Corrélations automatiques" in javascript
     assert "Faux positif" in javascript
+    assert 'id="opt-async"' in html
+    assert 'id="opt-async" class="mt-1 accent-cyan-500" checked' in html
+    assert "function syncBackgroundExecution()" in javascript
+    assert 'body.mode === "deep" || $("opt-async").checked' in javascript
+    assert '$("select-mode").addEventListener("change", syncBackgroundExecution)' in javascript
+    assert "state.pollFailures >= 3" in javascript
+    assert "Connexion momentanément indisponible" in javascript
 
 
 def test_entity_is_the_only_primary_workspace():

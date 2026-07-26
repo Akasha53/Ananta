@@ -17,7 +17,9 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
-    op.create_table(
+    bind = op.get_bind()
+    if not sa.inspect(bind).has_table("entity_resolution_reviews"):
+        op.create_table(
         "entity_resolution_reviews",
         sa.Column("id", sa.Integer(), nullable=False),
         sa.Column("run_id", sa.String(), nullable=False),
@@ -49,27 +51,20 @@ def upgrade() -> None:
             "decision_id",
             name="uq_entity_resolution_reviews_run_decision",
         ),
-    )
-    op.create_index(
-        "ix_entity_resolution_reviews_id",
-        "entity_resolution_reviews",
-        ["id"],
-    )
-    op.create_index(
-        "ix_entity_resolution_reviews_run",
-        "entity_resolution_reviews",
-        ["run_id"],
-    )
-    op.create_index(
-        "ix_entity_resolution_reviews_status",
-        "entity_resolution_reviews",
-        ["status"],
-    )
-    op.create_index(
-        "ix_entity_resolution_reviews_owner",
-        "entity_resolution_reviews",
-        ["created_by"],
-    )
+        )
+
+    indexes = {
+        index["name"]
+        for index in sa.inspect(bind).get_indexes("entity_resolution_reviews")
+    }
+    for name, columns in (
+        ("ix_entity_resolution_reviews_id", ["id"]),
+        ("ix_entity_resolution_reviews_run", ["run_id"]),
+        ("ix_entity_resolution_reviews_status", ["status"]),
+        ("ix_entity_resolution_reviews_owner", ["created_by"]),
+    ):
+        if name not in indexes:
+            op.create_index(name, "entity_resolution_reviews", columns)
 
 
 def downgrade() -> None:
