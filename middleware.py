@@ -55,6 +55,7 @@ class AuthenticationMiddleware(BaseHTTPMiddleware):
         "/monitoring/",
         "/workers/",
         "/llm/provider",
+        "/llm/system-prompt",
     )
     VIEWER_WRITE_PREFIXES = (
         "/agent/",
@@ -431,9 +432,17 @@ def check_redis_health() -> Dict:
     Returns:
         Dict avec status ("ok", "error"), latency_ms, et message optionnel
     """
+    configured_url = os.getenv("REDIS_URL") or os.getenv("CELERY_BROKER_URL")
+    if not configured_url:
+        return {
+            "status": "not_configured",
+            "message": "Redis non configuré ; fonctions asynchrones désactivées",
+            "latency_ms": -1,
+        }
+
     try:
         import redis
-        redis_url = os.getenv("REDIS_URL", "redis://localhost:6379/0")
+        redis_url = configured_url
 
         # Redis cluster support (optional)
         cluster_nodes = os.getenv("REDIS_CLUSTER_NODES", "").strip()
@@ -516,40 +525,34 @@ def check_llm_health() -> Dict:
         Dict avec status, latency_ms, et model_name si disponible
     """
     try:
-        import requests
-        llm_url = os.getenv("LLM_API_URL", "http://localhost:5000/v1/models")
+        from llm_providers import current_provider_id, get_provider
 
+        provider_id = current_provider_id()
+        provider = get_provider()
         start = time.time()
-        resp = requests.get(llm_url, timeout=3)
+        available, detail = provider.check()
         latency_ms = round((time.time() - start) * 1000, 2)
 
-        if resp.status_code == 200:
-            data = resp.json()
-            models = data.get("data", [])
-            model_name = models[0].get("id", "unknown") if models else "unknown"
-
+        if provider_id == "none":
+            return {
+                "status": "disabled",
+                "latency_ms": latency_ms,
+                "provider": provider_id,
+                "message": detail,
+            }
+        if available:
             return {
                 "status": "ok",
                 "latency_ms": latency_ms,
-                "model": model_name,
+                "provider": provider_id,
+                "model": provider.model,
+                "message": detail,
             }
-        else:
-            return {
-                "status": "degraded",
-                "latency_ms": latency_ms,
-                "message": f"HTTP {resp.status_code}",
-            }
-    except requests.exceptions.Timeout:
         return {
-            "status": "timeout",
-            "latency_ms": -1,
-            "message": "LLM request timed out",
-        }
-    except requests.exceptions.ConnectionError:
-        return {
-            "status": "offline",
-            "latency_ms": -1,
-            "message": "Cannot connect to LLM",
+            "status": "degraded",
+            "latency_ms": latency_ms,
+            "provider": provider_id,
+            "message": detail,
         }
     except Exception as e:
         return {
@@ -628,14 +631,16 @@ def get_full_health_status(db_session=None) -> Dict:
     except:
         pass
 
-    # Déterminer le statut global
-    statuses = [redis_status["status"], llm_status["status"], db_status["status"]]
-    if all(s == "ok" for s in statuses):
-        overall_status = "healthy"
-    elif any(s in ["error", "offline"] for s in statuses):
+    # La base est critique. Redis et le LLM sont optionnels en mode synchrone :
+    # leur absence dégrade certaines fonctions sans rendre l'API inutilisable.
+    if db_status["status"] == "error":
         overall_status = "unhealthy"
-    else:
+    elif redis_status["status"] in {"error", "offline", "timeout"} or llm_status[
+        "status"
+    ] in {"error", "offline", "timeout", "degraded"}:
         overall_status = "degraded"
+    else:
+        overall_status = "healthy"
 
     return {
         "status": overall_status,

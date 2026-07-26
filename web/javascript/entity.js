@@ -30,6 +30,7 @@ const state = {
   historyTimer: null,
   selected: null,
   watches: null,
+  systemPrompt: null,
 };
 
 // ==================== HELPERS ====================
@@ -106,6 +107,15 @@ function setProgress(percent, label) {
 
 function hideProgress() {
   $("progress-box").classList.add("hidden");
+}
+
+function syncRunUrl(runId) {
+  const url = new URL(window.location.href);
+  url.searchParams.delete("demo");
+  url.searchParams.delete("layout");
+  if (runId) url.searchParams.set("run", runId);
+  else url.searchParams.delete("run");
+  window.history.replaceState({ runId: runId || null }, "", url);
 }
 
 async function api(path, options = {}) {
@@ -211,6 +221,7 @@ function buildRequest() {
     allow_breach_data: $("opt-breach").checked,
     allow_person_pivot: $("opt-person-pivot").checked,
     redact_personal_data: $("opt-redact").checked,
+    authorized_investigation_acknowledged: $("opt-authorized-investigation").checked,
     briefing_text: $("input-briefing").value.trim(),
     briefing_origin: $("select-briefing-origin").value,
     use_llm: $("opt-llm").checked,
@@ -221,6 +232,12 @@ async function runSearch() {
   const body = buildRequest();
   if (!body.query) {
     showError("Renseignez au moins un indice sur l'entité recherchée.");
+    return;
+  }
+  if (body.purpose === "authorized_investigation" && !body.authorized_investigation_acknowledged) {
+    openPanel("options");
+    showError("Confirmez le mandat explicite avant de lancer une investigation avancée.");
+    $("opt-authorized-investigation").focus();
     return;
   }
 
@@ -234,6 +251,7 @@ async function runSearch() {
         body: JSON.stringify(body),
       });
       state.runId = payload.run_id;
+      syncRunUrl(payload.run_id);
       setProgress(5, "Recherche lancée en tâche de fond…");
       pollRun(payload.run_id);
     } else {
@@ -294,9 +312,10 @@ function computeRisk(dossier) {
   return { level, score };
 }
 
-function renderDossier(dossier) {
+function renderDossier(dossier, options = {}) {
   state.dossier = dossier;
   state.runId = dossier.run_id || state.runId;
+  if (options.syncUrl !== false && state.runId) syncRunUrl(state.runId);
 
   $("welcome").classList.add("hidden");
   $("left-rail").classList.remove("hidden");
@@ -979,6 +998,7 @@ async function loadWatches() {
           const result = await api(`/entity/watch/${button.dataset.watch}/refresh`, { method: "POST" });
           closePanel("watches");
           state.runId = result.run_id;
+          syncRunUrl(result.run_id);
           setProgress(5, "Actualisation de la veille lancée…");
           pollRun(result.run_id);
         } catch (error) {
@@ -1155,6 +1175,51 @@ async function testLLMProvider() {
   }
 }
 
+function renderSystemPromptStatus(payload) {
+  const sourceLabels = {
+    default: "intégré à Ananta",
+    environment: "variable LLM_SYSTEM_PROMPT",
+    file: "fichier LLM_SYSTEM_PROMPT_FILE",
+    runtime: "réglage actif jusqu'au redémarrage",
+  };
+  $("llm-prompt-status").textContent =
+    `${payload.chars || 0}/${payload.max_chars || 12000} caractères · ` +
+    `${sourceLabels[payload.source] || payload.source || "source inconnue"}`;
+}
+
+async function loadSystemPrompt() {
+  try {
+    const payload = await api("/llm/system-prompt");
+    state.systemPrompt = payload.prompt || "";
+    $("input-llm-system-prompt").value = state.systemPrompt;
+    renderSystemPromptStatus(payload);
+  } catch (error) {
+    $("llm-prompt-status").textContent = `Pré-prompt indisponible : ${error.message}`;
+  }
+}
+
+async function saveSystemPrompt(reset = false) {
+  const button = reset ? $("btn-llm-prompt-reset") : $("btn-llm-prompt-save");
+  button.disabled = true;
+  try {
+    const prompt = reset ? null : $("input-llm-system-prompt").value.trim();
+    if (!reset && !prompt) {
+      throw new Error("Le pré-prompt ne peut pas être vide.");
+    }
+    const payload = await api("/llm/system-prompt", {
+      method: "PUT",
+      body: JSON.stringify({ prompt }),
+    });
+    state.systemPrompt = payload.prompt || "";
+    $("input-llm-system-prompt").value = state.systemPrompt;
+    renderSystemPromptStatus(payload);
+  } catch (error) {
+    $("llm-prompt-status").textContent = `Enregistrement impossible : ${error.message}`;
+  } finally {
+    button.disabled = false;
+  }
+}
+
 // ==================== INITIALISATION ====================
 
 function switchTab(name) {
@@ -1276,6 +1341,21 @@ document.addEventListener("DOMContentLoaded", () => {
   $("sources-close").addEventListener("click", () => closePanel("sources"));
   $("btn-watch-run").addEventListener("click", toggleCurrentWatch);
 
+  const applyPurposeProfile = () => {
+    const authorized = $("select-purpose").value === "authorized_investigation";
+    $("authorized-investigation-panel").classList.toggle("hidden", !authorized);
+    if (authorized) {
+      $("select-mode").value = "deep";
+      $("opt-person-pivot").checked = true;
+      $("opt-enumeration").checked = true;
+      $("select-template").value = "detailed";
+    } else {
+      $("opt-authorized-investigation").checked = false;
+    }
+  };
+  $("select-purpose").addEventListener("change", applyPurposeProfile);
+  applyPurposeProfile();
+
   $("history-search").addEventListener("input", () => {
     clearTimeout(state.historyTimer);
     state.historyTimer = setTimeout(loadHistory, 350);
@@ -1296,6 +1376,7 @@ document.addEventListener("DOMContentLoaded", () => {
       await api(`/entity/run/${encodeURIComponent(state.runId)}`, { method: "DELETE" });
       state.dossier = null;
       state.runId = null;
+      syncRunUrl(null);
       closePanel("details");
       $("welcome").classList.remove("hidden");
       $("left-rail").classList.add("hidden");
@@ -1328,12 +1409,15 @@ document.addEventListener("DOMContentLoaded", () => {
   loadSources();
   loadWatches();
   loadLLMProviders();
+  loadSystemPrompt();
   $("select-llm").addEventListener("change", applyLLMProvider);
   $("btn-llm-test").addEventListener("click", testLLMProvider);
+  $("btn-llm-prompt-save").addEventListener("click", () => saveSystemPrompt(false));
+  $("btn-llm-prompt-reset").addEventListener("click", () => saveSystemPrompt(true));
 
   const params = new URLSearchParams(window.location.search);
   if (params.get("demo") === "1" && window.ANANTA_DEMO_DOSSIER) {
-    renderDossier(window.ANANTA_DEMO_DOSSIER);
+    renderDossier(window.ANANTA_DEMO_DOSSIER, { syncUrl: false });
     if (params.get("layout")) {
       const button = document.querySelector(`.layout-btn[data-layout="${params.get("layout")}"]`);
       if (button) button.click();

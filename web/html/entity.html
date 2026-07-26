@@ -457,9 +457,38 @@
             <option value="legal_proceedings">Procédure judiciaire</option>
             <option value="self_check">Recherche sur soi-même</option>
             <option value="research">Recherche académique</option>
+            <option value="authorized_investigation">Investigation avancée autorisée</option>
           </select>
           <p class="text-[11px] text-slate-600 mt-1.5 leading-relaxed">
             La finalité conditionne ce que le moteur a le droit de collecter sur une personne physique.
+          </p>
+        </div>
+        <div id="authorized-investigation-panel"
+          class="hidden rounded border border-amber-500/40 bg-amber-500/10 p-3">
+          <div class="flex items-center justify-between gap-2">
+            <span class="text-xs font-bold uppercase tracking-wider text-amber-300">
+              Investigation maximale
+            </span>
+            <span class="rounded border border-amber-500/40 px-1.5 py-0.5 text-[9px] text-amber-300">
+              MANDAT REQUIS
+            </span>
+          </div>
+          <p class="mt-2 text-[11px] leading-relaxed text-amber-100/75">
+            Active automatiquement le mode Deep, les pivots vers les personnes et la
+            recherche de pseudonymes publics. Les données de fuite gardent un accord séparé.
+          </p>
+          <label class="mt-3 flex cursor-pointer items-start gap-2">
+            <input type="checkbox" id="opt-authorized-investigation"
+              class="mt-1 accent-amber-400" />
+            <span class="text-[11px] leading-relaxed text-slate-300">
+              Je confirme disposer d'un mandat légal ou contractuel explicite pour cette
+              cible et ce périmètre. J'assume la responsabilité de la licéité, de la
+              proportionnalité, de la conservation et de l'usage des résultats.
+            </span>
+          </label>
+          <p class="mt-2 text-[10px] leading-relaxed text-slate-500">
+            Cette déclaration est enregistrée dans le dossier. Elle ne crée pas une
+            autorisation et ne remplace aucune obligation légale.
           </p>
         </div>
         <div class="grid grid-cols-2 gap-3">
@@ -519,6 +548,25 @@
           <input id="input-llm-endpoint" type="text" placeholder="Endpoint (ex: http://192.168.1.20:11434)"
             class="w-full bg-slate-900 border border-slate-700 rounded px-3 py-2 text-xs mt-2" />
           <p id="llm-status" class="text-[11px] text-slate-600 mt-2 leading-relaxed"></p>
+          <div class="mt-3 pt-3 border-t border-slate-800">
+            <div class="flex items-center justify-between gap-2 mb-2">
+              <label for="input-llm-system-prompt" class="text-xs text-slate-400">
+                Pré-prompt système
+              </label>
+              <div class="flex items-center gap-3">
+                <button id="btn-llm-prompt-reset" type="button"
+                  class="text-[10px] text-slate-500 hover:text-slate-300">Défaut</button>
+                <button id="btn-llm-prompt-save" type="button"
+                  class="text-[10px] text-cyan-400 hover:underline">Enregistrer</button>
+              </div>
+            </div>
+            <textarea id="input-llm-system-prompt" rows="7" maxlength="12000"
+              class="w-full resize-y bg-slate-900 border border-slate-700 rounded px-3 py-2 text-[11px] leading-relaxed"
+              placeholder="Règles globales appliquées avant chaque tâche IA"></textarea>
+            <p id="llm-prompt-status" class="text-[10px] text-slate-600 mt-1.5 leading-relaxed">
+              Chargement du pré-prompt…
+            </p>
+          </div>
         </div>
 
         <div class="pt-2 border-t border-slate-800 space-y-2">
@@ -544,8 +592,8 @@
           </label>
           <label class="flex items-start gap-3 p-2 rounded hover:bg-slate-900/60 cursor-pointer">
             <input type="checkbox" id="opt-llm" class="mt-1 accent-cyan-500" checked />
-            <span><span class="text-slate-300">Synthèse analyste (LLM local)</span>
-              <span class="block text-[11px] text-slate-500">Le dossier reste complet sans elle.</span></span>
+            <span><span class="text-slate-300">Synthèse analyste (IA)</span>
+              <span class="block text-[11px] text-slate-500">Fonctionne avec un modèle local, une API ou une CLI. Le dossier reste complet sans elle.</span></span>
           </label>
           <label class="flex items-start gap-3 p-2 rounded hover:bg-slate-900/60 cursor-pointer">
             <input type="checkbox" id="opt-async" class="mt-1 accent-cyan-500" />

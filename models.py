@@ -254,6 +254,7 @@ class EntityResearchRequest(BaseModel):
         "legal_proceedings",
         "self_check",
         "research",
+        "authorized_investigation",
     ] = Field(
         default="due_diligence",
         description="Finalité déclarée (base légale du traitement, RGPD art. 6)",
@@ -283,6 +284,13 @@ class EntityResearchRequest(BaseModel):
     )
     redact_personal_data: bool = Field(
         default=False, description="Masque les données personnelles dans la restitution"
+    )
+    authorized_investigation_acknowledged: bool = Field(
+        default=False,
+        description=(
+            "Atteste que l'opérateur dispose d'un mandat explicite pour une "
+            "investigation avancée et assume la responsabilité du périmètre et de l'usage"
+        ),
     )
 
     only_sources: Optional[List[str]] = Field(
@@ -330,6 +338,23 @@ class EntityResearchRequest(BaseModel):
         if not re.fullmatch(r"[A-Z]{2}", v):
             raise ValueError("La région doit être un code ISO à 2 lettres (ex: FR, BE, US)")
         return v
+
+    @model_validator(mode="after")
+    def validate_authorized_investigation(self):
+        if self.purpose != "authorized_investigation":
+            return self
+        if not self.authorized_investigation_acknowledged:
+            raise ValueError(
+                "L'investigation avancée exige de confirmer un mandat explicite "
+                "et la responsabilité de l'opérateur"
+            )
+
+        # Cette finalité est le raccourci volontaire vers le profil de collecte
+        # le plus profond. Les données de fuite conservent leur propre opt-in.
+        self.mode = "deep"
+        self.allow_account_enumeration = True
+        self.allow_person_pivot = True
+        return self
 
 
 class EntityPreviewRequest(BaseModel):
@@ -386,6 +411,26 @@ class LLMProviderRequest(BaseModel):
         if v and not re.match(r"^https?://[\w.\-]+(:\d+)?(/[\w./\-]*)?$", v):
             raise ValueError("L'endpoint doit être une URL http(s) valide")
         return v or None
+
+
+class LLMSystemPromptRequest(BaseModel):
+    """Pré-prompt de sécurité et de qualité appliqué à tous les moteurs IA."""
+
+    prompt: Optional[str] = Field(
+        default=None,
+        max_length=12_000,
+        description="Nouveau pré-prompt. Null rétablit la configuration par défaut.",
+    )
+
+    @field_validator("prompt")
+    @classmethod
+    def validate_prompt(cls, v: Optional[str]) -> Optional[str]:
+        if v is None:
+            return None
+        v = v.strip()
+        if not v:
+            raise ValueError("Le pré-prompt système ne peut pas être vide")
+        return v
 
 
 # ==================== API KEY MODELS ====================

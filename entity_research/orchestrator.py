@@ -61,10 +61,21 @@ def build_policy(
     allow_breach_data: bool = False,
     allow_person_pivot: bool = True,
     redact_personal_data: bool = False,
+    authorized_investigation_acknowledged: bool = False,
     operator: Optional[str] = None,
     notes: str = "",
 ) -> CompliancePolicy:
     """Construit une politique de conformité à partir de paramètres simples."""
+    if purpose == "authorized_investigation":
+        if not authorized_investigation_acknowledged:
+            raise ValueError(
+                "L'investigation avancée exige un mandat explicite attesté "
+                "par l'opérateur"
+            )
+        mode = "deep"
+        allow_account_enumeration = True
+        allow_person_pivot = True
+
     try:
         research_mode = ResearchMode(mode)
     except ValueError:
@@ -78,6 +89,9 @@ def build_policy(
         allow_breach_data=allow_breach_data,
         allow_person_pivot=allow_person_pivot,
         redact_personal_data=redact_personal_data,
+        authorized_investigation_acknowledged=(
+            authorized_investigation_acknowledged
+        ),
         operator=operator,
         notes=notes,
     )
@@ -96,6 +110,7 @@ def research_entity(
     allow_breach_data: bool = False,
     allow_person_pivot: bool = True,
     redact_personal_data: bool = False,
+    authorized_investigation_acknowledged: bool = False,
     operator: Optional[str] = None,
     only_sources: Optional[Iterable[str]] = None,
     exclude_sources: Optional[Iterable[str]] = None,
@@ -141,6 +156,9 @@ def research_entity(
         allow_breach_data=allow_breach_data,
         allow_person_pivot=allow_person_pivot,
         redact_personal_data=redact_personal_data,
+        authorized_investigation_acknowledged=(
+            authorized_investigation_acknowledged
+        ),
         operator=operator,
     )
 

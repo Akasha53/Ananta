@@ -213,6 +213,45 @@ class TestWikidata:
         )
         assert result.status is SourceStatus.NOT_FOUND
 
+    def test_domain_is_not_reduced_to_an_ambiguous_brand_name(self):
+        result = WikidataSource().run(
+            make_selector(SelectorType.DOMAIN, "example.com"), self._ctx()
+        )
+        assert result.status is SourceStatus.SKIPPED
+        assert "non supporté" in result.reason.lower()
+
+    def test_human_homonym_is_rejected_for_an_organization(self):
+        human_entity = {
+            "entities": {
+                "Q42": {
+                    "claims": {
+                        "P31": [
+                            {
+                                "mainsnak": {
+                                    "datavalue": {
+                                        "type": "wikibase-entityid",
+                                        "value": {"id": "Q5"},
+                                    }
+                                }
+                            }
+                        ]
+                    }
+                }
+            }
+        }
+        ctx = context(
+            {
+                "action=wbsearchentities": WIKIDATA_SEARCH,
+                "Special:EntityData": human_entity,
+            },
+            kind=EntityKind.ORGANIZATION,
+        )
+        result = WikidataSource().run(
+            make_selector(SelectorType.ORG_NAME, "Contoso"), ctx
+        )
+        assert result.status is SourceStatus.NOT_FOUND
+        assert "personne" in result.reason.lower()
+
 
 # ============================================================================
 # ORCID

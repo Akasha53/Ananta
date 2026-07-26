@@ -654,6 +654,10 @@ def build_llm_context(dossier: Dossier, max_facts: int = 60) -> str:
         f"ENTITÉ: {dossier.label}",
         f"NATURE: {dossier.kind.value}",
         f"CONFIANCE DOSSIER: {dossier.confidence_score()}/100",
+        (
+            "FINALITÉ: "
+            f"{(dossier.compliance.get('policy') or {}).get('purpose_label', 'non précisée')}"
+        ),
         "",
         "FAITS ÉTABLIS:",
     ]

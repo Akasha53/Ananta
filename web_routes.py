@@ -46,6 +46,7 @@ from models import (
     EntityResearchRequest,
     EntityPreviewRequest,
     LLMProviderRequest,
+    LLMSystemPromptRequest,
     validate_target,
     validate_query,
     DOMAIN_PATTERN,
@@ -301,8 +302,14 @@ def health(request: Request, db: Session = Depends(get_db)):
             health_status["request_id"] = request_id
 
         # Mapper vers l'ancien format pour compatibilité frontend
-        llm_status = health_status["services"]["llm"]["status"]
-        worker_state = "STABLE" if llm_status == "ok" else "DEGRADED" if llm_status == "degraded" else "OFFLINE"
+        redis_status = health_status["services"]["redis"]["status"]
+        worker_state = (
+            "STABLE"
+            if redis_status == "ok"
+            else "DISABLED"
+            if redis_status == "not_configured"
+            else "DEGRADED"
+        )
 
         # Réponse compatible avec l'ancien format + nouveau format détaillé
         return {
@@ -3824,6 +3831,9 @@ def _research_kwargs(body: EntityResearchRequest) -> Dict:
         "allow_breach_data": body.allow_breach_data,
         "allow_person_pivot": body.allow_person_pivot,
         "redact_personal_data": body.redact_personal_data,
+        "authorized_investigation_acknowledged": (
+            body.authorized_investigation_acknowledged
+        ),
         "only_sources": body.only_sources,
         "exclude_sources": body.exclude_sources,
         "briefing_text": body.briefing_text,
@@ -4279,6 +4289,9 @@ def entity_watch_refresh(
         ),
         "language": watch.language or "fr",
         "template": watch.report_template or "detailed",
+        "authorized_investigation_acknowledged": (
+            watch.purpose == "authorized_investigation"
+        ),
         "_created_by": principal.actor_id,
     }
     task = entity_research_task.delay(watch.query, options)
@@ -4375,3 +4388,31 @@ def llm_test(body: LLMProviderRequest = None):
     except Exception as e:
         logger.exception("[/llm/test] erreur inattendue")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/llm/system-prompt")
+def llm_system_prompt():
+    """Pré-prompt commun injecté avant les instructions de chaque tâche IA."""
+    from llm_providers import system_preprompt_info
+
+    return system_preprompt_info()
+
+
+@router.put("/llm/system-prompt")
+def llm_set_system_prompt(body: LLMSystemPromptRequest):
+    """Modifie le pré-prompt à chaud, ou rétablit la configuration avec ``null``."""
+    from llm_providers import set_system_preprompt
+
+    try:
+        result = set_system_preprompt(body.prompt)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+    logger.info("[LLM] Pré-prompt système mis à jour (source=%s)", result["source"])
+    return {
+        "success": True,
+        **result,
+        "persist_hint": (
+            "Définissez LLM_SYSTEM_PROMPT ou LLM_SYSTEM_PROMPT_FILE dans .env "
+            "pour conserver ce réglage après redémarrage."
+        ),
+    }

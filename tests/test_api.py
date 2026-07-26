@@ -30,6 +30,31 @@ class TestHealthEndpoint:
         response = client.get("/health")
         assert "X-Request-ID" in response.headers
 
+    def test_health_uses_the_active_llm_provider(self, monkeypatch):
+        import llm_providers
+        from middleware import check_llm_health
+
+        class HealthyProvider:
+            model = "test-model"
+
+            def check(self):
+                return True, "fournisseur actif disponible"
+
+        monkeypatch.setattr(llm_providers, "current_provider_id", lambda: "codex_cli")
+        monkeypatch.setattr(llm_providers, "get_provider", lambda: HealthyProvider())
+
+        status = check_llm_health()
+        assert status["status"] == "ok"
+        assert status["provider"] == "codex_cli"
+        assert status["message"] == "fournisseur actif disponible"
+
+    def test_unconfigured_redis_is_optional(self, monkeypatch):
+        from middleware import check_redis_health
+
+        monkeypatch.delenv("REDIS_URL", raising=False)
+        monkeypatch.delenv("CELERY_BROKER_URL", raising=False)
+        assert check_redis_health()["status"] == "not_configured"
+
 
 class TestRootEndpoint:
     """Tests for / endpoint."""

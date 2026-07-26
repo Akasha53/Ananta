@@ -1,0 +1,481 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+ANANTA_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ANANTA_RUN_DIR="${ANANTA_RUN_DIR:-$ANANTA_ROOT/.run}"
+ANANTA_LOG_DIR="${ANANTA_LOG_DIR:-$ANANTA_ROOT/logs}"
+ANANTA_RUNTIME="${ANANTA_RUNTIME:-auto}"
+ANANTA_PORT="${ANANTA_PORT:-8010}"
+ANANTA_HOST="${ANANTA_HOST:-127.0.0.1}"
+ANANTA_SYNC_ONLY=false
+ANANTA_WITH_OLLAMA=false
+
+usage() {
+  printf '%s\n' \
+    "Ananta — lanceur de la pile locale" \
+    "" \
+    "Usage: ./ananta <commande> [options]" \
+    "" \
+    "Commandes:" \
+    "  start      Démarre API + Redis + worker + beat (défaut)" \
+    "  stop       Arrête les services démarrés par ce script" \
+    "  restart    Redémarre la pile" \
+    "  status     Affiche l'état des services" \
+    "  doctor     Vérifie les dépendances et le fournisseur IA" \
+    "  logs       Suit les journaux locaux ou Docker" \
+    "  test       Lance la validation Python et JavaScript" \
+    "" \
+    "Options:" \
+    "  --native     Force les processus locaux" \
+    "  --docker     Force Docker Compose" \
+    "  --sync-only  Démarre seulement l'API (sans Redis/Celery)" \
+    "  --ollama     Active le profil Ollama avec Docker" \
+    "" \
+    "Exemples:" \
+    "  ./ananta start" \
+    "  LLM_PROVIDER=codex_cli ./ananta start --native" \
+    "  ./ananta start --docker --ollama" \
+    "  ./ananta start --sync-only"
+}
+
+note() { printf '[ananta] %s\n' "$*"; }
+warn() { printf '[ananta] ATTENTION: %s\n' "$*" >&2; }
+fail() { printf '[ananta] ERREUR: %s\n' "$*" >&2; exit 1; }
+
+load_project_env() {
+  if [[ -f "$ANANTA_ROOT/.env" ]]; then
+    set -a
+    # shellcheck disable=SC1091
+    source "$ANANTA_ROOT/.env"
+    set +a
+  fi
+  ANANTA_PORT="${ANANTA_PORT:-8010}"
+  ANANTA_HOST="${ANANTA_HOST:-127.0.0.1}"
+}
+
+docker_available() {
+  command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1
+}
+
+resolve_runtime() {
+  if [[ "$ANANTA_RUNTIME" != "auto" ]]; then
+    printf '%s' "$ANANTA_RUNTIME"
+    return
+  fi
+  if [[ -f "$ANANTA_RUN_DIR/runtime" ]]; then
+    local recorded
+    recorded="$(<"$ANANTA_RUN_DIR/runtime")"
+    if [[ "$recorded" == "native" || "$recorded" == "docker" ]]; then
+      printf '%s' "$recorded"
+      return
+    fi
+  fi
+  case "${LLM_PROVIDER:-}" in
+    codex_cli|claude_cli)
+      printf 'native'
+      ;;
+    *)
+      if docker_available; then printf 'docker'; else printf 'native'; fi
+      ;;
+  esac
+}
+
+ensure_directories() {
+  mkdir -p "$ANANTA_RUN_DIR" "$ANANTA_LOG_DIR"
+}
+
+python_path() {
+  if [[ -x "$ANANTA_ROOT/.venv/bin/python" ]]; then
+    printf '%s' "$ANANTA_ROOT/.venv/bin/python"
+  elif command -v python3 >/dev/null 2>&1; then
+    command -v python3
+  else
+    fail "Python 3 est introuvable."
+  fi
+}
+
+ensure_python_environment() {
+  local bootstrap_python
+  bootstrap_python="$(python_path)"
+  if [[ ! -x "$ANANTA_ROOT/.venv/bin/python" ]]; then
+    note "Création de .venv"
+    "$bootstrap_python" -m venv "$ANANTA_ROOT/.venv"
+    "$ANANTA_ROOT/.venv/bin/python" -m pip install --upgrade pip
+    "$ANANTA_ROOT/.venv/bin/python" -m pip install -r "$ANANTA_ROOT/requirements-lock.txt"
+  fi
+  ANANTA_PYTHON="$ANANTA_ROOT/.venv/bin/python"
+}
+
+pid_is_running() {
+  local pid_file="$1"
+  [[ -f "$pid_file" ]] || return 1
+  local pid
+  pid="$(<"$pid_file")"
+  [[ "$pid" =~ ^[0-9]+$ ]] || return 1
+  kill -0 "$pid" >/dev/null 2>&1
+}
+
+start_process() {
+  local name="$1"
+  local signature="$2"
+  shift 2
+  local pid_file="$ANANTA_RUN_DIR/$name.pid"
+  local log_file="$ANANTA_LOG_DIR/$name.log"
+  if pid_is_running "$pid_file"; then
+    local running_command
+    running_command="$(ps -p "$(<"$pid_file")" -o command= 2>/dev/null || true)"
+    if [[ "$running_command" == *"$signature"* ]]; then
+      note "$name déjà démarré (PID $(<"$pid_file"))"
+      return
+    fi
+    warn "$name: le fichier PID ne correspond plus au service ; remplacement."
+    rm -f "$pid_file"
+  fi
+  if (($# == 0)); then
+    fail "Commande manquante pour le service $name."
+  fi
+  if [[ -z "$signature" ]]; then
+    fail "Signature de contrôle manquante pour le service $name."
+  fi
+  if pid_is_running "$pid_file"; then
+    return
+  fi
+  note "Démarrage de $name"
+  nohup "$@" >>"$log_file" 2>&1 &
+  printf '%s\n' "$!" >"$pid_file"
+}
+
+stop_process() {
+  local name="$1"
+  local signature="$2"
+  local pid_file="$ANANTA_RUN_DIR/$name.pid"
+  [[ -f "$pid_file" ]] || return 0
+  local pid command_line
+  pid="$(<"$pid_file")"
+  if [[ ! "$pid" =~ ^[0-9]+$ ]] || ! kill -0 "$pid" >/dev/null 2>&1; then
+    rm -f "$pid_file"
+    return 0
+  fi
+  command_line="$(ps -p "$pid" -o command= 2>/dev/null || true)"
+  if [[ "$command_line" != *"$signature"* ]]; then
+    warn "$name: PID $pid réutilisé par un autre processus, arrêt ignoré."
+    rm -f "$pid_file"
+    return 0
+  fi
+  note "Arrêt de $name (PID $pid)"
+  kill "$pid"
+  local attempt
+  for attempt in {1..20}; do
+    kill -0 "$pid" >/dev/null 2>&1 || break
+    sleep 0.25
+  done
+  if kill -0 "$pid" >/dev/null 2>&1; then
+    warn "$name ne s'est pas arrêté proprement ; envoi de SIGKILL."
+    kill -9 "$pid"
+  fi
+  rm -f "$pid_file"
+}
+
+redis_ready() {
+  "$ANANTA_PYTHON" - <<'PY' >/dev/null 2>&1
+import os
+import redis
+redis.from_url(os.environ["REDIS_URL"], socket_connect_timeout=1, socket_timeout=1).ping()
+PY
+}
+
+wait_for_redis() {
+  local attempt
+  for attempt in {1..40}; do
+    redis_ready && return 0
+    sleep 0.25
+  done
+  return 1
+}
+
+start_native_redis() {
+  export REDIS_URL="${REDIS_URL:-redis://127.0.0.1:6379/0}"
+  export CELERY_BROKER_URL="${CELERY_BROKER_URL:-$REDIS_URL}"
+  export CELERY_RESULT_BACKEND="${CELERY_RESULT_BACKEND:-redis://127.0.0.1:6379/1}"
+  if redis_ready; then
+    note "Redis déjà disponible"
+    return
+  fi
+  command -v redis-server >/dev/null 2>&1 || fail \
+    "Redis est requis pour les tâches asynchrones. Installez-le (macOS: brew install redis), utilisez Docker, ou ajoutez --sync-only."
+
+  local redis_host redis_port
+  read -r redis_host redis_port < <(
+    "$ANANTA_PYTHON" - <<'PY'
+import os
+from urllib.parse import urlparse
+parsed = urlparse(os.environ["REDIS_URL"])
+print(parsed.hostname or "127.0.0.1", parsed.port or 6379)
+PY
+  )
+  [[ "$redis_host" == "127.0.0.1" || "$redis_host" == "localhost" ]] || fail \
+    "Le Redis distant $redis_host est injoignable ; le script ne démarrera pas un serveur à sa place."
+  start_process redis redis-server redis-server \
+    --bind "$redis_host" --port "$redis_port" --dir "$ANANTA_RUN_DIR" \
+    --save "" --appendonly no
+  wait_for_redis || fail "Redis n'a pas répondu. Consultez logs/redis.log."
+}
+
+configure_native_environment() {
+  export DATABASE_URL="${DATABASE_URL:-sqlite:///$ANANTA_ROOT/ananta.db}"
+  export ENVIRONMENT="${ENVIRONMENT:-development}"
+  export AUTH_REQUIRED="${AUTH_REQUIRED:-false}"
+  export RATE_LIMIT_ENABLED="${RATE_LIMIT_ENABLED:-false}"
+  export LLM_PROVIDER="${LLM_PROVIDER:-}"
+  if [[ -z "$LLM_PROVIDER" ]]; then
+    if command -v codex >/dev/null 2>&1; then
+      export LLM_PROVIDER=codex_cli
+    else
+      export LLM_PROVIDER=none
+    fi
+  fi
+  if [[ "$LLM_PROVIDER" == "codex_cli" ]]; then
+    export CODEX_CLI_ARGS="${CODEX_CLI_ARGS:---sandbox read-only --ephemeral --ignore-rules --color never}"
+  fi
+}
+
+check_native_llm() {
+  case "$LLM_PROVIDER" in
+    codex_cli)
+      command -v codex >/dev/null 2>&1 || fail "LLM_PROVIDER=codex_cli mais la commande codex est absente."
+      ;;
+    claude_cli)
+      command -v claude >/dev/null 2>&1 || fail "LLM_PROVIDER=claude_cli mais la commande claude est absente."
+      ;;
+    ollama)
+      if ! "$ANANTA_PYTHON" - <<'PY' >/dev/null 2>&1
+import os, requests
+host = os.getenv("OLLAMA_HOST", "http://127.0.0.1:11434").rstrip("/")
+requests.get(f"{host}/api/tags", timeout=1).raise_for_status()
+PY
+      then
+        command -v ollama >/dev/null 2>&1 || fail "Ollama est configuré mais ni joignable ni installé."
+        start_process ollama "ollama serve" ollama serve
+      fi
+      ;;
+    webui|openai_api|anthropic|none)
+      ;;
+    *)
+      fail "Fournisseur IA inconnu: $LLM_PROVIDER"
+      ;;
+  esac
+}
+
+wait_for_api() {
+  local attempt
+  for attempt in {1..60}; do
+    if "$ANANTA_PYTHON" - <<PY >/dev/null 2>&1
+from urllib.request import urlopen
+urlopen("http://$ANANTA_HOST:$ANANTA_PORT/ready", timeout=1).read()
+PY
+    then
+      return 0
+    fi
+    sleep 0.5
+  done
+  return 1
+}
+
+native_start() {
+  cd "$ANANTA_ROOT"
+  ensure_directories
+  ensure_python_environment
+  configure_native_environment
+  check_native_llm
+
+  if [[ "$ANANTA_SYNC_ONLY" == "true" ]]; then
+    unset REDIS_URL CELERY_BROKER_URL CELERY_RESULT_BACKEND
+    warn "Mode synchrone : Redis, worker et beat ne seront pas démarrés."
+  else
+    start_native_redis
+  fi
+
+  note "Application des migrations"
+  (cd "$ANANTA_ROOT" && "$ANANTA_PYTHON" -m alembic upgrade head)
+
+  start_process api "uvicorn main:app" \
+    "$ANANTA_PYTHON" -m uvicorn main:app --host "$ANANTA_HOST" --port "$ANANTA_PORT"
+
+  if [[ "$ANANTA_SYNC_ONLY" != "true" ]]; then
+    start_process worker "celery -A tasks.app worker" \
+      "$ANANTA_PYTHON" -m celery -A tasks.app worker \
+      -Q default,osint_fast,osint_medium,osint_critical,priority,maintenance \
+      --concurrency="${WORKER_CONCURRENCY:-4}" --loglevel=info
+    start_process beat "celery -A tasks.app beat" \
+      "$ANANTA_PYTHON" -m celery -A tasks.app beat --loglevel=info \
+      --pidfile "$ANANTA_RUN_DIR/celerybeat.pid" \
+      --schedule "$ANANTA_RUN_DIR/celerybeat-schedule"
+  fi
+
+  printf 'native\n' >"$ANANTA_RUN_DIR/runtime"
+  wait_for_api || fail "L'API n'a pas démarré. Consultez logs/api.log."
+  note "Prêt : http://$ANANTA_HOST:$ANANTA_PORT/web/html/entity.html"
+  note "IA : $LLM_PROVIDER"
+}
+
+native_stop() {
+  stop_process beat "celery -A tasks.app beat"
+  stop_process worker "celery -A tasks.app worker"
+  stop_process api "uvicorn main:app"
+  stop_process ollama "ollama serve"
+  stop_process redis "redis-server"
+  rm -f "$ANANTA_RUN_DIR/runtime" "$ANANTA_RUN_DIR/celerybeat.pid"
+}
+
+native_status() {
+  ensure_directories
+  local service
+  for service in api redis worker beat ollama; do
+    if pid_is_running "$ANANTA_RUN_DIR/$service.pid"; then
+      printf '%-8s actif (PID %s)\n' "$service" "$(<"$ANANTA_RUN_DIR/$service.pid")"
+    else
+      printf '%-8s arrêté\n' "$service"
+    fi
+  done
+  if [[ -x "$ANANTA_ROOT/.venv/bin/python" ]]; then
+    ANANTA_PYTHON="$ANANTA_ROOT/.venv/bin/python"
+    if "$ANANTA_PYTHON" - <<PY >/dev/null 2>&1
+from urllib.request import urlopen
+urlopen("http://$ANANTA_HOST:$ANANTA_PORT/ready", timeout=1).read()
+PY
+    then
+      note "API joignable sur http://$ANANTA_HOST:$ANANTA_PORT"
+    fi
+  fi
+}
+
+native_logs() {
+  ensure_directories
+  local files=()
+  local name
+  for name in api redis worker beat ollama; do
+    [[ -f "$ANANTA_LOG_DIR/$name.log" ]] && files+=("$ANANTA_LOG_DIR/$name.log")
+  done
+  ((${#files[@]})) || fail "Aucun journal local."
+  tail -n 100 -F "${files[@]}"
+}
+
+ensure_docker_env() {
+  [[ -f "$ANANTA_ROOT/.env" ]] && return
+  local secret_python postgres_password bootstrap_token
+  secret_python="$(python_path)"
+  postgres_password="$("$secret_python" -c 'import secrets; print(secrets.token_urlsafe(32))')"
+  bootstrap_token="$("$secret_python" -c 'import secrets; print(secrets.token_hex(24))')"
+  umask 077
+  {
+    printf 'POSTGRES_PASSWORD=%s\n' "$postgres_password"
+    printf 'ENVIRONMENT=development\n'
+    printf 'AUTH_REQUIRED=false\n'
+    printf 'ANANTA_BOOTSTRAP_TOKEN=%s\n' "$bootstrap_token"
+    printf 'ANANTA_PORT=%s\n' "$ANANTA_PORT"
+    printf 'LLM_PROVIDER=%s\n' "${LLM_PROVIDER:-none}"
+  } >"$ANANTA_ROOT/.env"
+  note "Fichier .env local créé avec des secrets aléatoires."
+}
+
+docker_compose() {
+  (cd "$ANANTA_ROOT" && docker compose "$@")
+}
+
+docker_start() {
+  docker_available || fail "Docker n'est pas disponible."
+  ensure_directories
+  ensure_docker_env
+  local args=(up -d --build)
+  if [[ "$ANANTA_WITH_OLLAMA" == "true" || "${LLM_PROVIDER:-}" == "ollama" ]]; then
+    args=(--profile ollama "${args[@]}")
+  fi
+  docker_compose "${args[@]}"
+  printf 'docker\n' >"$ANANTA_RUN_DIR/runtime"
+  note "Prêt : http://localhost:$ANANTA_PORT/web/html/entity.html"
+}
+
+docker_stop() {
+  docker_available || fail "Docker n'est pas disponible."
+  docker_compose down
+  rm -f "$ANANTA_RUN_DIR/runtime"
+}
+
+doctor() {
+  ensure_directories
+  local failed=0
+  printf '%-20s %s\n' "Python 3" "$(command -v python3 2>/dev/null || printf 'absent')"
+  printf '%-20s %s\n' "Docker" "$(command -v docker 2>/dev/null || printf 'absent')"
+  printf '%-20s %s\n' "Redis" "$(command -v redis-server 2>/dev/null || printf 'absent')"
+  printf '%-20s %s\n' "Codex CLI" "$(command -v codex 2>/dev/null || printf 'absent')"
+  printf '%-20s %s\n' "Claude CLI" "$(command -v claude 2>/dev/null || printf 'absent')"
+  printf '%-20s %s\n' "Ollama" "$(command -v ollama 2>/dev/null || printf 'absent')"
+  printf '%-20s %s\n' "Fournisseur IA" "${LLM_PROVIDER:-auto (Codex si présent)}"
+  if ! docker_available && ! command -v redis-server >/dev/null 2>&1; then
+    warn "Ni Docker ni redis-server : utilisez --sync-only ou installez Redis."
+    failed=1
+  fi
+  case "${LLM_PROVIDER:-}" in
+    codex_cli) command -v codex >/dev/null 2>&1 || failed=1 ;;
+    claude_cli) command -v claude >/dev/null 2>&1 || failed=1 ;;
+  esac
+  return "$failed"
+}
+
+run_tests() {
+  ensure_python_environment
+  (
+    cd "$ANANTA_ROOT"
+    "$ANANTA_PYTHON" -m pytest -q
+    if "$ANANTA_PYTHON" -m ruff --version >/dev/null 2>&1; then
+      "$ANANTA_PYTHON" -m ruff check .
+    elif command -v ruff >/dev/null 2>&1; then
+      ruff check .
+    elif command -v uv >/dev/null 2>&1; then
+      uvx ruff check .
+    else
+      warn "Ruff est absent : lint ignoré (installez ruff ou uv pour l'activer)."
+    fi
+    "$ANANTA_PYTHON" -m compileall -q .
+    node --check web/javascript/entity.js
+  )
+}
+
+action="${1:-help}"
+shift || true
+while (($#)); do
+  case "$1" in
+    --native) ANANTA_RUNTIME=native ;;
+    --docker) ANANTA_RUNTIME=docker ;;
+    --sync-only) ANANTA_SYNC_ONLY=true ;;
+    --ollama) ANANTA_WITH_OLLAMA=true ;;
+    -h|--help) action=help ;;
+    *) fail "Option inconnue: $1" ;;
+  esac
+  shift
+done
+
+load_project_env
+runtime="$(resolve_runtime)"
+
+case "$action" in
+  start)
+    if [[ "$runtime" == "docker" ]]; then docker_start; else native_start; fi
+    ;;
+  stop)
+    if [[ "$runtime" == "docker" ]]; then docker_stop; else native_stop; fi
+    ;;
+  restart)
+    if [[ "$runtime" == "docker" ]]; then docker_stop; docker_start; else native_stop; native_start; fi
+    ;;
+  status)
+    if [[ "$runtime" == "docker" ]]; then docker_compose ps; else native_status; fi
+    ;;
+  logs)
+    if [[ "$runtime" == "docker" ]]; then docker_compose logs -f --tail=100; else native_logs; fi
+    ;;
+  doctor) doctor ;;
+  test) run_tests ;;
+  help|-h|--help) usage ;;
+  *) usage; fail "Commande inconnue: $action" ;;
+esac

@@ -21,6 +21,7 @@ ENV/
 # Logs
 logs/
 *.log
+.run/
 
 # Database
 *.db

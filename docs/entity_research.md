@@ -256,7 +256,8 @@ Rechercher une personne physique n'est pas rechercher un domaine.
 
 Chaque recherche déclare une finalité :
 `due_diligence`, `kyc_aml`, `fraud_investigation`, `security_assessment`,
-`journalism`, `recruitment`, `legal_proceedings`, `self_check`, `research`.
+`journalism`, `recruitment`, `legal_proceedings`, `self_check`, `research`,
+`authorized_investigation`.
 
 Elle n'est pas décorative :
 
@@ -264,7 +265,25 @@ Elle n'est pas décorative :
   traitant des données personnelles quand la cible est une personne physique ;
 - les attributs de sensibilité `sensitive` (fuites, correspondance sanctions)
   ne sortent qu'avec une finalité qui les justifie (`kyc_aml`,
-  `fraud_investigation`, `legal_proceedings`, `self_check`).
+  `fraud_investigation`, `legal_proceedings`, `self_check`,
+  `authorized_investigation`).
+
+La finalité `authorized_investigation` active le profil le plus poussé :
+mode `deep`, pivot vers les personnes et énumération de comptes publics. Elle
+est refusée tant que l'opérateur n'a pas attesté disposer d'un mandat légal ou
+contractuel explicite. Cette attestation est conservée dans le bloc de
+conformité du dossier ; elle ne crée pas une autorisation et ne remplace aucune
+obligation applicable. L'accès aux données de fuite reste un opt-in séparé.
+
+```bash
+curl -X POST http://localhost:8010/entity/research \
+  -H "Content-Type: application/json" \
+  -d '{
+    "query": "ACME INDUSTRIES",
+    "purpose": "authorized_investigation",
+    "authorized_investigation_acknowledged": true
+  }'
+```
 
 ### Modes et couches
 

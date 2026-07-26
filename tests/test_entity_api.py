@@ -125,6 +125,34 @@ class TestEntitySources:
         assert second.status_code == 304
 
 
+class TestLLMSystemPrompt:
+    def test_prompt_can_be_inspected_updated_and_reset(self, client):
+        from llm_providers import set_system_preprompt
+
+        try:
+            initial = client.get("/llm/system-prompt")
+            assert initial.status_code == 200
+            assert initial.json()["prompt"]
+
+            updated = client.put(
+                "/llm/system-prompt",
+                json={"prompt": "Ne restitue que des faits vérifiés."},
+            )
+            assert updated.status_code == 200
+            assert updated.json()["source"] == "runtime"
+            assert "faits vérifiés" in updated.json()["prompt"]
+
+            reset = client.put("/llm/system-prompt", json={"prompt": None})
+            assert reset.status_code == 200
+            assert reset.json()["source"] in {"default", "environment", "file"}
+        finally:
+            set_system_preprompt(None)
+
+    def test_empty_prompt_is_rejected(self, client):
+        response = client.put("/llm/system-prompt", json={"prompt": "  "})
+        assert response.status_code == 422
+
+
 class TestEntityResearch:
     def test_research_returns_and_persists_dossier(self, client, patched_engine):
         response = client.post(
@@ -146,6 +174,42 @@ class TestEntityResearch:
     def test_invalid_mode_rejected(self, client):
         response = client.post("/entity/research", json={"query": "acme.fr", "mode": "ultra"})
         assert response.status_code == 422
+
+    def test_authorized_investigation_requires_acknowledgement(self, client, patched_engine):
+        response = client.post(
+            "/entity/research",
+            json={"query": "acme.fr", "purpose": "authorized_investigation"},
+        )
+        assert response.status_code == 422
+        assert "mandat explicite" in response.text
+
+    def test_authorized_investigation_enables_deep_profile(
+        self, client, monkeypatch
+    ):
+        import entity_research
+
+        captured = {}
+
+        def fake_research_entity(query, **kwargs):
+            captured.update(kwargs)
+            return build_fake_dossier("authorized_api")
+
+        monkeypatch.setattr(entity_research, "research_entity", fake_research_entity)
+        response = client.post(
+            "/entity/research",
+            json={
+                "query": "acme.fr",
+                "purpose": "authorized_investigation",
+                "authorized_investigation_acknowledged": True,
+                "use_llm": False,
+            },
+        )
+
+        assert response.status_code == 200
+        assert captured["mode"] == "deep"
+        assert captured["allow_account_enumeration"] is True
+        assert captured["allow_person_pivot"] is True
+        assert captured["authorized_investigation_acknowledged"] is True
 
     def test_invalid_source_id_rejected(self, client):
         response = client.post(

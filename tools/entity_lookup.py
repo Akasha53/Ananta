@@ -81,6 +81,7 @@ def cmd_research(args: argparse.Namespace) -> int:
         template=args.template,
         allow_account_enumeration=args.allow_enumeration,
         allow_breach_data=args.allow_breach,
+        authorized_investigation_acknowledged=args.acknowledge_authorization,
         redact_personal_data=args.redact,
         use_llm=not args.no_llm,
         only_sources=args.only.split(",") if args.only else None,
@@ -137,6 +138,7 @@ def main(argv: Optional[list] = None) -> int:
         choices=[
             "due_diligence", "kyc_aml", "fraud_investigation", "security_assessment",
             "journalism", "recruitment", "legal_proceedings", "self_check", "research",
+            "authorized_investigation",
         ],
         help="Finalité déclarée (base légale RGPD)",
     )
@@ -150,6 +152,11 @@ def main(argv: Optional[list] = None) -> int:
     parser.add_argument("--exclude", help="Exclure ces sources (séparées par des virgules)")
     parser.add_argument("--allow-enumeration", action="store_true", help="Autorise la recherche de pseudonyme")
     parser.add_argument("--allow-breach", action="store_true", help="Autorise les bases de fuites")
+    parser.add_argument(
+        "--acknowledge-authorization",
+        action="store_true",
+        help="Atteste le mandat explicite requis par authorized_investigation",
+    )
     parser.add_argument("--redact", action="store_true", help="Masque les données personnelles")
     parser.add_argument("--no-llm", action="store_true", help="Désactive la synthèse LLM")
     parser.add_argument("--save", action="store_true", help="Enregistre le dossier en base")

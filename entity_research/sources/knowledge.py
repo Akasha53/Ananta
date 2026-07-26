@@ -113,7 +113,6 @@ class WikidataSource(BaseSource):
         accepts={
             SelectorType.ORG_NAME,
             SelectorType.PERSON_NAME,
-            SelectorType.DOMAIN,
         },
         entity_kinds={EntityKind.PERSON, EntityKind.ORGANIZATION, EntityKind.UNKNOWN},
         reliability=0.80,
@@ -126,11 +125,6 @@ class WikidataSource(BaseSource):
 
     def fetch(self, sel: Selector, ctx: ResearchContext) -> Optional[SourceResult]:
         search_term = sel.value
-        if sel.type is SelectorType.DOMAIN:
-            # Un domaine ne se cherche pas tel quel : on tente la marque nue.
-            search_term = sel.value.rsplit(".", 1)[0].replace("-", " ")
-            if len(search_term) < 3:
-                raise SourceSkipped("Domaine trop court pour une recherche Wikidata")
 
         qid, label, description = self._search(search_term, ctx, sel)
         if not qid:
@@ -145,6 +139,20 @@ class WikidataSource(BaseSource):
             dig(snak, "mainsnak", "datavalue", "value", "id") == _QID_HUMAN
             for snak in claims.get("P31") or []
         )
+        if is_human and (
+            sel.type is SelectorType.ORG_NAME
+            or ctx.entity_kind is EntityKind.ORGANIZATION
+        ):
+            raise SourceNotFound(
+                f"La correspondance Wikidata '{label or qid}' est une personne, pas une organisation"
+            )
+        if not is_human and (
+            sel.type is SelectorType.PERSON_NAME
+            or ctx.entity_kind is EntityKind.PERSON
+        ):
+            raise SourceNotFound(
+                f"La correspondance Wikidata '{label or qid}' n'est pas une personne"
+            )
 
         result = self.result(sel, raw={"qid": qid})
         result.attributes = collect(

@@ -52,6 +52,9 @@ LEGAL_PURPOSES: Dict[str, str] = {
     "legal_proceedings": "Constitution de preuve dans un cadre judiciaire",
     "self_check": "Recherche sur soi-même ou sa propre organisation",
     "research": "Recherche académique ou statistique",
+    "authorized_investigation": (
+        "Investigation avancée couverte par un mandat légal ou contractuel explicite"
+    ),
 }
 
 #: Finalités qui ne justifient pas la collecte de données personnelles étendues.
@@ -70,6 +73,7 @@ class CompliancePolicy:
     allow_breach_data: bool = False
     allow_person_pivot: bool = True       # Pivot depuis une société vers ses dirigeants
     redact_personal_data: bool = False
+    authorized_investigation_acknowledged: bool = False
     operator: Optional[str] = None
     notes: str = ""
 
@@ -88,6 +92,9 @@ class CompliancePolicy:
             "allow_breach_data": self.allow_breach_data,
             "allow_person_pivot": self.allow_person_pivot,
             "redact_personal_data": self.redact_personal_data,
+            "authorized_investigation_acknowledged": (
+                self.authorized_investigation_acknowledged
+            ),
             "operator": self.operator,
             "notes": self.notes,
         }
@@ -186,6 +193,7 @@ def filter_selectors(
             "fraud_investigation",
             "legal_proceedings",
             "self_check",
+            "authorized_investigation",
         }:
             # Un IBAN reste exploitable comme preuve, mais on ne pivote pas dessus.
             continue
@@ -225,6 +233,7 @@ def apply_minimization(
         "fraud_investigation",
         "legal_proceedings",
         "self_check",
+        "authorized_investigation",
     }
 
     result: List[Attribute] = []
@@ -292,6 +301,27 @@ def compliance_notice(
             "Énumération de comptes activée : requêtes visibles côté plateformes, "
             "susceptibles d'enfreindre certaines CGU."
         )
+    if policy.purpose == "authorized_investigation":
+        if language.startswith("en"):
+            statements.append(
+                "The operator attested that an explicit legal or contractual mandate "
+                "covers this advanced investigation."
+            )
+            warnings.append(
+                "The operator is solely responsible for validating the authorization, "
+                "scope, proportionality, retention and use of the results. This "
+                "attestation does not replace applicable legal obligations."
+            )
+        else:
+            statements.append(
+                "L'opérateur a attesté qu'un mandat légal ou contractuel explicite "
+                "couvre cette investigation avancée."
+            )
+            warnings.append(
+                "L'opérateur est seul responsable de vérifier l'autorisation, le "
+                "périmètre, la proportionnalité, la conservation et l'usage des "
+                "résultats. Cette attestation ne remplace pas les obligations applicables."
+            )
 
     return {
         "policy": policy.to_dict(),

@@ -30,7 +30,7 @@ from entity_research.confidence import (
     merge_attributes,
 )
 from entity_research.identifiers import EntityKind, SelectorType, make_selector
-from entity_research.orchestrator import preview_selectors, describe_sources
+from entity_research.orchestrator import build_policy, describe_sources, preview_selectors
 from entity_research.pivot import PivotEngine
 from entity_research.schema import (
     Attribute,
@@ -513,6 +513,35 @@ class TestCompliance:
         notice = compliance_notice(CompliancePolicy(), EntityKind.PERSON)
         assert notice["gdpr_applicable"] is True
         assert any("RGPD" in s for s in notice["statements"])
+
+    def test_authorized_investigation_is_traced_and_allows_sensitive_data(self):
+        policy = CompliancePolicy(
+            mode=ResearchMode.DEEP,
+            purpose="authorized_investigation",
+            allow_account_enumeration=True,
+            authorized_investigation_acknowledged=True,
+        )
+        notice = compliance_notice(policy, EntityKind.PERSON)
+        attributes = [
+            make_attribute("breach", "leak", "hibp", sensitivity=Sensitivity.SENSITIVE)
+        ]
+
+        assert apply_minimization(attributes, policy) == attributes
+        assert notice["policy"]["authorized_investigation_acknowledged"] is True
+        assert any("mandat" in statement.lower() for statement in notice["statements"])
+        assert any("seul responsable" in warning.lower() for warning in notice["warnings"])
+
+    def test_authorized_investigation_requires_ack_and_forces_deep_profile(self):
+        with pytest.raises(ValueError, match="mandat explicite"):
+            build_policy(purpose="authorized_investigation")
+
+        policy = build_policy(
+            purpose="authorized_investigation",
+            authorized_investigation_acknowledged=True,
+        )
+        assert policy.mode is ResearchMode.DEEP
+        assert policy.allow_account_enumeration is True
+        assert policy.allow_person_pivot is True
 
 
 # ============================================================================

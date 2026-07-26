@@ -73,6 +73,10 @@ the leads run out or a budget is reached.
   what may be collected on a natural person, sensitive data is minimised before
   output, account enumeration and breach lookups are opt-in, and
   `DELETE /entity/run/{run_id}` implements the right to erasure.
+- **Authorized advanced investigations**: an explicit mandate attestation
+  unlocks the deepest research profile and is recorded in the dossier. Breach
+  data remains a separate opt-in, and the operator remains responsible for the
+  legality, scope, retention, and use of the results.
 - **Change detection is built in**: keep an entity on the watchlist, relaunch
   collection, and review exactly what appeared, disappeared, or changed.
 
@@ -388,6 +392,37 @@ alembic upgrade head
 ```
 
 ### 5. Start the Stack
+
+#### One-command launcher (Linux / macOS)
+
+```bash
+./ananta doctor
+./ananta start
+```
+
+The launcher chooses Docker Compose when available, or native processes when a
+CLI provider such as Codex/Claude is selected. In native mode it starts the API,
+Redis, a Celery worker and Celery Beat, applies migrations, and writes process
+logs under `logs/`.
+
+Useful commands:
+
+```bash
+./ananta status
+./ananta logs
+./ananta test
+./ananta stop
+```
+
+For a lightweight synchronous session without Redis/Celery:
+
+```bash
+LLM_PROVIDER=codex_cli ./ananta start --native --sync-only
+```
+
+Every provider receives Ananta's built-in safety and evidence pre-prompt. It can
+be edited in the Entity UI, or persisted with `LLM_SYSTEM_PROMPT` /
+`LLM_SYSTEM_PROMPT_FILE`.
 
 #### Windows
 

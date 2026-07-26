@@ -306,3 +306,41 @@ class TestLLMProviders:
         available, detail = provider.check()
         assert available is False
         assert "introuvable" in detail
+
+    def test_global_system_preprompt_is_injected_for_every_provider(self, monkeypatch):
+        import llm_providers
+
+        captured = {}
+
+        class FakeProvider:
+            def generate(self, system_prompt, user_prompt, **kwargs):
+                captured.update(
+                    system_prompt=system_prompt,
+                    user_prompt=user_prompt,
+                    kwargs=kwargs,
+                )
+                return "ok"
+
+        monkeypatch.setattr(llm_providers, "get_provider", lambda provider_id=None: FakeProvider())
+        try:
+            llm_providers.set_system_preprompt("Règle globale de test.")
+            answer = llm_providers.generate(
+                "Instruction de tâche.",
+                "Question utilisateur.",
+                provider_id="codex_cli",
+            )
+        finally:
+            llm_providers.set_system_preprompt(None)
+
+        assert answer == "ok"
+        assert captured["system_prompt"].startswith("Règle globale de test.")
+        assert "Instruction de tâche." in captured["system_prompt"]
+        assert captured["user_prompt"] == "Question utilisateur."
+
+    def test_system_preprompt_rejects_empty_or_oversized_values(self):
+        from llm_providers import MAX_SYSTEM_PREPROMPT_CHARS, set_system_preprompt
+
+        with pytest.raises(ValueError, match="vide"):
+            set_system_preprompt("   ")
+        with pytest.raises(ValueError, match="dépasse"):
+            set_system_preprompt("x" * (MAX_SYSTEM_PREPROMPT_CHARS + 1))
