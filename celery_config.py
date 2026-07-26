@@ -125,6 +125,13 @@ CELERY_ROUTES = {
         'queue': 'osint_medium',
         'routing_key': 'osint.medium',
     },
+
+    # Recherche d'entité (personne physique/morale) : nombreux appels réseau
+    # externes, durée variable -> queue medium.
+    'ananta.entity_research': {
+        'queue': 'osint_medium',
+        'routing_key': 'osint.medium',
+    },
 }
 
 # ==================== CONFIGURATION CELERY ====================

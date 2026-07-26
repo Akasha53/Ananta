@@ -3,18 +3,26 @@
  * Gère le cache offline et les requêtes réseau
  */
 
-const CACHE_NAME = 'ananta-v1.0.2';
+const CACHE_NAME = 'ananta-v1.2.0';
 const OFFLINE_URL = '/web/html/offline.html';
 
 // Ressources à mettre en cache immédiatement
 const PRECACHE_ASSETS = [
   '/web/html/index.html',
   '/web/html/database.html',
+  '/web/html/entity.html',
   '/web/html/offline.html',
+  '/web/css/tailwind.css',
   '/web/css/style.css',
+  '/web/vendor/fontawesome/all.min.css',
+  '/web/vendor/webfonts/fa-solid-900.woff2',
+  '/web/vendor/fonts/jetbrains-mono.css',
   '/web/css/mobile.css',
   '/web/javascript/app.js',
   '/web/javascript/database.js',
+  '/web/javascript/entity.js',
+  '/web/javascript/entity-graph.js',
+  '/web/javascript/entity-demo.js',
   '/web/manifest.json',
   '/web/icons/icon-192.png',
   '/web/icons/icon-512.png'

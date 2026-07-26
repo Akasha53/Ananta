@@ -85,11 +85,17 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
     """
 
     # Endpoints avec des limites spécifiques (requêtes/minute)
+    # Ordre d'évaluation: le premier préfixe qui matche gagne, donc les
+    # chemins les plus spécifiques doivent précéder les plus généraux.
     ENDPOINT_LIMITS: Dict[str, int] = {
-        "/agent/ask": 10,           # Scans synchrones: 10/min
-        "/agent/ask_async": 20,     # Scans async: 20/min
-        "/osint/": 30,              # Endpoints OSINT: 30/min
-        "/api-keys/create": 5,      # Création de clés: 5/min
+        "/agent/ask_async": 20,         # Scans async: 20/min (avant /agent/ask)
+        "/agent/ask": 10,               # Scans synchrones: 10/min
+        "/osint/": 30,                  # Endpoints OSINT: 30/min
+        "/api-keys/create": 5,          # Création de clés: 5/min
+        "/entity/preview": 60,          # Analyse locale de la saisie (frappe au clavier)
+        "/entity/research_async": 20,   # Recherche d'entité en tâche de fond
+        "/entity/research": 6,          # Recherche synchrone: coûteuse pour les sources tierces
+        "/entity/": 60,                 # Consultation des dossiers
     }
 
     # Limite globale par défaut

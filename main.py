@@ -161,12 +161,37 @@ async def http_exception_handler(request: Request, exc: HTTPException):
     return JSONResponse(status_code=exc.status_code, content=payload, headers=getattr(exc, "headers", None))
 
 
+def _serializable_validation_errors(exc: RequestValidationError) -> list:
+    """
+    Rend les erreurs de validation sérialisables en JSON.
+
+    Pydantic v2 place l'exception d'origine dans `ctx["error"]` : un objet
+    `ValueError` que `json.dumps` refuse. Sans ce nettoyage, le gestionnaire
+    d'erreur 422 échoue lui-même et l'appelant reçoit une 500 opaque à la
+    place d'un message exploitable.
+    """
+    cleaned = []
+    for error in exc.errors():
+        item = {
+            "type": error.get("type"),
+            "loc": [str(part) for part in error.get("loc", ())],
+            "msg": str(error.get("msg", "")),
+        }
+        if "input" in error:
+            item["input"] = str(error["input"])[:200]
+        ctx = error.get("ctx")
+        if isinstance(ctx, dict):
+            item["ctx"] = {key: str(value)[:200] for key, value in ctx.items()}
+        cleaned.append(item)
+    return cleaned
+
+
 @app.exception_handler(RequestValidationError)
 async def request_validation_exception_handler(request: Request, exc: RequestValidationError):
     payload = create_error_response(
         ErrorCode.VAL_INVALID_QUERY,
         message="Requête invalide (validation).",
-        details={"errors": exc.errors()},
+        details={"errors": _serializable_validation_errors(exc)},
     )
     payload["details"].update({"path": str(request.url.path), "method": request.method})
     return JSONResponse(status_code=422, content=payload)

@@ -26,6 +26,7 @@ Ananta accepts a target such as a domain, IP address, URL, or general research q
 Core capabilities include:
 
 - Local-first OSINT workflow with a browser-based interface.
+- Entity research: start from any single clue about a person or a company and pivot across public registries until a sourced dossier emerges.
 - Layered execution model that separates passive, enriched, and sensitive tooling.
 - Async background jobs with progress tracking and worker monitoring.
 - Structured intelligence outputs such as graph data, exposures, timeline events, and diffs.
@@ -45,7 +46,42 @@ Ananta classifies tools into three layers:
 
 This model is not just documentation. The application uses it to decide what can run automatically, what must be logged, and what requires human confirmation.
 
-### 2. Reports That Go Beyond Raw Tool Dumps
+### 2. Entity Research: From One Clue to a Full Dossier
+
+Infrastructure analysis answers *what is running there*. Entity research answers
+*who is behind it*.
+
+Give the engine any single fragment — a name, an email, a phone number, a
+domain, a French SIREN, an EU VAT number, a LEI, a username — and it walks a
+graph of selectors: each source consumes selectors and produces new ones, until
+the leads run out or a budget is reached.
+
+- **23 connectors, 18 of which need no API key**: Sirene/INSEE, GLEIF (LEI and
+  group structure), EU VIES, SEC EDGAR, BODACC (French insolvency notices),
+  Wikidata, ORCID, OpenSanctions, RDAP/WHOIS, DNS-over-HTTPS, legal-notice
+  scraping, GitHub, Gravatar, and more.
+- **Every fact carries its provenance**: source, URL, observation date, method,
+  and a confidence score. Facts confirmed by independent sources gain
+  confidence; two readings from the same source do not.
+- **Contradictions are surfaced, not silently resolved**: when registries
+  disagree on a legal name or a status, the dossier says so.
+- **Risk signals for decision-making**: sanctions and PEP matches, insolvency
+  proceedings, dissolved entities, invalid VAT numbers, breach exposure, missing
+  DMARC, suspiciously young domains.
+- **GDPR is enforced in code, not in a disclaimer**: a declared purpose gates
+  what may be collected on a natural person, sensitive data is minimised before
+  output, account enumeration and breach lookups are opt-in, and
+  `DELETE /entity/run/{run_id}` implements the right to erasure.
+
+```bash
+python -m tools.entity_lookup "552 100 554"
+python -m tools.entity_lookup "contact@acme.fr" --mode deep --purpose fraud_investigation
+python -m tools.entity_lookup --sources
+```
+
+Full documentation: [`docs/entity_research.md`](./docs/entity_research.md).
+
+### 3. Reports That Go Beyond Raw Tool Dumps
 
 Ananta is designed to produce usable intelligence rather than a list of disconnected outputs. A typical report combines:
 
@@ -58,7 +94,7 @@ Ananta is designed to produce usable intelligence rather than a list of disconne
 
 If the local LLM is unavailable, the backend can still generate a fallback report path so the platform remains useful without a model.
 
-### 3. Async Jobs and Operational Visibility
+### 4. Async Jobs and Operational Visibility
 
 Longer scans can run in the background through Celery and Redis. The UI and API can track:
 
@@ -70,7 +106,7 @@ Longer scans can run in the background through Celery and Redis. The UI and API 
 
 This allows the main interface to remain responsive while longer scans continue in the background.
 
-### 4. Built-In Safety and Traceability
+### 5. Built-In Safety and Traceability
 
 Ananta includes a number of controls that matter for a public security-oriented project:
 
@@ -95,7 +131,9 @@ The project is organized around a few central components:
 | `celery_config.py` | Celery queues, routing, limits, and Redis-backed configuration |
 | `database.py` | SQLAlchemy models, engine setup, session handling, DB fallback logic |
 | `models.py` | Pydantic request and response schemas |
+| `entity_research/` | Entity research engine: identifiers, sources, pivot, confidence, compliance, dossier |
 | `tools/tool_registry.py` | Tool classification, legal-risk metadata, and execution policy |
+| `tools/entity_lookup.py` | CLI for entity research |
 | `web/html` | Main UI pages |
 | `web/javascript` | Frontend application logic, pages, service worker, and monitoring scripts |
 | `web/css` | Main styling and mobile styling |
@@ -119,6 +157,7 @@ The frontend is served directly by the FastAPI app and includes several focused 
 | Page | Purpose |
 |---|---|
 | `/web/html/index.html` | Main analysis console |
+| `/web/html/entity.html` | Entity research console (person / company dossiers) |
 | `/web/html/database.html` | Stored reports and history |
 | `/web/html/monitoring.html` | Operational monitoring and logs |
 | `/web/html/workers.html` | Celery worker visibility |
@@ -156,6 +195,20 @@ Ananta exposes a wide API surface. The most important endpoints are grouped belo
 - `GET /osint/report/`
 - `GET /osint/report/view`
 - `GET /osint/history/`
+
+### Entity Research
+
+- `POST /entity/preview`
+- `GET /entity/sources`
+- `POST /entity/research`
+- `POST /entity/research_async`
+- `GET /entity/runs`
+- `GET /entity/run/{run_id}`
+- `GET /entity/run/{run_id}/graph`
+- `GET /entity/run/{run_id}/report`
+- `GET /entity/run/{run_id}/export/{json|markdown|csv}`
+- `GET /entity/entity/{entity_key}/runs`
+- `DELETE /entity/run/{run_id}`
 
 ### Structured Intelligence Views
 
@@ -230,6 +283,8 @@ The main persisted entities include:
 - `Finding`: structured findings and evidence.
 - `PendingApproval`: approval records for sensitive tools.
 - `ScheduledScan`: recurring analysis definitions.
+- `EntityResearchRun`: entity dossier (status, report, serialized dossier, risk level).
+- `ResearchEntity`: normalized entities extracted from dossiers, for cross-dossier correlation.
 
 This structure is what enables history, exports, timeline generation, graph views, and auditability.
 
@@ -520,6 +575,16 @@ alembic downgrade -1
 ├── celery_config.py
 ├── database.py
 ├── models.py
+├── entity_research/
+│   ├── identifiers.py
+│   ├── schema.py
+│   ├── confidence.py
+│   ├── compliance.py
+│   ├── pivot.py
+│   ├── analysis.py
+│   ├── report.py
+│   ├── storage.py
+│   └── sources/
 ├── tools/
 ├── osint_tools/
 ├── web/

@@ -547,6 +547,54 @@ TOOL_REGISTRY: Dict[str, ToolSpec] = {
         hypothesis_validated="Le domaine X possède une infrastructure étendue avec N sous-domaines"
     ),
 
+    "entity_research": ToolSpec(
+        name="entity_research",
+        layer=ToolLayer.LAYER_2_SPECIALIZED,
+        description=(
+            "Recherche d'entité multi-sources : à partir du moindre indice (nom, email, "
+            "téléphone, domaine, SIREN, LEI, TVA, pseudonyme), reconstitue l'identité "
+            "d'une personne physique ou morale, ses dirigeants, sa structure de groupe "
+            "et son empreinte numérique"
+        ),
+        capabilities=[
+            "entity_resolution",
+            "company_registry",
+            "beneficial_ownership",
+            "officer_lookup",
+            "sanctions_screening",
+            "digital_footprint",
+            "identity_correlation",
+        ],
+        legal_risk_level=LegalRiskLevel.MEDIUM,
+        requires_explicit_approval=False,
+        allowed_contexts=[
+            "OSINT passif",
+            "recherche publique",
+            "due diligence",
+            "KYC/LCB-FT",
+            "investigation de fraude",
+            "enquête journalistique",
+            "vérification sur soi-même",
+        ],
+        rate_limits={
+            "requests_per_minute": 30,
+            "note": "Chaque source applique en plus sa propre limite par hôte",
+        },
+        jurisdiction_notes=(
+            "Sources publiques uniquement. Sur une personne physique, le RGPD "
+            "s'applique intégralement : finalité déclarée obligatoire, minimisation "
+            "appliquée par `entity_research.compliance`, droits d'accès et "
+            "d'effacement à honorer (DELETE /entity/run/{run_id}). Les sous-sources "
+            "d'énumération de comptes et de données de fuite sont désactivées par "
+            "défaut et exigent une activation explicite."
+        ),
+        function_name="entity_research.research_entity",
+        dependencies=["requests"],
+        typical_duration_seconds=45.0,
+        evidence_type="Dossier d'entité sourcé (registres, bases ouvertes, web public)",
+        hypothesis_validated="L'entité X existe, correspond à cette identité légale et est liée à Y",
+    ),
+
     # ========================================================================
     # COUCHE 3 - OUTILS SENSIBLES (Approbation Utilisateur Obligatoire)
     # ========================================================================

@@ -1,7 +1,36 @@
 ﻿# ANANTA - Liste des TÃ¢ches (TODOS)
 
-> **Dernière mise à jour**: 30 janvier 2026
-> **Version**: Ananta v1.0.4 - Mistral 7B (32k context)
+> **Dernière mise à jour**: 26 juillet 2026
+> **Version**: Ananta v1.1.0 - Moteur de recherche d'entité + Mistral 7B (32k context)
+
+---
+
+## Recherche d'entité (juillet 2026) - LIVRÉ
+
+Nouveau module `entity_research/` : d'un simple indice (nom, email, téléphone,
+SIREN, TVA, LEI, domaine, pseudo) vers un dossier sourcé sur une personne
+physique ou morale. Voir `docs/entity_research.md`.
+
+- [x] **Parseur d'identifiants** - `identifiers.py` : 24 types de sélecteurs, checksums SIREN/SIRET/LEI/IBAN/ISIN/ORCID/TVA, déduction personne physique/morale
+- [x] **23 connecteurs de sources** - dont 18 sans clé d'API (Sirene, GLEIF, VIES, BODACC, SEC EDGAR, Wikidata, ORCID, OpenSanctions, RDAP, DoH, mentions légales, GitHub, Gravatar...)
+- [x] **Moteur de pivot** - parcours en largeur borné (profondeur, appels, temps, entités), exécution parallèle, fusion des entités homonymes
+- [x] **Moteur de confiance** - corroboration inter-sources, décroissance de fraîcheur, détection de contradictions
+- [x] **Conformité RGPD dans le code** - finalité déclarée, minimisation, opt-in énumération/fuites, droit à l'effacement
+- [x] **Analyse de risque** - 13 signaux (sanctions, procédure collective, entité radiée, TVA invalide, fuites, DMARC, domaine récent...)
+- [x] **Dossier multilingue** - rendu déterministe fr/en/es/de + synthèse LLM optionnelle, 4 templates
+- [x] **API REST** - 11 endpoints `/entity/*` + exports JSON/Markdown/CSV
+- [x] **Persistance** - tables `entity_research_runs` et `research_entities` + migration Alembic, recoupement inter-dossiers
+- [x] **Tâche Celery** - `ananta.entity_research` avec progression temps réel
+- [x] **Interface web** - `entity.html` : aperçu de la saisie, onglets identité/risques/réseau/chronologie/rapport/sources
+- [x] **CLI** - `python -m tools.entity_lookup`
+- [x] **Tests** - 170 tests dédiés, sans accès réseau (transport HTTP injectable)
+
+### Suite envisagée
+- [ ] **Graphe visuel interactif** - rendu D3/vis.js du graphe d'entités dans l'UI
+- [ ] **Registres supplémentaires** - Belgique (KBO), Allemagne (Handelsregister), Luxembourg (RCS), Suisse (Zefix)
+- [ ] **Surveillance d'entité** - relancer périodiquement un dossier et alerter sur les changements (réutiliser `ScheduledScan`)
+- [ ] **Export PDF du dossier** - réutiliser le pipeline `logic_generate_pdf`
+- [ ] **Résolution d'homonymes assistée** - proposer les candidats à l'analyste quand plusieurs entités correspondent
 
 ---
 
@@ -73,7 +102,7 @@
 ### Multi-langue
 - [x] **Ajouter Espagnol** - Traductions complÃ¨tes dans app.js
 - [x] **Ajouter Allemand** - Traductions complÃ¨tes dans app.js
-- [ ] **Traduction dynamique** - Traduire les rapports gÃ©nÃ©rÃ©s par le LLM
+- [ ] **Traduction dynamique** - Traduire les rapports gÃ©nÃ©rÃ©s par le LLM (fait pour les dossiers d'entité : rendu natif fr/en/es/de)
 - [x] **DÃ©tection auto de langue** - BasÃ© sur le navigateur (detectBrowserLanguage())
 
 ### Rapports & Export

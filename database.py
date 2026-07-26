@@ -381,6 +381,98 @@ class ScheduledScan(Base):
     created_by = Column(String, nullable=True)
 
 
+class EntityResearchRun(Base):
+    """
+    Dossier d'entité produit par le moteur `entity_research`.
+
+    Un run = une requête ("Jean Dupont acme.fr", un SIREN, un email...) et le
+    dossier complet qui en résulte : entités, relations, faits sourcés,
+    signaux de risque et rapport rendu.
+    """
+
+    __tablename__ = "entity_research_runs"
+    __table_args__ = (
+        Index("ix_entity_runs_status", "status"),
+        Index("ix_entity_runs_kind", "entity_kind"),
+        Index("ix_entity_runs_created_at", "created_at"),
+        Index("ix_entity_runs_label", "label"),
+        Index("ix_entity_runs_kind_created", "entity_kind", "created_at"),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+    run_id = Column(String, unique=True, index=True, nullable=False)
+    job_id = Column(String, index=True, nullable=True)  # Task Celery si asynchrone
+
+    query = Column(String, nullable=False)          # Requête d'origine
+    label = Column(String, nullable=True)           # Libellé retenu de l'entité
+    entity_kind = Column(String, default="unknown")  # person | organization | unknown
+    root_key = Column(String, nullable=True)        # Clé de l'entité racine
+
+    mode = Column(String, default="standard")       # passive | standard | deep
+    purpose = Column(String, default="due_diligence")
+    language = Column(String, default="fr")
+    report_template = Column(String, default="detailed")
+
+    status = Column(String, default="PENDING")      # PENDING, PROCESSING, COMPLETED, FAILED
+    progress = Column(Integer, default=0)
+
+    confidence_score = Column(Float, default=0.0)
+    risk_level = Column(String, nullable=True)
+    risk_score = Column(Integer, default=0)
+
+    entities_count = Column(Integer, default=0)
+    relationships_count = Column(Integer, default=0)
+    sources_ok = Column(Integer, default=0)
+    partial = Column(Boolean, default=False)
+
+    dossier = Column(Text, nullable=True)           # Dossier complet sérialisé (JSON)
+    report_markdown = Column(Text, nullable=True)   # Rapport rendu
+    error_message = Column(Text, nullable=True)
+
+    created_by = Column(String, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+
+class ResearchEntity(Base):
+    """
+    Entité normalisée extraite d'un dossier (recherche et recoupement inter-runs).
+
+    Permet de répondre à « qui d'autre est lié à cette personne ? » sans
+    relire tous les dossiers JSON.
+    """
+
+    __tablename__ = "research_entities"
+    __table_args__ = (
+        Index("ix_research_entities_run", "run_id"),
+        Index("ix_research_entities_key", "entity_key"),
+        Index("ix_research_entities_kind", "entity_kind"),
+        Index("ix_research_entities_label", "label"),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+    run_id = Column(String, index=True, nullable=False)
+
+    entity_key = Column(String, nullable=False)
+    entity_kind = Column(String, nullable=False)
+    label = Column(String, nullable=False)
+    is_root = Column(Boolean, default=False)
+    confidence = Column(Float, default=0.0)
+
+    # Identifiants forts, matérialisés pour la recherche
+    siren = Column(String, index=True, nullable=True)
+    lei = Column(String, index=True, nullable=True)
+    vat_number = Column(String, index=True, nullable=True)
+    domain = Column(String, index=True, nullable=True)
+    email = Column(String, index=True, nullable=True)
+    country = Column(String, nullable=True)
+
+    attributes = Column(JSON, nullable=True)     # Attributs consolidés
+    relations = Column(JSON, nullable=True)      # Liens sortants/entrants
+
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+
 def init_db():
     try:
         Base.metadata.create_all(bind=engine)

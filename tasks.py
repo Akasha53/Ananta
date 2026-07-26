@@ -1051,6 +1051,9 @@ def send_scheduled_scan_notification(
 
         if status == "success":
             changes_text = "Des changements ont été détectés!" if has_changes else "Aucun changement détecté."
+            # NB: l'aperçu est calculé hors f-string — une expression f-string ne
+            # peut pas contenir d'antislash avant Python 3.12 (PEP 701).
+            preview_text = report_preview or "Voir le rapport complet sur l'interface web."
             body = f"""
 Rapport de scan programmé Ananta
 
@@ -1060,7 +1063,7 @@ Statut: Succès
 {changes_text}
 
 Aperçu du rapport:
-{report_preview or 'Voir le rapport complet sur l\'interface web.'}
+{preview_text}
 
 ---
 Ce message est généré automatiquement par Ananta OSINT Platform.
@@ -1123,3 +1126,109 @@ if __name__ == "__main__":
     # Lancer le worker Celery
     # Commande: celery -A tasks worker --loglevel=info --pool=solo (Windows)
     app.start()
+
+
+# ============================================================================
+# ENTITY RESEARCH - Recherche d'entité en tâche de fond
+# ============================================================================
+
+
+# Limites propres à cette tâche : le budget du mode `deep` (420 s de collecte)
+# dépasse la limite globale de 300 s héritée des scans OSINT.
+@app.task(
+    bind=True,
+    name="ananta.entity_research",
+    time_limit=900,
+    soft_time_limit=840,
+)
+def entity_research_task(self, query: str, options: dict = None):
+    """
+    Exécute une recherche d'entité complète en arrière-plan.
+
+    Le `run_id` du dossier est l'identifiant de tâche Celery : l'UI suit la
+    progression et récupère le résultat via `/entity/run/{task_id}`, sans
+    avoir besoin d'un second identifiant.
+
+    Args:
+        query: l'indice de départ (nom, email, SIREN, domaine, téléphone...)
+        options: paramètres de `research_entity` (mode, purpose, language...)
+
+    Returns:
+        dict: résumé du dossier (le dossier complet vit en base)
+    """
+    from entity_research import research_entity
+    from entity_research.storage import mark_failed, persist_dossier, update_run_progress
+
+    options = dict(options or {})
+    run_id = self.request.id
+    mode = options.get("mode", "standard")
+
+    logger.info(f"[ENTITY] Démarrage de la recherche '{query}' (run={run_id}, mode={mode})")
+
+    db = SessionLocal()
+
+    def update_progress(progress: int, message: str = ""):
+        """Progression persistée dans une session isolée (UI fiable)."""
+        progress_db = SessionLocal()
+        try:
+            update_run_progress(
+                progress_db,
+                run_id,
+                progress=progress,
+                status="PROCESSING" if progress < 100 else "PROCESSING",
+            )
+        except Exception as exc:
+            logger.debug(f"[ENTITY] Progression non enregistrée: {exc}")
+        finally:
+            progress_db.close()
+        if message:
+            logger.info(f"[ENTITY {progress}%] {message}")
+
+    try:
+        update_run_progress(db, run_id, progress=3, status="PROCESSING")
+
+        dossier = research_entity(
+            query,
+            run_id=run_id,
+            progress=update_progress,
+            **options,
+        )
+
+        persist_dossier(
+            db,
+            dossier,
+            job_id=run_id,
+            mode=mode,
+            purpose=options.get("purpose", "due_diligence"),
+            language=options.get("language", "fr"),
+            report_template=options.get("template", "detailed"),
+            status="COMPLETED",
+        )
+
+        logger.info(
+            f"[ENTITY] Dossier terminé pour '{query}' : "
+            f"{len(dossier.entities)} entités, {len(dossier.relationships)} relations, "
+            f"confiance {dossier.confidence_score()}/100"
+        )
+
+        return {
+            "run_id": run_id,
+            "label": dossier.label,
+            "entity_kind": dossier.kind.value,
+            "entities": len(dossier.entities),
+            "relationships": len(dossier.relationships),
+            "confidence_score": dossier.confidence_score(),
+            "partial": dossier.partial,
+            "stats": dossier.stats,
+        }
+
+    except Exception as e:
+        logger.error(f"[ENTITY ERROR] Recherche '{query}' échouée: {e}")
+        try:
+            mark_failed(db, run_id, str(e))
+        except Exception:
+            pass
+        raise
+
+    finally:
+        db.close()

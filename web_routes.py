@@ -16,7 +16,17 @@ from datetime import datetime, timezone, timedelta
 from email.utils import formatdate, parsedate_to_datetime
 logger = logging.getLogger(__name__)
 # Imports locaux
-from database import get_db, EntityReport, ScanJob, PendingApproval, ToolExecutionLog, APIKey, ScheduledScan
+from database import (
+    get_db,
+    EntityReport,
+    ScanJob,
+    PendingApproval,
+    ToolExecutionLog,
+    APIKey,
+    ScheduledScan,
+    EntityResearchRun,
+    ResearchEntity,
+)
 import backend_logic as logic
 from middleware import get_full_health_status
 from models import (
@@ -31,6 +41,9 @@ from models import (
     LogFilter,
     CompareRequest,
     ErrorResponse,
+    EntityResearchRequest,
+    EntityPreviewRequest,
+    LLMProviderRequest,
     validate_target,
     validate_query,
     DOMAIN_PATTERN,
@@ -47,6 +60,7 @@ try:
         priority_scan_task,
         scan_parallel_task,  # Architecture parallèle (chord)
         execute_scheduled_scan_task,
+        entity_research_task,
     )
     HAS_CELERY = True
 except ImportError:
@@ -57,6 +71,7 @@ except ImportError:
     priority_scan_task = None
     scan_parallel_task = None
     execute_scheduled_scan_task = None
+    entity_research_task = None
     HAS_CELERY = False
     logger.warning("⚠️ Celery non disponible - Mode synchrone uniquement")
 
@@ -3535,3 +3550,473 @@ def get_workers_status(db: Session = Depends(get_db)):
             "queues": {},
             "error": str(e)
         }
+
+
+# ============================================================================
+# ENTITY RESEARCH - Recherche d'entité (personne physique ou morale)
+# ============================================================================
+#
+# Le moteur `entity_research` part du moindre indice (nom, email, téléphone,
+# SIREN, LEI, domaine, pseudo...) et pivote de source en source pour
+# reconstituer ce qui est publiquement connaissable sur l'entité.
+#
+# Endpoints:
+#   POST /entity/preview        - ce que le moteur comprend, sans rien interroger
+#   GET  /entity/sources        - catalogue des sources et leur disponibilité
+#   POST /entity/research       - recherche synchrone (bornée)
+#   POST /entity/research_async - recherche en tâche de fond (Celery)
+#   GET  /entity/runs           - historique des dossiers
+#   GET  /entity/run/{run_id}   - dossier complet
+#   GET  /entity/run/{run_id}/graph    - graphe entités/relations
+#   GET  /entity/run/{run_id}/report   - rapport Markdown
+#   GET  /entity/run/{run_id}/export/{format}
+#   GET  /entity/entity/{entity_key}/runs - autres dossiers citant cette entité
+#   DELETE /entity/run/{run_id}
+
+
+def _entity_engine():
+    """Import tardif du moteur (évite d'alourdir le démarrage de l'API)."""
+    import entity_research
+
+    return entity_research
+
+
+def _run_to_summary(run: EntityResearchRun) -> Dict:
+    return {
+        "run_id": run.run_id,
+        "job_id": run.job_id,
+        "query": run.query,
+        "label": run.label,
+        "entity_kind": run.entity_kind,
+        "mode": run.mode,
+        "purpose": run.purpose,
+        "language": run.language,
+        "status": run.status,
+        "progress": run.progress,
+        "confidence_score": run.confidence_score,
+        "risk_level": run.risk_level,
+        "risk_score": run.risk_score,
+        "entities_count": run.entities_count,
+        "relationships_count": run.relationships_count,
+        "sources_ok": run.sources_ok,
+        "partial": run.partial,
+        "error_message": run.error_message,
+        "created_at": run.created_at.isoformat() if run.created_at else None,
+        "updated_at": run.updated_at.isoformat() if run.updated_at else None,
+    }
+
+
+@router.post("/entity/preview")
+def entity_preview(body: EntityPreviewRequest):
+    """
+    Analyse la requête sans lancer la moindre collecte.
+
+    Retourne les sélecteurs reconnus (et validés), la nature déduite de
+    l'entité et les sources qui seraient interrogées. Permet à l'opérateur de
+    corriger avant de dépenser du temps et des quotas.
+    """
+    try:
+        engine = _entity_engine()
+        return engine.preview_selectors(
+            body.query,
+            entity_kind=body.entity_kind,
+            default_region=body.default_region,
+        )
+    except Exception as e:
+        logger.exception(f"[/entity/preview] ERROR: {e}")
+        raise HTTPException(status_code=500, detail=f"Analyse impossible: {e}")
+
+
+@router.get("/entity/sources")
+def entity_sources(request: Request, response: Response):
+    """Catalogue des sources : couche, sélecteurs acceptés, clé requise, disponibilité."""
+    try:
+        engine = _entity_engine()
+        sources = engine.describe_sources()
+    except Exception as e:
+        logger.exception(f"[/entity/sources] ERROR: {e}")
+        raise HTTPException(status_code=500, detail=f"Catalogue indisponible: {e}")
+
+    payload = {
+        "total": len(sources),
+        "available": sum(1 for s in sources if s.get("available")),
+        "by_layer": {
+            "1": sum(1 for s in sources if s["layer"] == 1),
+            "2": sum(1 for s in sources if s["layer"] == 2),
+            "3": sum(1 for s in sources if s["layer"] == 3),
+        },
+        "sources": sources,
+    }
+    # Le catalogue ne bouge qu'au redémarrage (ou changement de clés d'API).
+    etag = generate_etag(payload)
+    if check_not_modified(request, etag=etag):
+        return Response(status_code=304, headers={"ETag": etag})
+    add_cache_headers(response, etag=etag, max_age=300)
+    return payload
+
+
+def _research_kwargs(body: EntityResearchRequest) -> Dict:
+    return {
+        "mode": body.mode,
+        "purpose": body.purpose,
+        "entity_kind": body.entity_kind,
+        "language": body.language,
+        "template": body.report_template,
+        "jurisdiction": body.jurisdiction,
+        "allow_account_enumeration": body.allow_account_enumeration,
+        "allow_breach_data": body.allow_breach_data,
+        "allow_person_pivot": body.allow_person_pivot,
+        "redact_personal_data": body.redact_personal_data,
+        "only_sources": body.only_sources,
+        "exclude_sources": body.exclude_sources,
+        "use_llm": body.use_llm,
+        "llm_hard_limit": body.llm_hard_limit,
+        "default_region": body.default_region,
+    }
+
+
+@router.post("/entity/research")
+def entity_research(body: EntityResearchRequest, db: Session = Depends(get_db)):
+    """
+    Recherche synchrone : renvoie le dossier complet dans la réponse.
+
+    Adapté aux modes `passive` et `standard`. Pour le mode `deep`, préférer
+    `/entity/research_async` : la collecte peut dépasser le timeout HTTP.
+    """
+    engine = _entity_engine()
+    from entity_research.storage import mark_failed, persist_dossier
+
+    try:
+        dossier = engine.research_entity(body.query, **_research_kwargs(body))
+    except Exception as e:
+        logger.exception(f"[/entity/research] ERROR: {e}")
+        raise HTTPException(status_code=500, detail=f"Recherche impossible: {e}")
+
+    try:
+        persist_dossier(
+            db,
+            dossier,
+            mode=body.mode,
+            purpose=body.purpose,
+            language=body.language,
+            report_template=body.report_template,
+        )
+    except Exception as e:
+        # Un dossier non persisté reste un dossier utilisable : on le renvoie.
+        logger.error(f"[/entity/research] Persistance échouée: {e}")
+        db.rollback()
+
+    return {"type": "dossier", **dossier.to_dict()}
+
+
+@router.post("/entity/research_async")
+def entity_research_async(body: EntityResearchRequest, db: Session = Depends(get_db)):
+    """Lance la recherche en tâche de fond et retourne un run_id à suivre."""
+    if not HAS_CELERY or entity_research_task is None:
+        raise HTTPException(
+            status_code=503,
+            detail="Mode asynchrone non disponible. Celery/Redis non configurés.",
+        )
+
+    from entity_research.storage import create_run
+
+    task = entity_research_task.delay(body.query, _research_kwargs(body))
+
+    run = create_run(
+        db,
+        run_id=task.id,
+        query=body.query,
+        job_id=task.id,
+        mode=body.mode,
+        purpose=body.purpose,
+        language=body.language,
+        report_template=body.report_template,
+    )
+
+    logger.info(f"[ENTITY ASYNC] Run {task.id} lancé pour '{body.query}' (mode={body.mode})")
+
+    return {
+        "type": "async",
+        "run_id": run.run_id,
+        "job_id": task.id,
+        "status": "PENDING",
+        "mode": body.mode,
+        "message": f"Recherche lancée. Suivre la progression sur /entity/run/{task.id}",
+    }
+
+
+@router.get("/entity/runs")
+def entity_runs(
+    limit: int = Query(20, ge=1, le=100),
+    page: int = Query(1, ge=1),
+    entity_kind: Optional[str] = Query(None),
+    status: Optional[str] = Query(None),
+    search: Optional[str] = Query(None, max_length=200),
+    db: Session = Depends(get_db),
+):
+    """Historique paginé des dossiers d'entité."""
+    query = db.query(EntityResearchRun)
+
+    if entity_kind in {"person", "organization", "unknown"}:
+        query = query.filter(EntityResearchRun.entity_kind == entity_kind)
+    if status:
+        query = query.filter(EntityResearchRun.status == status.upper())
+    if search:
+        pattern = f"%{search.strip()}%"
+        query = query.filter(
+            (EntityResearchRun.label.ilike(pattern)) | (EntityResearchRun.query.ilike(pattern))
+        )
+
+    query = query.order_by(EntityResearchRun.created_at.desc())
+
+    total = query.count()
+    items = query.offset((page - 1) * limit).limit(limit).all()
+    pages = (total + limit - 1) // limit if total else 0
+
+    return {
+        "items": [_run_to_summary(run) for run in items],
+        "total": total,
+        "page": page,
+        "limit": limit,
+        "pages": pages,
+        "has_next": page < pages,
+        "has_prev": page > 1,
+    }
+
+
+@router.get("/entity/run/{run_id}")
+def entity_run_detail(
+    run_id: str,
+    include_sources: bool = Query(True),
+    db: Session = Depends(get_db),
+):
+    """Dossier complet d'un run (ou son état s'il est encore en cours)."""
+    run = db.query(EntityResearchRun).filter_by(run_id=run_id).first()
+    if not run:
+        raise HTTPException(status_code=404, detail="Dossier non trouvé")
+
+    payload = _run_to_summary(run)
+
+    if run.dossier:
+        try:
+            dossier = json.loads(run.dossier)
+            if not include_sources:
+                dossier.pop("sources", None)
+            payload["dossier"] = dossier
+        except json.JSONDecodeError:
+            logger.error(f"[/entity/run] Dossier illisible pour {run_id}")
+            payload["dossier"] = None
+
+    return payload
+
+
+@router.get("/entity/run/{run_id}/graph")
+def entity_run_graph(run_id: str, db: Session = Depends(get_db)):
+    """Graphe entités/relations, prêt pour un rendu visuel."""
+    run = db.query(EntityResearchRun).filter_by(run_id=run_id).first()
+    if not run or not run.dossier:
+        raise HTTPException(status_code=404, detail="Dossier non trouvé ou incomplet")
+
+    try:
+        dossier = json.loads(run.dossier)
+    except json.JSONDecodeError:
+        raise HTTPException(status_code=500, detail="Dossier illisible")
+
+    return dossier.get("graph") or {"version": 1, "nodes": [], "edges": []}
+
+
+@router.get("/entity/run/{run_id}/report")
+def entity_run_report(run_id: str, db: Session = Depends(get_db)):
+    """Rapport Markdown du dossier."""
+    run = db.query(EntityResearchRun).filter_by(run_id=run_id).first()
+    if not run:
+        raise HTTPException(status_code=404, detail="Dossier non trouvé")
+
+    return {
+        "run_id": run.run_id,
+        "label": run.label,
+        "language": run.language,
+        "template": run.report_template,
+        "report": run.report_markdown or "",
+    }
+
+
+@router.get("/entity/run/{run_id}/export/{export_format}")
+def entity_run_export(run_id: str, export_format: str, db: Session = Depends(get_db)):
+    """Export du dossier en JSON, Markdown ou CSV (faits sourcés)."""
+    run = db.query(EntityResearchRun).filter_by(run_id=run_id).first()
+    if not run or not run.dossier:
+        raise HTTPException(status_code=404, detail="Dossier non trouvé ou incomplet")
+
+    export_format = (export_format or "json").lower()
+    if export_format not in {"json", "markdown", "md", "csv"}:
+        raise HTTPException(
+            status_code=400, detail="Format non supporté (json, markdown, csv)"
+        )
+
+    try:
+        dossier = json.loads(run.dossier)
+    except json.JSONDecodeError:
+        raise HTTPException(status_code=500, detail="Dossier illisible")
+
+    safe_name = re.sub(r"[^A-Za-z0-9._-]+", "_", (run.label or run.run_id))[:60]
+
+    if export_format == "json":
+        return JSONResponse(
+            content=dossier,
+            headers={"Content-Disposition": f'attachment; filename="{safe_name}.json"'},
+        )
+
+    if export_format in {"markdown", "md"}:
+        return Response(
+            content=run.report_markdown or "",
+            media_type="text/markdown; charset=utf-8",
+            headers={"Content-Disposition": f'attachment; filename="{safe_name}.md"'},
+        )
+
+    # CSV : un fait par ligne, avec sa source - format pivot pour un tableur
+    import csv
+    import io
+
+    buffer = io.StringIO()
+    writer = csv.writer(buffer, quoting=csv.QUOTE_MINIMAL)
+    writer.writerow(
+        ["entity", "kind", "attribute", "value", "confidence", "source", "url", "observed_at"]
+    )
+    for entity in dossier.get("entities", []):
+        for attribute in entity.get("attributes", []):
+            provenance = attribute.get("provenance") or {}
+            writer.writerow(
+                [
+                    entity.get("label", ""),
+                    entity.get("kind", ""),
+                    attribute.get("name", ""),
+                    str(attribute.get("value", ""))[:500],
+                    attribute.get("confidence", ""),
+                    provenance.get("source_id", ""),
+                    provenance.get("url", "") or "",
+                    provenance.get("observed_at", ""),
+                ]
+            )
+
+    return Response(
+        content=buffer.getvalue(),
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{safe_name}.csv"'},
+    )
+
+
+@router.get("/entity/entity/{entity_key:path}/runs")
+def entity_related_runs(
+    entity_key: str,
+    exclude_run_id: Optional[str] = Query(None),
+    db: Session = Depends(get_db),
+):
+    """
+    Autres dossiers dans lesquels cette entité apparaît.
+
+    C'est ce qui fait ressortir qu'un même dirigeant revient dans plusieurs
+    sociétés analysées séparément.
+    """
+    from entity_research.storage import find_related_runs
+
+    return {
+        "entity_key": entity_key,
+        "runs": find_related_runs(db, entity_key, exclude_run_id=exclude_run_id or ""),
+    }
+
+
+@router.delete("/entity/run/{run_id}")
+def entity_run_delete(run_id: str, db: Session = Depends(get_db)):
+    """Supprime un dossier et ses entités normalisées (droit à l'effacement)."""
+    run = db.query(EntityResearchRun).filter_by(run_id=run_id).first()
+    if not run:
+        raise HTTPException(status_code=404, detail="Dossier non trouvé")
+
+    db.query(ResearchEntity).filter_by(run_id=run_id).delete(synchronize_session=False)
+    db.delete(run)
+    db.commit()
+
+    logger.info(f"[ENTITY] Dossier {run_id} supprimé")
+    return {"success": True, "message": f"Dossier {run_id} supprimé"}
+
+# ============================================================================
+# MOTEUR D'INFÉRENCE - Choix du LLM
+# ============================================================================
+#
+# Ananta n'est lié à aucun moteur : text-generation-webui, Ollama (local ou sur
+# une autre machine), API compatible OpenAI, API Claude, ou les CLI `claude` /
+# `codex` déjà installées et authentifiées. Sans LLM disponible, les rapports
+# déterministes restent produits.
+
+
+@router.get("/llm/providers")
+def llm_providers(probe: bool = Query(True, description="Tester la disponibilité réelle")):
+    """Catalogue des moteurs d'inférence et lequel est actif."""
+    from llm_providers import current_provider_id, describe_providers
+
+    providers = describe_providers(probe=probe)
+    return {
+        "active": current_provider_id(),
+        "available": sum(1 for p in providers if p.get("available")),
+        "total": len(providers),
+        "providers": providers,
+    }
+
+
+@router.post("/llm/provider")
+def llm_set_provider(body: LLMProviderRequest):
+    """
+    Bascule le moteur d'inférence à chaud.
+
+    Le changement s'applique au processus courant. Pour qu'il survive à un
+    redémarrage, renseigner `LLM_PROVIDER` (et les variables associées) dans
+    le fichier `.env`.
+    """
+    from llm_providers import set_provider
+
+    overrides = {}
+    if body.model:
+        overrides["LLM_MODEL"] = body.model
+        if body.provider == "ollama":
+            overrides["OLLAMA_MODEL"] = body.model
+        elif body.provider == "anthropic":
+            overrides["ANTHROPIC_MODEL"] = body.model
+    if body.endpoint:
+        if body.provider == "ollama":
+            overrides["OLLAMA_HOST"] = body.endpoint
+        else:
+            overrides["LLM_API_URL"] = body.endpoint
+
+    try:
+        result = set_provider(body.provider, overrides)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    logger.info(f"[LLM] Fournisseur basculé sur '{body.provider}' (disponible={result['available']})")
+    return {
+        "success": True,
+        **result,
+        "persist_hint": f"Ajoutez LLM_PROVIDER={body.provider} dans .env pour rendre le choix permanent.",
+    }
+
+
+@router.post("/llm/test")
+def llm_test(body: LLMProviderRequest = None):
+    """Envoie une requête minimale au moteur actif et renvoie sa réponse."""
+    from llm_providers import LLMUnavailable, current_provider_id, generate
+
+    provider_id = body.provider if body else current_provider_id()
+    try:
+        answer = generate(
+            "Tu réponds en une phrase courte, en français.",
+            "Confirme que tu es opérationnel.",
+            max_tokens=60,
+            provider_id=provider_id,
+        )
+        return {"success": True, "provider": provider_id, "answer": answer[:500]}
+    except LLMUnavailable as e:
+        return {"success": False, "provider": provider_id, "error": str(e)}
+    except Exception as e:
+        logger.exception("[/llm/test] erreur inattendue")
+        raise HTTPException(status_code=500, detail=str(e))
