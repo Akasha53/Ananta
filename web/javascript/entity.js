@@ -210,6 +210,8 @@ function buildRequest() {
     allow_breach_data: $("opt-breach").checked,
     allow_person_pivot: $("opt-person-pivot").checked,
     redact_personal_data: $("opt-redact").checked,
+    briefing_text: $("input-briefing").value.trim(),
+    briefing_origin: $("select-briefing-origin").value,
     use_llm: $("opt-llm").checked,
   };
 }

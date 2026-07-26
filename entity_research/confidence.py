@@ -58,6 +58,12 @@ SOURCE_RELIABILITY: Dict[str, float] = {
     # Dérivations internes
     "inference": 0.45,
     "user_input": 0.75,
+    # Informations injectées par l'utilisateur
+    "briefing_analyst": 0.80,
+    "briefing_document": 0.70,
+    "briefing_client": 0.65,
+    "briefing_tool": 0.60,
+    "briefing_external_ai": 0.45,
 }
 
 #: Attributs qui ne peuvent avoir qu'une seule valeur vraie à un instant t.

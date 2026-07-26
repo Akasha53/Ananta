@@ -30,6 +30,14 @@ from entity_research.analysis import (
     risk_level,
     summarize,
 )
+from entity_research.briefing import (
+    BRIEFING_ORIGINS,
+    Briefing,
+    BriefingFact,
+    briefing_statements,
+    build_briefing_verdict,
+    parse_briefing,
+)
 from entity_research.compliance import (
     CompliancePolicy,
     PolicyDecision,
@@ -90,6 +98,8 @@ __all__ = [
     "Selector",
     "SelectorType",
     "EntityKind",
+    "Briefing",
+    "BriefingFact",
     # Moteur
     "PivotEngine",
     "PivotStats",
@@ -114,4 +124,8 @@ __all__ = [
     "enrich",
     "render_markdown",
     "synthesize_with_llm",
+    "parse_briefing",
+    "build_briefing_verdict",
+    "briefing_statements",
+    "BRIEFING_ORIGINS",
 ]

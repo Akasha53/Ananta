@@ -22,6 +22,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence, Set, Tuple
 
+from entity_research.briefing import Briefing
 from entity_research.compliance import CompliancePolicy, filter_selectors
 from entity_research.confidence import (
     detect_conflicts,
@@ -146,6 +147,7 @@ class PivotEngine:
         policy: Optional[CompliancePolicy] = None,
         hint: Optional[EntityKind] = None,
         extra_selectors: Optional[Sequence[Selector]] = None,
+        briefing: Optional[Briefing] = None,
         only_sources: Optional[Iterable[str]] = None,
         exclude_sources: Optional[Iterable[str]] = None,
         http: Optional[HttpClient] = None,
@@ -163,6 +165,7 @@ class PivotEngine:
             policy: politique de conformité (mode, finalité, autorisations).
             hint: nature d'entité déclarée, si connue.
             extra_selectors: sélecteurs fournis explicitement par l'appelant.
+            briefing: informations déjà collectées à injecter avec leur provenance.
             only_sources / exclude_sources: restriction du catalogue.
             http: transport injectable (tests).
             env: variables d'environnement (clés d'API).
@@ -182,6 +185,8 @@ class PivotEngine:
         seeds = list(parse_selectors(query, default_region=default_region, hint=hint))
         if extra_selectors:
             seeds.extend(extra_selectors)
+        if briefing:
+            seeds.extend(briefing.selectors)
         seeds = dedupe_selectors(seeds)
 
         kind, kind_confidence = infer_entity_kind(seeds, hint)
@@ -197,6 +202,8 @@ class PivotEngine:
             seed_selectors=seeds,
             started_at=utc_now_iso(),
         )
+        if briefing and not briefing.is_empty:
+            dossier.briefing = briefing.to_dict()
 
         if not seeds:
             dossier.finished_at = utc_now_iso()
@@ -240,9 +247,27 @@ class PivotEngine:
         entities[root_key] = root
 
         relationships: Dict[str, Relationship] = {}
-        attributes_by_entity: Dict[str, List[Attribute]] = {root_key: []}
+        attributes_by_entity: Dict[str, List[Attribute]] = {
+            root_key: list(briefing.attributes) if briefing else []
+        }
         visited_pairs: Set[Tuple[str, str]] = set()
         queued_keys: Set[str] = set()
+
+        # Le briefing participe au graphe dès la première vague. Sa provenance
+        # reste distincte afin que la consolidation puisse ensuite le confirmer
+        # ou le contredire avec les sources externes.
+        if briefing:
+            for node in briefing.entities:
+                if node.key == root_key:
+                    attributes_by_entity[root_key].extend(node.attributes)
+                    continue
+                entities[node.key] = node
+                attributes_by_entity.setdefault(node.key, []).extend(node.attributes)
+                node.attributes = []
+            for relationship in briefing.relationships:
+                resolved = self._resolve_relationship(relationship, root_key)
+                if resolved is not None:
+                    relationships[resolved.key] = resolved
 
         allowed_seeds = filter_selectors(seeds, policy, kind)
         frontier: List[_QueuedSelector] = []
@@ -379,6 +404,14 @@ class PivotEngine:
         )
         dossier.conflicts = detect_conflicts(root.attributes)
         dossier.stats = stats.to_dict()
+        if briefing and not briefing.is_empty:
+            dossier.stats["briefing"] = {
+                "facts": len(briefing.facts),
+                "statements": len(briefing.statements),
+                "selectors": len(briefing.selectors),
+                "entities": len(briefing.entities),
+                "origin": briefing.origin.source_id,
+            }
         dossier.finished_at = utc_now_iso()
 
         # Un label plus précis peut avoir émergé (dénomination officielle).

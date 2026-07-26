@@ -18,6 +18,11 @@ import os
 from typing import Any, Dict, Iterable, List, Optional, Sequence
 
 from entity_research.analysis import enrich
+from entity_research.briefing import (
+    briefing_statements,
+    build_briefing_verdict,
+    parse_briefing,
+)
 from entity_research.compliance import (
     CompliancePolicy,
     ResearchMode,
@@ -95,6 +100,9 @@ def research_entity(
     only_sources: Optional[Iterable[str]] = None,
     exclude_sources: Optional[Iterable[str]] = None,
     extra_selectors: Optional[Sequence[Selector]] = None,
+    briefing_text: str = "",
+    briefing_facts: Optional[Iterable[Any]] = None,
+    briefing_origin: str = "analyst",
     use_llm: bool = True,
     llm_hard_limit: Optional[int] = 1200,
     budget: Optional[ResearchBudget] = None,
@@ -117,6 +125,9 @@ def research_entity(
         entity_kind: `person` ou `organization` si connu, sinon déduit.
         language: langue du rapport (fr, en, es, de).
         template: detailed | executive | technical | minimal.
+        briefing_text: notes, export ou résultat d'une autre IA déjà collecté.
+        briefing_facts: faits structurés (`label`, `value`, provenance optionnelle).
+        briefing_origin: analyst | client | document | tool | external_ai.
         use_llm: ajoute une lecture analyste si le LLM local est disponible.
 
     Returns:
@@ -144,6 +155,15 @@ def research_entity(
 
     active_registry = registry or source_registry
     effective_budget = budget or MODE_BUDGETS.get(policy.mode, ResearchBudget())
+    briefing = None
+    if briefing_text or briefing_facts:
+        briefing = parse_briefing(
+            briefing_text,
+            briefing_facts,
+            origin=briefing_origin,
+            default_region=default_region,
+            hint=hint,
+        )
 
     engine = PivotEngine(registry=active_registry, budget=effective_budget, progress=progress)
 
@@ -152,6 +172,7 @@ def research_entity(
         policy=policy,
         hint=hint,
         extra_selectors=extra_selectors,
+        briefing=briefing,
         only_sources=only_sources,
         exclude_sources=exclude_sources,
         http=http,
@@ -167,9 +188,11 @@ def research_entity(
         entity.attributes = apply_minimization(entity.attributes, policy)
 
     dossier.compliance = compliance_notice(policy, dossier.kind, language=language)
+    dossier.compliance.setdefault("statements", []).extend(briefing_statements(briefing))
 
     availability = _source_availability(active_registry, policy, env)
     enrich(dossier, available_sources=availability)
+    dossier.briefing_verdict = build_briefing_verdict(briefing, dossier)
 
     narrative = ""
     if use_llm and dossier.entities:

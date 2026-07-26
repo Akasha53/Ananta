@@ -9,7 +9,7 @@ Ce module centralise tous les modèles de validation pour:
 """
 
 import re
-from typing import Optional, List, Literal
+from typing import Any, Optional, List, Literal
 from pydantic import BaseModel, Field, field_validator, model_validator
 from datetime import datetime
 
@@ -209,6 +209,17 @@ def validate_entity_query(value: str) -> str:
     return value
 
 
+class EntityBriefingFact(BaseModel):
+    """Fait structuré déjà connu et injecté dans la recherche."""
+
+    label: str = Field(..., min_length=1, max_length=120)
+    value: Any
+    attribute: str = Field(default="", max_length=80)
+    category: str = Field(default="", max_length=40)
+    url: Optional[str] = Field(default=None, max_length=2000)
+    confidence: Optional[float] = Field(default=None, ge=0.0, le=1.0)
+
+
 class EntityResearchRequest(BaseModel):
     """Requête de recherche d'entité (personne physique ou morale)."""
 
@@ -279,6 +290,20 @@ class EntityResearchRequest(BaseModel):
     )
     exclude_sources: Optional[List[str]] = Field(
         default=None, description="Exclure ces sources"
+    )
+    briefing_text: str = Field(
+        default="",
+        max_length=50_000,
+        description="Notes, export d'un outil ou sortie d'une autre IA déjà collectés",
+    )
+    briefing_facts: Optional[List[EntityBriefingFact]] = Field(
+        default=None,
+        max_length=200,
+        description="Faits déjà connus sous forme structurée",
+    )
+    briefing_origin: Literal["analyst", "client", "document", "tool", "external_ai"] = Field(
+        default="analyst",
+        description="Origine contrôlant la confiance initiale du briefing",
     )
     use_llm: bool = Field(default=True, description="Ajoute une synthèse analyste si le LLM local répond")
     llm_hard_limit: Optional[int] = Field(default=1200, ge=200, le=5000)

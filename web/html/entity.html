@@ -331,6 +331,29 @@
 
         <div class="pt-3 border-t border-slate-800">
           <div class="flex items-center justify-between mb-2">
+            <label for="input-briefing" class="text-xs text-slate-400">
+              Informations déjà collectées
+            </label>
+            <select id="select-briefing-origin"
+              class="bg-slate-900 border border-slate-700 rounded px-2 py-1 text-[11px]">
+              <option value="analyst" selected>Mes notes</option>
+              <option value="client">Information client</option>
+              <option value="document">Document</option>
+              <option value="tool">Autre outil</option>
+              <option value="external_ai">Autre IA</option>
+            </select>
+          </div>
+          <textarea id="input-briefing" rows="6"
+            placeholder="Collez vos notes ou un export. Exemple :&#10;Directrice financière : Marie Durand&#10;Email : m.durand@acme.fr&#10;SIREN : 552100554"
+            class="w-full resize-y bg-slate-900 border border-slate-700 rounded px-3 py-2 text-xs leading-relaxed"></textarea>
+          <p class="text-[11px] text-slate-600 mt-1.5 leading-relaxed">
+            Les lignes « libellé : valeur » deviennent des faits et des pivots.
+            Ananta indique ensuite ce qui est confirmé, contredit ou encore non vérifié.
+          </p>
+        </div>
+
+        <div class="pt-3 border-t border-slate-800">
+          <div class="flex items-center justify-between mb-2">
             <label for="select-llm" class="text-xs text-slate-400">Moteur IA</label>
             <button id="btn-llm-test" class="text-[10px] text-cyan-400 hover:underline">Tester</button>
           </div>

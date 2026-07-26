@@ -283,6 +283,8 @@ class Dossier:
     gaps: List[Dict[str, Any]] = field(default_factory=list)
     risk_flags: List[Dict[str, Any]] = field(default_factory=list)
     timeline: List[Dict[str, Any]] = field(default_factory=list)
+    briefing: Dict[str, Any] = field(default_factory=dict)
+    briefing_verdict: Dict[str, Any] = field(default_factory=dict)
     compliance: Dict[str, Any] = field(default_factory=dict)
     stats: Dict[str, Any] = field(default_factory=dict)
     report_markdown: str = ""
@@ -375,6 +377,8 @@ class Dossier:
             "gaps": self.gaps,
             "risk_flags": self.risk_flags,
             "timeline": self.timeline,
+            "briefing": self.briefing,
+            "briefing_verdict": self.briefing_verdict,
             "compliance": self.compliance,
             "stats": self.stats,
             "report": self.report_markdown,

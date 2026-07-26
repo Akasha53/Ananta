@@ -3669,6 +3669,13 @@ def _research_kwargs(body: EntityResearchRequest) -> Dict:
         "redact_personal_data": body.redact_personal_data,
         "only_sources": body.only_sources,
         "exclude_sources": body.exclude_sources,
+        "briefing_text": body.briefing_text,
+        "briefing_facts": (
+            [fact.model_dump() for fact in body.briefing_facts]
+            if body.briefing_facts
+            else None
+        ),
+        "briefing_origin": body.briefing_origin,
         "use_llm": body.use_llm,
         "llm_hard_limit": body.llm_hard_limit,
         "default_region": body.default_region,

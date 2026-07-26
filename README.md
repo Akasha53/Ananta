@@ -132,6 +132,7 @@ The project is organized around a few central components:
 | `database.py` | SQLAlchemy models, engine setup, session handling, DB fallback logic |
 | `models.py` | Pydantic request and response schemas |
 | `entity_research/` | Entity research engine: identifiers, sources, pivot, confidence, compliance, dossier |
+| `entity_research/briefing.py` | Analyst-supplied notes/facts, provenance, pivots, and verification verdict |
 | `tools/tool_registry.py` | Tool classification, legal-risk metadata, and execution policy |
 | `tools/entity_lookup.py` | CLI for entity research |
 | `web/html` | Main UI pages |
@@ -169,6 +170,8 @@ The frontend is served directly by the FastAPI app and includes several focused 
 The frontend also includes:
 
 - WebSocket job updates.
+- Analyst briefings: paste prior notes or another AI/tool export, then see what
+  the collection confirms, contradicts, or leaves unverified.
 - Offline support through a service worker.
 - Mobile styling.
 - Theme support.

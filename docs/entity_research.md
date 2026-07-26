@@ -84,6 +84,41 @@ curl -X POST http://localhost:8010/entity/research_async \
 
 `http://localhost:8010/web/html/entity.html`
 
+### Injecter ce que vous avez déjà collecté
+
+Le panneau **Options & conformité → Informations déjà collectées** accepte des
+notes, l'export d'un autre outil ou la sortie d'une autre IA. Une ligne
+`libellé : valeur` devient un fait et, si possible, un sélecteur de pivot :
+
+```text
+Directrice financière : Marie Durand
+Email : m.durand@acme.fr
+SIREN : 552100554
+Le client signale un changement récent de direction.
+```
+
+La provenance contrôle la confiance initiale : `analyst` (0,80), `document`
+(0,70), `client` (0,65), `tool` (0,60) ou `external_ai` (0,45). Une information
+fournie n'est jamais présentée comme une vérité : le dossier indique ensuite
+si elle est **confirmée**, **contredite** ou **non vérifiée**.
+
+```bash
+curl -X POST http://localhost:8010/entity/research \
+  -H "Content-Type: application/json" \
+  -d '{
+    "query": "ACME INDUSTRIES",
+    "briefing_origin": "external_ai",
+    "briefing_text": "Email : contact@acme.fr\nSIREN : 552100554",
+    "briefing_facts": [
+      {"label": "Statut", "value": "Active", "confidence": 0.6}
+    ]
+  }'
+```
+
+La réponse expose `briefing` (matière injectée) et `briefing_verdict`
+(recoupement effectué). Le rapport Markdown et la synthèse IA distinguent
+explicitement ces informations des faits établis par des sources indépendantes.
+
 ---
 
 ## 3. Ce que le moteur sait reconnaître

@@ -153,6 +153,39 @@ class TestEntityResearch:
         )
         assert response.status_code == 422
 
+    def test_briefing_is_forwarded_to_engine(self, client, monkeypatch):
+        import entity_research
+
+        captured = {}
+
+        def fake_research_entity(query, **kwargs):
+            captured.update(kwargs)
+            return build_fake_dossier("briefing_api")
+
+        monkeypatch.setattr(entity_research, "research_entity", fake_research_entity)
+
+        response = client.post(
+            "/entity/research",
+            json={
+                "query": "ACME",
+                "briefing_text": "Email : contact@acme.fr",
+                "briefing_origin": "external_ai",
+                "briefing_facts": [
+                    {
+                        "label": "SIREN",
+                        "value": "552100554",
+                        "confidence": 0.6,
+                    }
+                ],
+                "use_llm": False,
+            },
+        )
+
+        assert response.status_code == 200
+        assert captured["briefing_text"] == "Email : contact@acme.fr"
+        assert captured["briefing_origin"] == "external_ai"
+        assert captured["briefing_facts"][0]["value"] == "552100554"
+
     def test_unknown_run_returns_404(self, client):
         assert client.get("/entity/run/does-not-exist").status_code == 404
 
