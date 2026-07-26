@@ -30,7 +30,7 @@ from database import (
     EntityWatch,
 )
 import backend_logic as logic
-from middleware import get_full_health_status
+from middleware import ServiceStatus, get_full_health_status
 from models import (
     ScanRequest,
     TargetRequest,
@@ -1639,6 +1639,11 @@ def agent_ask_async(body: AskBody, db: Session = Depends(get_db)):
         raise HTTPException(
             status_code=503,
             detail="Mode asynchrone non disponible. Celery/Redis non configurés."
+        )
+    if not ServiceStatus().is_redis_available():
+        raise HTTPException(
+            status_code=503,
+            detail="File de tâches indisponible. Vérifiez Redis avant de relancer.",
         )
 
     q = (body.query or "").strip()
@@ -3885,6 +3890,8 @@ def entity_research_async(
             status_code=503,
             detail="Mode asynchrone non disponible. Celery/Redis non configurés.",
         )
+    if not ServiceStatus().is_redis_available():
+        raise HTTPException(status_code=503, detail="File de tâches Redis indisponible")
 
     from entity_research.storage import create_run
 
@@ -4254,6 +4261,8 @@ def entity_watch_refresh(
     """Relance la collecte d'une veille et calcule son delta à la fin."""
     if not HAS_CELERY or entity_research_task is None:
         raise HTTPException(status_code=503, detail="Workers Celery indisponibles")
+    if not ServiceStatus().is_redis_available():
+        raise HTTPException(status_code=503, detail="File de tâches Redis indisponible")
 
     from entity_research.storage import create_run
 

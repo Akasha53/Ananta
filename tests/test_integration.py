@@ -5,12 +5,39 @@ These tests verify that different components work together correctly.
 """
 
 import pytest
+import uuid
+from types import SimpleNamespace
 from unittest.mock import patch, MagicMock
 from fastapi.testclient import TestClient
 
 
 class TestScanWorkflow:
     """Integration tests for the scan workflow."""
+
+    @pytest.fixture(autouse=True)
+    def mock_async_dispatch(self, monkeypatch):
+        """Valide le câblage HTTP sans laisser un consommateur Celery en attente."""
+        import web_routes
+
+        for name in (
+            "scan_osint_task",
+            "scan_osint_layer1_task",
+            "scan_osint_layer2_task",
+            "scan_osint_layer3_task",
+            "priority_scan_task",
+            "scan_parallel_task",
+        ):
+            task = MagicMock()
+            task.delay.side_effect = lambda *args, **kwargs: SimpleNamespace(
+                id=f"test-job-{uuid.uuid4().hex}"
+            )
+            monkeypatch.setattr(web_routes, name, task)
+        monkeypatch.setattr(web_routes, "HAS_CELERY", True)
+        monkeypatch.setattr(
+            web_routes.ServiceStatus,
+            "is_redis_available",
+            lambda self: True,
+        )
 
     def test_async_scan_creates_job(self, client: TestClient):
         """Test that async scan endpoint creates a job."""
