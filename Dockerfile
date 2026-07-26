@@ -35,11 +35,11 @@ WORKDIR /app
 # Passez INSTALL_ML=1 si vous voulez le classifieur d'intention embarqué.
 # ---------------------------------------------------------------------------
 ARG INSTALL_ML=0
-COPY requirements.txt requirements-core.txt ./
+COPY requirements.txt requirements-core.txt requirements-lock.txt ./
 RUN if [ "$INSTALL_ML" = "1" ]; then \
         pip install -r requirements.txt; \
     else \
-        pip install -r requirements-core.txt; \
+        pip install -r requirements-lock.txt; \
     fi
 
 COPY . .
@@ -53,6 +53,6 @@ USER ananta
 EXPOSE 8010
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=40s --retries=3 \
-    CMD curl -fsS http://127.0.0.1:8010/health || exit 1
+    CMD curl -fsS http://127.0.0.1:8010/ready || exit 1
 
 CMD ["python", "-m", "uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8010"]

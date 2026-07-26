@@ -3,7 +3,7 @@
  * Gère le cache offline et les requêtes réseau
  */
 
-const CACHE_NAME = 'ananta-v1.2.0';
+const CACHE_NAME = 'ananta-v1.3.0';
 const OFFLINE_URL = '/web/html/offline.html';
 
 // Ressources à mettre en cache immédiatement
@@ -18,6 +18,9 @@ const PRECACHE_ASSETS = [
   '/web/vendor/webfonts/fa-solid-900.woff2',
   '/web/vendor/fonts/jetbrains-mono.css',
   '/web/css/mobile.css',
+  '/web/css/app-shell.css',
+  '/web/javascript/api-client.js',
+  '/web/javascript/app-shell.js',
   '/web/javascript/app.js',
   '/web/javascript/database.js',
   '/web/javascript/entity.js',
@@ -28,11 +31,21 @@ const PRECACHE_ASSETS = [
   '/web/icons/icon-512.png'
 ];
 
-// CDN externes à mettre en cache
-const EXTERNAL_CACHE = [
-  'https://cdn.tailwindcss.com',
-  'https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css',
-  'https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;700&display=swap'
+// Les réponses de ces API peuvent contenir des données personnelles ou
+// opérationnelles. Elles ne doivent jamais entrer dans Cache Storage.
+const PRIVATE_API_PREFIXES = [
+  '/agent/',
+  '/api-keys/',
+  '/auth/',
+  '/cache/',
+  '/entity/',
+  '/jobs/',
+  '/llm/',
+  '/monitoring/',
+  '/osint/',
+  '/scheduled-scans/',
+  '/system/',
+  '/workers/',
 ];
 
 // Installation du service worker
@@ -90,11 +103,13 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // Stratégie pour les requêtes API (Network First)
-  if (url.pathname.startsWith('/agent/') ||
-      url.pathname.startsWith('/jobs/') ||
-      url.pathname.startsWith('/osint/') ||
-      url.pathname.startsWith('/health')) {
+  if (PRIVATE_API_PREFIXES.some((prefix) => url.pathname.startsWith(prefix))) {
+    event.respondWith(networkOnly(request));
+    return;
+  }
+
+  // Les sondes non sensibles peuvent conserver un fallback réseau.
+  if (url.pathname.startsWith('/health') || url.pathname.startsWith('/ready')) {
     event.respondWith(networkFirst(request));
     return;
   }
@@ -108,6 +123,23 @@ self.addEventListener('fetch', (event) => {
   // Stratégie pour les ressources statiques (Stale While Revalidate)
   event.respondWith(staleWhileRevalidate(request));
 });
+
+async function networkOnly(request) {
+  try {
+    return await fetch(request);
+  } catch {
+    return new Response(
+      JSON.stringify({ error: 'Offline', message: 'Cette donnée exige une connexion au serveur.' }),
+      {
+        status: 503,
+        headers: {
+          'Cache-Control': 'no-store',
+          'Content-Type': 'application/json',
+        },
+      }
+    );
+  }
+}
 
 /**
  * Stratégie Network First (API)

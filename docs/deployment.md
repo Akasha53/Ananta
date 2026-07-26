@@ -28,8 +28,9 @@ cd Ananta
 .\install.ps1
 ```
 
-Le script génère un `.env` (avec un mot de passe PostgreSQL aléatoire), construit
-l'image et démarre la pile : API, worker Celery, planificateur, PostgreSQL, Redis.
+Le script génère un `.env` (mot de passe PostgreSQL et jeton d'initialisation
+aléatoires), construit l'image et démarre la pile : API, worker Celery,
+planificateur, PostgreSQL, Redis.
 
 Au bout d'une à trois minutes :
 
@@ -42,6 +43,14 @@ Au bout d'une à trois minutes :
 
 Ajoutez `--with-ollama` (`-WithOllama` sous Windows) pour embarquer aussi l'IA
 dans la pile.
+
+### Premier accès
+
+En production, l'API est protégée par défaut. Ouvrez l'interface, cliquez sur
+**Accès**, puis copiez la valeur `ANANTA_BOOTSTRAP_TOKEN` de `.env`. Ananta
+crée alors la première clé `admin`, ne l'affiche qu'une fois et la conserve
+uniquement dans la session du navigateur. Créez ensuite des clés `analyst` ou
+`viewer` depuis l'API d'administration.
 
 ### Sans Docker
 
@@ -126,9 +135,12 @@ minimale et affiche la réponse.
 ```bash
 curl http://localhost:8010/llm/providers          # catalogue + disponibilité
 curl -X POST http://localhost:8010/llm/provider \
+  -H "X-API-Key: ananta_..." \
   -H "Content-Type: application/json" \
   -d '{"provider": "claude_cli"}'
-curl -X POST http://localhost:8010/llm/test -H "Content-Type: application/json" -d '{}'
+curl -X POST http://localhost:8010/llm/test \
+  -H "X-API-Key: ananta_..." \
+  -H "Content-Type: application/json" -d '{}'
 ```
 
 **De façon permanente** : `LLM_PROVIDER` dans `.env`.
@@ -204,17 +216,18 @@ docker compose up -d          # les migrations Alembic s'appliquent au démarrag
 
 ## 6. Exposer Ananta sur Internet
 
-Par défaut, seul le port `8010` est publié, sans TLS ni authentification.
-**N'exposez pas cette configuration directement sur Internet.**
+Par défaut, seul le port `8010` est publié sans TLS. L'authentification Ananta
+est active en production, mais **n'exposez pas le port directement sur
+Internet** : placez-le derrière un reverse proxy.
 
 Le minimum :
 
 1. Un reverse proxy avec TLS (Caddy, nginx, Traefik).
 2. `CORS_ORIGINS=https://votre-domaine` dans `.env`.
 3. `ENVIRONMENT=production`.
-4. Une authentification devant l'application : clés API Ananta
-   (`POST /api-keys/create`) et/ou l'authentification du proxy.
+4. `AUTH_REQUIRED=true` et une clé API Ananta par personne/service.
 5. `ANANTA_PORT=127.0.0.1:8010` pour que seul le proxy y accède.
+6. `TRUSTED_PROXY_IPS` limité à l'adresse du reverse proxy.
 
 Exemple minimal avec Caddy :
 

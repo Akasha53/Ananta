@@ -20,11 +20,15 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
-    op.add_column(
-        "scheduled_scans",
-        sa.Column("llm_hard_limit", sa.Integer(), nullable=True),
-    )
+    columns = {column["name"] for column in sa.inspect(op.get_bind()).get_columns("scheduled_scans")}
+    if "llm_hard_limit" not in columns:
+        op.add_column(
+            "scheduled_scans",
+            sa.Column("llm_hard_limit", sa.Integer(), nullable=True),
+        )
 
 
 def downgrade() -> None:
-    op.drop_column("scheduled_scans", "llm_hard_limit")
+    columns = {column["name"] for column in sa.inspect(op.get_bind()).get_columns("scheduled_scans")}
+    if "llm_hard_limit" in columns:
+        op.drop_column("scheduled_scans", "llm_hard_limit")

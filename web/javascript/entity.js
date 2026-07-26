@@ -29,6 +29,7 @@ const state = {
   previewTimer: null,
   historyTimer: null,
   selected: null,
+  watches: null,
 };
 
 // ==================== HELPERS ====================
@@ -127,7 +128,7 @@ async function api(path, options = {}) {
 
 // ==================== PANNEAUX ====================
 
-const PANELS = ["inspector", "details", "options", "history", "sources"];
+const PANELS = ["inspector", "details", "options", "history", "watches", "sources"];
 
 function openPanel(name) {
   PANELS.forEach((panel) => {
@@ -319,6 +320,7 @@ function renderDossier(dossier) {
   state.graph.setDossier(dossier);
   renderDetails(dossier);
   renderLegend();
+  updateWatchButton();
 }
 
 function renderBreadcrumb(centerKey, trail) {
@@ -613,9 +615,64 @@ function renderDetails(dossier) {
   renderIdentityTab(root);
   renderPeopleTab(dossier);
   renderRiskTab(dossier);
+  renderChangesTab();
   renderTimelineTab(dossier);
   renderReportTab(dossier);
   renderSourcesTab(dossier);
+}
+
+async function renderChangesTab() {
+  const container = $("tab-changes");
+  if (!state.runId) {
+    container.innerHTML = '<p class="text-slate-500 text-sm">Enregistrez le dossier pour établir une comparaison.</p>';
+    return;
+  }
+
+  container.innerHTML = '<p class="text-slate-500 text-sm"><i class="fas fa-spinner fa-spin mr-2"></i>Comparaison avec le dossier précédent…</p>';
+  try {
+    const changes = await api(`/entity/run/${encodeURIComponent(state.runId)}/changes`);
+    if (!changes.comparison_available) {
+      container.innerHTML = `<div class="p-4 border border-slate-800 bg-slate-900/40 rounded-lg">
+        <div class="text-slate-200 font-bold text-sm">Point de référence créé</div>
+        <p class="text-slate-500 text-xs mt-1">Aucun dossier antérieur pour cette entité. La prochaine collecte affichera le delta ici.</p>
+      </div>`;
+      return;
+    }
+
+    const counts = changes.counts || {};
+    const metric = (label, value, tone = "text-slate-200") => `<div class="p-2.5 border border-slate-800 rounded bg-slate-900/40">
+      <div class="text-[9px] uppercase tracking-wider text-slate-600">${escapeHtml(label)}</div>
+      <div class="text-xl font-bold ${tone}">${Number(value || 0)}</div>
+    </div>`;
+    const attributeRows = (changes.attributes?.changed || []).map((item) => `<div class="p-2.5 border border-slate-800 rounded">
+      <div class="text-[10px] uppercase tracking-wider text-slate-500">${escapeHtml(item.label || humanize(item.name))}</div>
+      <div class="text-xs mt-1"><span class="text-red-300 line-through">${escapeHtml(formatValue(item.before))}</span>
+        <i class="fas fa-arrow-right mx-2 text-slate-600"></i><span class="text-emerald-300">${escapeHtml(formatValue(item.after))}</span></div>
+    </div>`).join("");
+    const riskRows = (changes.risks?.added || []).map((risk) => `<div class="p-2.5 border border-red-500/30 bg-red-500/5 rounded">
+      <div class="text-red-300 text-xs font-bold">${escapeHtml(risk.title || "Nouveau signal")}</div>
+      <div class="text-[11px] text-slate-500 mt-1">${escapeHtml(risk.detail || "")}</div>
+    </div>`).join("");
+
+    container.innerHTML = `<div class="flex items-center justify-between gap-3 p-3 mb-4 border ${changes.has_changes ? "border-amber-500/30 bg-amber-500/5" : "border-emerald-500/30 bg-emerald-500/5"} rounded-lg">
+      <div>
+        <div class="text-sm font-bold ${changes.has_changes ? "text-amber-300" : "text-emerald-300"}">${changes.has_changes ? "Évolution détectée" : "Aucun changement"}</div>
+        <div class="text-[10px] text-slate-600">Comparé au run ${escapeHtml(changes.previous_run_id || "—")}</div>
+      </div>
+      <div class="text-right"><div class="text-2xl font-bold text-slate-100">${Number(changes.change_score || 0)}</div><div class="text-[9px] text-slate-600 uppercase">score delta</div></div>
+    </div>
+    <div class="grid grid-cols-2 md:grid-cols-4 gap-2 mb-4">
+      ${metric("Entités +", counts.entities_added, "text-emerald-300")}
+      ${metric("Entités −", counts.entities_removed, "text-red-300")}
+      ${metric("Faits modifiés", counts.attributes_changed, "text-amber-300")}
+      ${metric("Nouveaux risques", counts.risks_added, "text-red-300")}
+    </div>
+    ${riskRows ? `<div class="text-[10px] uppercase tracking-widest text-slate-500 mb-2">Nouveaux risques</div><div class="space-y-2 mb-4">${riskRows}</div>` : ""}
+    ${attributeRows ? `<div class="text-[10px] uppercase tracking-widest text-slate-500 mb-2">Faits modifiés</div><div class="space-y-2">${attributeRows}</div>` : ""}
+    ${!riskRows && !attributeRows && changes.has_changes ? '<p class="text-xs text-slate-500">Le delta concerne des entités, des liens ou des faits ajoutés/retirés.</p>' : ""}`;
+  } catch (error) {
+    container.innerHTML = `<p class="text-red-400 text-xs">${escapeHtml(error.message)}</p>`;
+  }
 }
 
 function attributeRow(attribute) {
@@ -854,6 +911,127 @@ async function openRun(runId) {
   }
 }
 
+function currentWatch() {
+  if (!state.dossier || !Array.isArray(state.watches)) return null;
+  return state.watches.find((watch) => watch.root_key === state.dossier.root_key) || null;
+}
+
+function updateWatchButton() {
+  const button = $("btn-watch-run");
+  if (!button) return;
+  const watch = currentWatch();
+  button.classList.toggle("text-cyan-300", Boolean(watch));
+  button.classList.toggle("border-cyan-500/50", Boolean(watch));
+  button.title = watch ? "Retirer de la surveillance" : "Surveiller cette entité";
+  button.innerHTML = `<i class="fas ${watch ? "fa-eye-slash" : "fa-eye"}"></i>`;
+}
+
+async function loadWatches() {
+  const container = $("watches-list");
+  container.innerHTML = '<p class="text-slate-500 text-xs p-2"><i class="fas fa-spinner fa-spin mr-2"></i>Chargement…</p>';
+  try {
+    const payload = await api("/entity/watches");
+    state.watches = payload.items || [];
+    updateWatchButton();
+
+    container.innerHTML = state.watches.length
+      ? state.watches.map((watch) => {
+          const delta = watch.last_change_summary || {};
+          const changed = Boolean(delta.has_changes);
+          return `<article class="p-3 bg-slate-900/50 border border-slate-800 rounded-lg" data-watch="${watch.id}">
+            <div class="flex items-start justify-between gap-3">
+              <div class="min-w-0">
+                <button class="watch-open text-sm font-bold text-slate-100 hover:text-cyan-300 truncate block max-w-full" data-run="${escapeHtml(watch.last_run_id || watch.baseline_run_id || "")}">
+                  <i class="fas ${watch.entity_kind === "person" ? "fa-user text-violet-400" : "fa-building text-cyan-400"} text-[10px] mr-1.5"></i>${escapeHtml(watch.label || watch.query)}
+                </button>
+                <div class="text-[10px] text-slate-600 mt-1">${watch.last_checked_at ? `Vérifiée ${new Date(watch.last_checked_at).toLocaleString("fr-FR")}` : "En attente de vérification"}</div>
+              </div>
+              <div class="text-right shrink-0">
+                <div class="text-lg font-bold ${changed ? "text-amber-300" : "text-emerald-300"}">${Number(watch.last_change_score || 0)}</div>
+                <div class="text-[8px] uppercase text-slate-600">delta</div>
+              </div>
+            </div>
+            <div class="flex items-center justify-between gap-2 mt-3 pt-2 border-t border-slate-800">
+              <span class="text-[10px] ${changed ? "text-amber-300" : "text-slate-500"}">${delta.has_changes === undefined ? "Référence enregistrée" : changed ? "Changements détectés" : "Stable"}</span>
+              <div class="flex gap-1">
+                <button class="watch-refresh chip px-2 py-1 rounded text-[10px] hover:text-cyan-300" data-watch="${watch.id}"><i class="fas fa-rotate mr-1"></i>Actualiser</button>
+                <button class="watch-remove chip px-2 py-1 rounded text-[10px] hover:text-red-300" data-watch="${watch.id}" aria-label="Retirer"><i class="fas fa-trash"></i></button>
+              </div>
+            </div>
+          </article>`;
+        }).join("")
+      : `<div class="p-5 border border-dashed border-slate-800 rounded-lg text-center">
+          <i class="fas fa-eye text-slate-700 text-xl"></i>
+          <p class="text-slate-400 text-xs mt-2">Aucune entité surveillée.</p>
+          <p class="text-slate-600 text-[10px] mt-1">Ouvrez un dossier puis cliquez sur l’œil dans la vue détaillée.</p>
+        </div>`;
+
+    container.querySelectorAll(".watch-open").forEach((button) => {
+      button.addEventListener("click", () => {
+        if (button.dataset.run) openRun(button.dataset.run);
+        closePanel("watches");
+      });
+    });
+    container.querySelectorAll(".watch-refresh").forEach((button) => {
+      button.addEventListener("click", async () => {
+        button.disabled = true;
+        try {
+          const result = await api(`/entity/watch/${button.dataset.watch}/refresh`, { method: "POST" });
+          closePanel("watches");
+          state.runId = result.run_id;
+          setProgress(5, "Actualisation de la veille lancée…");
+          pollRun(result.run_id);
+        } catch (error) {
+          showError(`Actualisation impossible : ${error.message}`);
+          button.disabled = false;
+        }
+      });
+    });
+    container.querySelectorAll(".watch-remove").forEach((button) => {
+      button.addEventListener("click", async () => {
+        try {
+          await api(`/entity/watch/${button.dataset.watch}`, { method: "DELETE" });
+          await loadWatches();
+        } catch (error) {
+          showError(`Suppression impossible : ${error.message}`);
+        }
+      });
+    });
+  } catch (error) {
+    container.innerHTML = `<p class="text-red-400 text-xs p-3">${escapeHtml(error.message)}</p>`;
+  }
+}
+
+async function toggleCurrentWatch() {
+  if (!state.runId || !state.dossier) {
+    showError("Ouvrez d'abord un dossier.");
+    return;
+  }
+  if (!Array.isArray(state.watches)) {
+    try {
+      const payload = await api("/entity/watches");
+      state.watches = payload.items || [];
+    } catch (error) {
+      showError(`Surveillance indisponible : ${error.message}`);
+      return;
+    }
+  }
+
+  const watch = currentWatch();
+  try {
+    if (watch) {
+      await api(`/entity/watch/${watch.id}`, { method: "DELETE" });
+      state.watches = state.watches.filter((item) => item.id !== watch.id);
+    } else {
+      const created = await api(`/entity/watch/${encodeURIComponent(state.runId)}`, { method: "POST" });
+      state.watches.push(created);
+    }
+    updateWatchButton();
+  } catch (error) {
+    showError(`Mise à jour impossible : ${error.message}`);
+  }
+}
+
 async function loadSources() {
   try {
     const payload = await api("/entity/sources");
@@ -881,6 +1059,34 @@ async function loadSources() {
   } catch {
     $("sources-badge").textContent = "!";
     $("sources-list").innerHTML = '<p class="text-slate-500 text-xs p-3">Catalogue indisponible (backend hors ligne).</p>';
+  }
+}
+
+async function downloadExport(format) {
+  if (!state.runId) {
+    showError("Aucun dossier à exporter.");
+    return;
+  }
+  try {
+    const response = await fetch(
+      `${API_BASE}/entity/run/${encodeURIComponent(state.runId)}/export/${format}`
+    );
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const blob = await response.blob();
+    const disposition = response.headers.get("Content-Disposition") || "";
+    const match = disposition.match(/filename="([^"]+)"/);
+    const extension = format === "markdown" ? "md" : format;
+    const filename = match?.[1] || `ananta-${state.runId}.${extension}`;
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
+  } catch (error) {
+    showError(`Export impossible : ${error.message}`);
   }
 }
 
@@ -1062,8 +1268,13 @@ document.addEventListener("DOMContentLoaded", () => {
     if (togglePanel("history")) loadHistory();
   });
   $("history-close").addEventListener("click", () => closePanel("history"));
+  $("btn-watches").addEventListener("click", () => {
+    if (togglePanel("watches")) loadWatches();
+  });
+  $("watches-close").addEventListener("click", () => closePanel("watches"));
   $("btn-sources").addEventListener("click", () => togglePanel("sources"));
   $("sources-close").addEventListener("click", () => closePanel("sources"));
+  $("btn-watch-run").addEventListener("click", toggleCurrentWatch);
 
   $("history-search").addEventListener("input", () => {
     clearTimeout(state.historyTimer);
@@ -1075,13 +1286,7 @@ document.addEventListener("DOMContentLoaded", () => {
   });
 
   document.querySelectorAll(".btn-export").forEach((button) => {
-    button.addEventListener("click", () => {
-      if (!state.runId) {
-        showError("Aucun dossier à exporter.");
-        return;
-      }
-      window.open(`${API_BASE}/entity/run/${encodeURIComponent(state.runId)}/export/${button.dataset.export}`, "_blank");
-    });
+    button.addEventListener("click", () => downloadExport(button.dataset.export));
   });
 
   $("btn-delete-run").addEventListener("click", async () => {
@@ -1121,6 +1326,7 @@ document.addEventListener("DOMContentLoaded", () => {
   });
 
   loadSources();
+  loadWatches();
   loadLLMProviders();
   $("select-llm").addEventListener("change", applyLLMProvider);
   $("btn-llm-test").addEventListener("click", testLLMProvider);

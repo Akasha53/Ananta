@@ -2586,14 +2586,16 @@ def logic_spiderfoot(target: str):
         for use_json in (True, False):
             try:
                 if use_json:
-                    resp = requests.post(
+                    # Bandit B113 faux positif : le timeout est explicite.
+                    resp = requests.post(  # nosec B113
                         f"{spiderfoot_url}{path}",
                         json=payload,
                         headers=headers,
                         timeout=min(timeout, 20),
                     )
                 else:
-                    resp = requests.post(
+                    # Bandit B113 faux positif : le timeout est explicite.
+                    resp = requests.post(  # nosec B113
                         f"{spiderfoot_url}{path}",
                         data=payload,
                         headers=headers,
@@ -3615,10 +3617,18 @@ def logic_vuln_scan(target: str):
         else:
             test_url = target
             domain = target.replace('https://', '').replace('http://', '').split('/')[0]
+        verify_target_tls = os.getenv("ALLOW_INSECURE_TARGET_TLS", "false").lower() not in {
+            "1", "true", "yes", "on"
+        }
 
         try:
             # Test 1: Récupérer les headers HTTP
-            response = requests.get(test_url, timeout=10, allow_redirects=True, verify=False)
+            response = requests.get(
+                test_url,
+                timeout=10,
+                allow_redirects=True,
+                verify=verify_target_tls,
+            )
 
             # Vérifier les headers de sécurité manquants
             # NOTE: Les headers manquants sont des BONNES PRATIQUES, pas des vulnérabilités critiques
@@ -3692,7 +3702,11 @@ def logic_vuln_scan(target: str):
 
             # Test 3: Vérifier HTTP methods dangereux
             try:
-                options_response = requests.options(test_url, timeout=5, verify=False)
+                options_response = requests.options(
+                    test_url,
+                    timeout=5,
+                    verify=verify_target_tls,
+                )
                 allowed_methods = options_response.headers.get('Allow', '').split(',')
                 dangerous_methods = ['TRACE', 'DELETE', 'PUT', 'CONNECT']
 
@@ -3712,7 +3726,12 @@ def logic_vuln_scan(target: str):
             for path, desc in SENSITIVE_PATHS:
                 try:
                     check_url = f"https://{domain}{path}"
-                    check_resp = requests.head(check_url, timeout=3, verify=False, allow_redirects=False)
+                    check_resp = requests.head(
+                        check_url,
+                        timeout=3,
+                        verify=verify_target_tls,
+                        allow_redirects=False,
+                    )
                     if check_resp.status_code == 200:
                         severity = "HIGH" if any(s in path for s in ['.env', '.git', 'config', 'backup', '.htpasswd']) else "MEDIUM"
                         vulnerabilities.append({

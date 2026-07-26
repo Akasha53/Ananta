@@ -16,7 +16,7 @@ import uuid
 import logging
 from typing import Callable, Dict, Optional
 from collections import defaultdict
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from urllib.parse import urlparse
 
 from fastapi import Request, Response, HTTPException
@@ -26,6 +26,128 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from errors import ErrorCode, create_error_response
 
 logger = logging.getLogger(__name__)
+
+
+# ==================== AUTHENTICATION / AUTHORIZATION ====================
+
+class AuthenticationMiddleware(BaseHTTPMiddleware):
+    """Protège l'API en production tout en conservant le mode local-first.
+
+    Les fichiers statiques et les sondes de santé restent publics. Les routes
+    d'administration exigent une clé ``admin``. La toute première clé peut
+    être créée avec ``X-Bootstrap-Token`` lorsque la base ne contient encore
+    aucune clé active.
+    """
+
+    PUBLIC_PREFIXES = (
+        "/web/",
+        "/docs",
+        "/redoc",
+        "/openapi.json",
+        "/health",
+        "/ready",
+        "/auth/status",
+    )
+    PUBLIC_EXACT = {"/", "/ui"}
+    ADMIN_PREFIXES = (
+        "/api-keys",
+        "/cache/",
+        "/monitoring/",
+        "/workers/",
+        "/llm/provider",
+    )
+    VIEWER_WRITE_PREFIXES = (
+        "/agent/",
+        "/osint/",
+        "/entity/",
+        "/scheduled-scans/",
+        "/llm/test",
+    )
+
+    @staticmethod
+    def _error(status_code: int, code: ErrorCode, message: str) -> JSONResponse:
+        return JSONResponse(
+            status_code=status_code,
+            content=create_error_response(code, message=message),
+            headers={"WWW-Authenticate": "ApiKey"},
+        )
+
+    async def dispatch(self, request: Request, call_next: Callable) -> Response:
+        from auth import (
+            AuthPrincipal,
+            authenticate_api_key_value,
+            authentication_required,
+            bootstrap_token_valid,
+        )
+
+        request.state.principal = AuthPrincipal(actor_id="local", role="admin")
+
+        if not authentication_required():
+            return await call_next(request)
+
+        path = request.url.path
+        if request.method == "OPTIONS" or path in self.PUBLIC_EXACT or any(
+            path.startswith(prefix) for prefix in self.PUBLIC_PREFIXES
+        ):
+            return await call_next(request)
+
+        from database import APIKey, SessionLocal
+
+        session_factory = getattr(request.app.state, "auth_session_factory", SessionLocal)
+        db = session_factory()
+        try:
+            active_keys = db.query(APIKey).filter(APIKey.is_active.is_(True)).count()
+
+            if path == "/api-keys/create" and active_keys == 0:
+                if not bootstrap_token_valid(request.headers.get("X-Bootstrap-Token")):
+                    return self._error(
+                        401,
+                        ErrorCode.AUTH_MISSING_KEY,
+                        "Initialisation refusée. Fournissez X-Bootstrap-Token.",
+                    )
+                request.state.principal = AuthPrincipal(
+                    actor_id="bootstrap",
+                    role="admin",
+                    name="bootstrap",
+                )
+                response = await call_next(request)
+                response.headers["Cache-Control"] = "no-store, private"
+                return response
+
+            principal = authenticate_api_key_value(request.headers.get("X-API-Key"), db)
+            if principal is None:
+                return self._error(
+                    401,
+                    ErrorCode.AUTH_INVALID_KEY,
+                    "Clé API absente, invalide ou révoquée.",
+                )
+
+            request.state.principal = principal
+
+            if any(path.startswith(prefix) for prefix in self.ADMIN_PREFIXES):
+                if principal.role != "admin":
+                    return self._error(
+                        403,
+                        ErrorCode.AUTH_INVALID_KEY,
+                        "Cette action exige le rôle administrateur.",
+                    )
+
+            is_write = request.method not in {"GET", "HEAD"}
+            if is_write and principal.role == "viewer" and any(
+                path.startswith(prefix) for prefix in self.VIEWER_WRITE_PREFIXES
+            ):
+                return self._error(
+                    403,
+                    ErrorCode.AUTH_INVALID_KEY,
+                    "Le rôle lecture seule ne peut pas lancer ou modifier une analyse.",
+                )
+
+            response = await call_next(request)
+            response.headers["Cache-Control"] = "no-store, private"
+            response.headers["Vary"] = "X-API-Key"
+            return response
+        finally:
+            db.close()
 
 # ==================== REQUEST ID MIDDLEWARE ====================
 
@@ -108,20 +230,21 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         self.window_seconds = int(os.getenv("RATE_LIMIT_WINDOW", "60"))
 
     def _get_client_ip(self, request: Request) -> str:
-        """Récupère l'IP du client (supporte les proxies)."""
-        # Vérifier les headers de proxy
-        forwarded = request.headers.get("X-Forwarded-For")
-        if forwarded:
-            return forwarded.split(",")[0].strip()
-
-        real_ip = request.headers.get("X-Real-IP")
-        if real_ip:
-            return real_ip
-
-        # Fallback sur l'IP directe
-        if request.client:
-            return request.client.host
-        return "unknown"
+        """Ne fait confiance aux en-têtes proxy que depuis un proxy déclaré."""
+        direct_ip = request.client.host if request.client else "unknown"
+        trusted = {
+            value.strip()
+            for value in os.getenv("TRUSTED_PROXY_IPS", "127.0.0.1,::1").split(",")
+            if value.strip()
+        }
+        if direct_ip in trusted:
+            forwarded = request.headers.get("X-Forwarded-For")
+            if forwarded:
+                return forwarded.split(",")[0].strip()
+            real_ip = request.headers.get("X-Real-IP")
+            if real_ip:
+                return real_ip.strip()
+        return direct_ip
 
     def _get_limit_for_path(self, path: str) -> int:
         """Retourne la limite applicable pour un chemin donné."""
@@ -212,11 +335,11 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         # Permet les ressources du même domaine + CDNs utilisés
         csp_directives = [
             "default-src 'self'",
-            "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdn.tailwindcss.com https://cdnjs.cloudflare.com",
-            "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdnjs.cloudflare.com",
-            "font-src 'self' https://fonts.gstatic.com https://cdnjs.cloudflare.com",
+            "script-src 'self' 'unsafe-inline'",
+            "style-src 'self' 'unsafe-inline'",
+            "font-src 'self'",
             "img-src 'self' data: blob:",
-            "connect-src 'self' http://localhost:* ws://localhost:*",
+            "connect-src 'self' http://localhost:* http://127.0.0.1:* ws://localhost:* ws://127.0.0.1:*",
             "frame-ancestors 'none'",
             "base-uri 'self'",
             "form-action 'self'",
@@ -226,9 +349,10 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         # Autres headers de sécurité
         response.headers["X-Content-Type-Options"] = "nosniff"
         response.headers["X-Frame-Options"] = "DENY"
-        response.headers["X-XSS-Protection"] = "1; mode=block"
         response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
         response.headers["Permissions-Policy"] = "geolocation=(), microphone=(), camera=()"
+        response.headers["Cross-Origin-Opener-Policy"] = "same-origin"
+        response.headers["Cross-Origin-Resource-Policy"] = "same-origin"
 
         # Strict Transport Security (uniquement en production HTTPS)
         if os.getenv("ENVIRONMENT", "development") == "production":
@@ -271,15 +395,17 @@ def get_cors_config() -> dict:
     """Retourne la configuration CORS complète."""
     env = os.getenv("ENVIRONMENT", "development")
     origins = get_cors_origins()
+    resolved_origins = origins if origins else ["*"] if env == "development" else []
 
     return {
-        "allow_origins": origins if origins else ["*"] if env == "development" else [],
-        "allow_credentials": True,
+        "allow_origins": resolved_origins,
+        "allow_credentials": "*" not in resolved_origins,
         "allow_methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
         "allow_headers": [
             "Authorization",
             "Content-Type",
             "X-API-Key",
+            "X-Bootstrap-Token",
             "X-Request-ID",
             "Accept",
             "Origin",
@@ -290,6 +416,7 @@ def get_cors_config() -> dict:
             "X-RateLimit-Limit",
             "X-RateLimit-Remaining",
             "X-RateLimit-Reset",
+            "Content-Disposition",
         ],
         "max_age": 600,  # Cache preflight pour 10 minutes
     }
@@ -512,7 +639,7 @@ def get_full_health_status(db_session=None) -> Dict:
 
     return {
         "status": overall_status,
-        "timestamp": datetime.utcnow().isoformat() + "Z",
+        "timestamp": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
         "services": {
             "database": db_status,
             "redis": redis_status,

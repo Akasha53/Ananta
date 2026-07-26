@@ -27,6 +27,7 @@ Core capabilities include:
 
 - Local-first OSINT workflow with a browser-based interface.
 - Entity research: start from any single clue about a person or a company and pivot across public registries until a sourced dossier emerges.
+- Entity watchlists with one-click refresh and a deterministic delta across facts, people, relationships, and risk signals.
 - Layered execution model that separates passive, enriched, and sensitive tooling.
 - Async background jobs with progress tracking and worker monitoring.
 - Structured intelligence outputs such as graph data, exposures, timeline events, and diffs.
@@ -72,6 +73,8 @@ the leads run out or a budget is reached.
   what may be collected on a natural person, sensitive data is minimised before
   output, account enumeration and breach lookups are opt-in, and
   `DELETE /entity/run/{run_id}` implements the right to erasure.
+- **Change detection is built in**: keep an entity on the watchlist, relaunch
+  collection, and review exactly what appeared, disappeared, or changed.
 
 ```bash
 python -m tools.entity_lookup "552 100 554"
@@ -113,6 +116,9 @@ Ananta includes a number of controls that matter for a public security-oriented 
 - Request IDs on every request.
 - Rate limiting on expensive endpoints.
 - Security headers and configurable CORS.
+- Production authentication enabled by default, with bootstrap, `admin`,
+  `analyst`, and read-only `viewer` roles.
+- Per-principal dossier ownership and session-only browser key storage.
 - Standardized error payloads.
 - Full audit trail for tool execution.
 - Approval workflow for sensitive actions.
@@ -173,6 +179,8 @@ The frontend also includes:
 - Analyst briefings: paste prior notes or another AI/tool export, then see what
   the collection confirms, contradicts, or leaves unverified.
 - Offline support through a service worker.
+- Private API responses are network-only and are never written to PWA caches.
+- A shared module switcher and access control are available on every online page.
 - Mobile styling.
 - Theme support.
 - Monitoring and scheduled-scan pages separated into dedicated scripts.
@@ -257,7 +265,10 @@ Ananta exposes a wide API surface. The most important endpoints are grouped belo
 
 Interactive API documentation is available at `/docs` when the server is running.
 
-Some administrative or protected routes may require an API key through the `X-API-Key` header.
+In production, every non-public API route requires an API key through the
+`X-API-Key` header. The installer generates `ANANTA_BOOTSTRAP_TOKEN`; use the
+**Access** dialog once to create the first admin key. Roles are `admin`,
+`analyst`, and `viewer`.
 
 ## Scan Modes
 
@@ -288,6 +299,7 @@ The main persisted entities include:
 - `ScheduledScan`: recurring analysis definitions.
 - `EntityResearchRun`: entity dossier (status, report, serialized dossier, risk level).
 - `ResearchEntity`: normalized entities extracted from dossiers, for cross-dossier correlation.
+- `EntityWatch`: an analyst-owned watch target, baseline run, and latest change summary.
 
 This structure is what enables history, exports, timeline generation, graph views, and auditability.
 
@@ -332,7 +344,7 @@ The `--recursive` flag is important because the repository uses `text-generation
 ### 2. Install Python Dependencies
 
 ```bash
-pip install -r requirements.txt -r requirements-dev.txt
+pip install -r requirements-lock.txt -r requirements-dev.txt
 ```
 
 ### 3. Create Your Environment File
@@ -357,7 +369,9 @@ SPIDERFOOT_API_KEY=
 
 # Environment and web security
 ENVIRONMENT=development
+AUTH_REQUIRED=false
 CORS_ORIGINS=http://localhost:8010
+TRUSTED_PROXY_IPS=127.0.0.1,::1
 RATE_LIMIT_ENABLED=true
 ```
 
@@ -370,7 +384,6 @@ Important notes:
 ### 4. Initialize the Database
 
 ```bash
-python -c "from database import init_db; init_db()"
 alembic upgrade head
 ```
 

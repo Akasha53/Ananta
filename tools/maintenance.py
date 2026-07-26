@@ -29,7 +29,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Iterable, Optional
 
-from sqlalchemy import inspect, text, func
+from sqlalchemy import MetaData, Table, func, inspect, select
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session
 
@@ -226,11 +226,13 @@ ALLOWLIST_DROP_IF_EMPTY = {
 
 
 def _count_rows(engine: Engine, table_name: str) -> Optional[int]:
-    if not _table_exists(engine, table_name):
+    if table_name not in ALLOWLIST_DROP_IF_EMPTY or not _table_exists(engine, table_name):
         return None
     with engine.begin() as conn:
         try:
-            return int(conn.execute(text(f"SELECT COUNT(*) FROM {table_name}")).scalar_one())
+            table = Table(table_name, MetaData(), autoload_with=conn)
+            statement = select(func.count()).select_from(table)
+            return int(conn.execute(statement).scalar_one())
         except Exception:
             return None
 
@@ -299,7 +301,8 @@ def db_clean(
     with engine.begin() as conn:
         for t in to_drop:
             actions.append(Action("apply", f"DROP TABLE {t}"))
-            conn.execute(text(f"DROP TABLE IF EXISTS {t}"))
+            table = Table(t, MetaData(), autoload_with=conn)
+            table.drop(bind=conn, checkfirst=True)
 
     return actions
 

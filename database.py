@@ -26,7 +26,9 @@ if is_postgres:
 else:
     if not DATABASE_URL:
         DATABASE_URL = "sqlite:///./ananta.db"
-    logger.warning("⚠️ Pas de DATABASE_URL ou URL non reconnue -> Fallback SQLite (ananta.db).")
+        logger.warning("⚠️ DATABASE_URL absent -> utilisation de SQLite (ananta.db).")
+    else:
+        logger.info("🔌 Connexion Base de Données : %s", DATABASE_URL.split(":", 1)[0].upper())
     connect_args = {"check_same_thread": False}
 
 try:
@@ -327,6 +329,9 @@ class APIKey(Base):
     prefix = Column(String, nullable=False)  # Préfixe visible (premiers caractères)
 
     is_active = Column(Boolean, default=True)  # Clé active ou révoquée
+    role = Column(String, nullable=False, default="analyst")  # admin | analyst | viewer
+    scopes = Column(JSON, nullable=True)  # Extensions futures, sans casser les rôles
+    owner_id = Column(String, nullable=True, index=True)  # Propriétaire logique de la clé
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     last_used_at = Column(DateTime(timezone=True), nullable=True)  # Dernière utilisation
     created_by = Column(String, nullable=True)  # Utilisateur qui a créé la clé
@@ -471,6 +476,37 @@ class ResearchEntity(Base):
     relations = Column(JSON, nullable=True)      # Liens sortants/entrants
 
     created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+
+class EntityWatch(Base):
+    """Entité placée sous surveillance par un analyste."""
+
+    __tablename__ = "entity_watches"
+    __table_args__ = (
+        Index("ix_entity_watches_owner_active", "created_by", "is_active"),
+        Index("ix_entity_watches_root_owner", "root_key", "created_by"),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+    query = Column(String, nullable=False)
+    label = Column(String, nullable=True)
+    entity_kind = Column(String, default="unknown")
+    root_key = Column(String, nullable=True, index=True)
+    mode = Column(String, default="standard")
+    purpose = Column(String, default="due_diligence")
+    language = Column(String, default="fr")
+    report_template = Column(String, default="detailed")
+
+    baseline_run_id = Column(String, nullable=True)
+    last_run_id = Column(String, nullable=True)
+    last_change_score = Column(Integer, default=0)
+    last_change_summary = Column(JSON, nullable=True)
+    last_checked_at = Column(DateTime(timezone=True), nullable=True)
+    is_active = Column(Boolean, default=True, nullable=False)
+
+    created_by = Column(String, nullable=True, index=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
 
 def init_db():

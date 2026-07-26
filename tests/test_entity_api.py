@@ -259,6 +259,54 @@ class TestEntityRunViews:
         assert response.status_code == 200
         assert any(r["run_id"] == existing_run for r in response.json()["runs"])
 
+    def test_watchlist_create_list_and_delete(self, client, existing_run):
+        created = client.post(f"/entity/watch/{existing_run}")
+        assert created.status_code == 200
+        watch = created.json()
+        assert watch["last_run_id"] == existing_run
+
+        listing = client.get("/entity/watches")
+        assert listing.status_code == 200
+        assert any(item["id"] == watch["id"] for item in listing.json()["items"])
+
+        assert client.delete(f"/entity/watch/{watch['id']}").status_code == 200
+        assert all(
+            item["id"] != watch["id"]
+            for item in client.get("/entity/watches").json()["items"]
+        )
+
+    def test_changes_compare_with_previous_run(self, client, monkeypatch):
+        import entity_research
+
+        calls = {"count": 0}
+
+        def changing_research(query, **kwargs):
+            calls["count"] += 1
+            dossier = build_fake_dossier(f"change_run_{calls['count']}")
+            if calls["count"] == 2:
+                dossier.entities[0].attributes[2].value = "Closed"
+                dossier.risk_flags.append(
+                    {
+                        "code": "new_risk",
+                        "severity": "high",
+                        "title": "Nouveau risque",
+                        "detail": "Signal apparu depuis le dossier précédent.",
+                    }
+                )
+            return dossier
+
+        monkeypatch.setattr(entity_research, "research_entity", changing_research)
+        first = client.post("/entity/research", json={"query": "ACME change 1"}).json()
+        second = client.post("/entity/research", json={"query": "ACME change 2"}).json()
+
+        response = client.get(f"/entity/run/{second['run_id']}/changes")
+        assert response.status_code == 200
+        changes = response.json()
+        assert changes["comparison_available"] is True
+        assert changes["previous_run_id"] == first["run_id"]
+        assert changes["counts"]["attributes_changed"] == 1
+        assert changes["counts"]["risks_added"] == 1
+
     def test_delete_removes_dossier(self, client, existing_run):
         assert client.delete(f"/entity/run/{existing_run}").status_code == 200
         assert client.get(f"/entity/run/{existing_run}").status_code == 404

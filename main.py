@@ -21,6 +21,7 @@ from web_routes import router as api_router
 # Import des middlewares de sécurité
 from middleware import (
     RequestIDMiddleware,
+    AuthenticationMiddleware,
     RateLimitMiddleware,
     SecurityHeadersMiddleware,
     get_cors_config,
@@ -32,8 +33,15 @@ logger = logging.getLogger(__name__)
 # --- LIFESPAN ---
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Initialisation DB
-    init_db()
+    # En production, Alembic est l'unique source de vérité du schéma.
+    # Le create_all reste pratique pour le développement et les tests locaux.
+    environment = os.getenv("ENVIRONMENT", "development").lower()
+    auto_create = os.getenv(
+        "AUTO_CREATE_SCHEMA",
+        "false" if environment == "production" else "true",
+    ).lower() in {"1", "true", "yes", "on"}
+    if auto_create:
+        init_db()
 
     # Lancement tâche de fond (purge)
     asyncio.create_task(logic.purge_old_osint_results_task())
@@ -235,10 +243,13 @@ app.add_middleware(GZipMiddleware, minimum_size=1000)
 # 3. Rate Limiting (protège les endpoints coûteux)
 app.add_middleware(RateLimitMiddleware, enabled=True)
 
-# 4. Security Headers (CSP, X-Frame-Options, etc.)
+# 4. Authentification et rôles (obligatoire par défaut en production)
+app.add_middleware(AuthenticationMiddleware)
+
+# 5. Security Headers (CSP, X-Frame-Options, etc.)
 app.add_middleware(SecurityHeadersMiddleware)
 
-# 5. Request ID Tracking (premier dans la chaîne, dernier ajouté)
+# 6. Request ID Tracking (premier dans la chaîne, dernier ajouté)
 app.add_middleware(RequestIDMiddleware)
 
 # ✅ Montage du routeur API
@@ -262,4 +273,10 @@ def read_root():
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run("main:app", host="0.0.0.0", port=8010, reload=True, log_level="debug")
+    uvicorn.run(
+        "main:app",
+        host=os.getenv("ANANTA_HOST", "127.0.0.1"),
+        port=int(os.getenv("ANANTA_PORT", "8010")),
+        reload=_is_dev(),
+        log_level="debug" if _is_dev() else "info",
+    )

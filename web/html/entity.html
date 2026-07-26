@@ -16,6 +16,9 @@
   <link rel="stylesheet" href="../vendor/fonts/jetbrains-mono.css" />
   <link rel="stylesheet" href="../css/style.css" />
   <link rel="stylesheet" href="../css/mobile.css" />
+  <link rel="stylesheet" href="../css/app-shell.css" />
+  <script src="../javascript/api-client.js"></script>
+  <script src="../javascript/app-shell.js" defer></script>
 
   <style>
     /* Le graphe occupe tout l'espace : les contrôles flottent au-dessus. */
@@ -237,6 +240,9 @@
       <button id="btn-history" class="w-9 h-9 rounded-lg text-slate-400 hover:text-cyan-400 hover:bg-slate-800 transition-all" title="Dossiers précédents">
         <i class="fas fa-clock-rotate-left" aria-hidden="true"></i>
       </button>
+      <button id="btn-watches" class="w-9 h-9 rounded-lg text-slate-400 hover:text-cyan-400 hover:bg-slate-800 transition-all" title="Entités sous surveillance">
+        <i class="fas fa-eye" aria-hidden="true"></i>
+      </button>
       <button id="btn-sources" class="h-9 px-2 rounded-lg text-slate-400 hover:text-cyan-400 hover:bg-slate-800 transition-all text-xs" title="Catalogue des sources">
         <i class="fas fa-plug mr-1" aria-hidden="true"></i><span id="sources-badge" class="text-cyan-400">--</span>
       </button>
@@ -397,6 +403,7 @@
           <button data-export="json" class="btn-export chip px-2.5 py-1.5 rounded text-[11px] hover:border-cyan-500/50" title="Export JSON"><i class="fas fa-file-code"></i></button>
           <button data-export="markdown" class="btn-export chip px-2.5 py-1.5 rounded text-[11px] hover:border-cyan-500/50" title="Export Markdown"><i class="fas fa-file-lines"></i></button>
           <button data-export="csv" class="btn-export chip px-2.5 py-1.5 rounded text-[11px] hover:border-cyan-500/50" title="Export CSV"><i class="fas fa-file-csv"></i></button>
+          <button id="btn-watch-run" class="chip px-2.5 py-1.5 rounded text-[11px] hover:border-cyan-500/50" title="Surveiller cette entité"><i class="fas fa-eye"></i></button>
           <button id="btn-delete-run" class="chip px-2.5 py-1.5 rounded text-[11px] text-red-300 border-red-500/30 hover:bg-red-500/10" title="Supprimer le dossier"><i class="fas fa-trash"></i></button>
           <button id="details-close" class="text-slate-500 hover:text-slate-200 ml-1" aria-label="Fermer"><i class="fas fa-xmark"></i></button>
         </div>
@@ -405,6 +412,7 @@
         <button class="tab-btn px-4 py-2.5 text-[11px] font-bold uppercase tracking-widest text-cyan-400 border-b-2 border-cyan-500" data-tab="identity" role="tab">Identité</button>
         <button class="tab-btn px-4 py-2.5 text-[11px] font-bold uppercase tracking-widest text-slate-500 border-b-2 border-transparent hover:text-slate-300" data-tab="people" role="tab">Personnes</button>
         <button class="tab-btn px-4 py-2.5 text-[11px] font-bold uppercase tracking-widest text-slate-500 border-b-2 border-transparent hover:text-slate-300" data-tab="risk" role="tab">Risques</button>
+        <button class="tab-btn px-4 py-2.5 text-[11px] font-bold uppercase tracking-widest text-slate-500 border-b-2 border-transparent hover:text-slate-300" data-tab="changes" role="tab">Changements</button>
         <button class="tab-btn px-4 py-2.5 text-[11px] font-bold uppercase tracking-widest text-slate-500 border-b-2 border-transparent hover:text-slate-300" data-tab="timeline" role="tab">Chronologie</button>
         <button class="tab-btn px-4 py-2.5 text-[11px] font-bold uppercase tracking-widest text-slate-500 border-b-2 border-transparent hover:text-slate-300" data-tab="report" role="tab">Rapport</button>
         <button class="tab-btn px-4 py-2.5 text-[11px] font-bold uppercase tracking-widest text-slate-500 border-b-2 border-transparent hover:text-slate-300" data-tab="sources" role="tab">Sources</button>
@@ -413,6 +421,7 @@
         <div id="tab-identity" class="tab-panel"></div>
         <div id="tab-people" class="tab-panel hidden"></div>
         <div id="tab-risk" class="tab-panel hidden"></div>
+        <div id="tab-changes" class="tab-panel hidden"></div>
         <div id="tab-timeline" class="tab-panel hidden"></div>
         <div id="tab-report" class="tab-panel hidden"></div>
         <div id="tab-sources" class="tab-panel hidden"></div>
@@ -559,6 +568,20 @@
         <input id="history-search" type="text" placeholder="Filtrer…" class="w-full bg-slate-900 border border-slate-700 rounded px-3 py-1.5 text-xs" />
       </div>
       <div id="history-list" class="flex-1 overflow-y-auto scroll-thin p-2 space-y-1"></div>
+    </aside>
+
+    <!-- ============================ SURVEILLANCE ============================ -->
+    <aside id="watches" class="slide-over absolute top-0 right-0 h-full w-full sm:w-[500px] bg-slate-950/97 backdrop-blur-xl border-l border-slate-800 z-40 flex flex-col">
+      <div class="flex items-center justify-between p-4 border-b border-slate-800 shrink-0">
+        <div>
+          <h2 class="text-sm font-bold uppercase tracking-widest text-slate-400">
+            <i class="fas fa-eye mr-2" aria-hidden="true"></i>Surveillance
+          </h2>
+          <p class="text-[10px] text-slate-600 mt-1">Relancez une collecte et voyez immédiatement ce qui a changé.</p>
+        </div>
+        <button id="watches-close" class="text-slate-500 hover:text-slate-200" aria-label="Fermer"><i class="fas fa-xmark"></i></button>
+      </div>
+      <div id="watches-list" class="flex-1 overflow-y-auto scroll-thin p-3 space-y-2"></div>
     </aside>
 
     <!-- ============================ SOURCES ============================ -->

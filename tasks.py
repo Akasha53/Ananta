@@ -1160,6 +1160,7 @@ def entity_research_task(self, query: str, options: dict = None):
     from entity_research.storage import mark_failed, persist_dossier, update_run_progress
 
     options = dict(options or {})
+    created_by = options.pop("_created_by", None)
     run_id = self.request.id
     mode = options.get("mode", "standard")
 
@@ -1202,6 +1203,7 @@ def entity_research_task(self, query: str, options: dict = None):
             purpose=options.get("purpose", "due_diligence"),
             language=options.get("language", "fr"),
             report_template=options.get("template", "detailed"),
+            created_by=created_by,
             status="COMPLETED",
         )
 

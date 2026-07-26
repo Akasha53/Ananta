@@ -27,6 +27,9 @@ function New-EnvFile {
     $bytes = New-Object byte[] 24
     [System.Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($bytes)
     $password = -join ($bytes | ForEach-Object { $_.ToString("x2") })
+    $bootstrapBytes = New-Object byte[] 24
+    [System.Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($bootstrapBytes)
+    $bootstrapToken = -join ($bootstrapBytes | ForEach-Object { $_.ToString("x2") })
 
     @"
 POSTGRES_USER=ananta
@@ -34,8 +37,11 @@ POSTGRES_PASSWORD=$password
 POSTGRES_DB=ananta
 
 ENVIRONMENT=production
+AUTH_REQUIRED=true
+ANANTA_BOOTSTRAP_TOKEN=$bootstrapToken
 ANANTA_PORT=8010
 CORS_ORIGINS=http://localhost:8010
+TRUSTED_PROXY_IPS=127.0.0.1,::1
 RATE_LIMIT_ENABLED=true
 WORKER_CONCURRENCY=4
 INSTALL_ML=0
@@ -65,18 +71,40 @@ SHODAN_API_KEY=
 SECURITYTRAILS_API_KEY=
 "@ | Set-Content -Path ".env" -Encoding UTF8
 
-    Write-Ok "Fichier .env créé (mot de passe PostgreSQL aléatoire)."
+    Write-Ok "Fichier .env créé (secrets PostgreSQL et initialisation aléatoires)."
+}
+
+function Ensure-AuthConfig {
+    $content = Get-Content ".env" -Raw
+    $lines = @()
+    if ($content -notmatch '(?m)^AUTH_REQUIRED=') { $lines += "AUTH_REQUIRED=true" }
+    if ($content -notmatch '(?m)^ANANTA_BOOTSTRAP_TOKEN=.+$') {
+        $bytes = New-Object byte[] 24
+        [System.Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($bytes)
+        $token = -join ($bytes | ForEach-Object { $_.ToString("x2") })
+        if ($content -match '(?m)^ANANTA_BOOTSTRAP_TOKEN=') {
+            (Get-Content ".env") -replace '^ANANTA_BOOTSTRAP_TOKEN=.*$', "ANANTA_BOOTSTRAP_TOKEN=$token" |
+                Set-Content ".env"
+        } else {
+            $lines += "ANANTA_BOOTSTRAP_TOKEN=$token"
+        }
+    }
+    if ($lines.Count -gt 0) {
+        Add-Content -Path ".env" -Value ("`n" + ($lines -join "`n"))
+        Write-Ok "Configuration d'authentification ajoutée à .env."
+    }
 }
 
 if ($BareMetal) {
     if (-not (Get-Command python -ErrorAction SilentlyContinue)) { throw "Python 3.10+ est requis." }
     New-EnvFile
+    Ensure-AuthConfig
     Write-Info "Création de l'environnement virtuel (.venv)"
     python -m venv .venv
     & ".\.venv\Scripts\python.exe" -m pip install --upgrade pip | Out-Null
     Write-Info "Installation des dépendances"
-    & ".\.venv\Scripts\python.exe" -m pip install -r requirements-core.txt
-    & ".\.venv\Scripts\python.exe" -c "from database import init_db; init_db()"
+    & ".\.venv\Scripts\python.exe" -m pip install -r requirements-lock.txt
+    & ".\.venv\Scripts\alembic.exe" upgrade head
     Write-Ok "Ananta est prêt."
     Write-Host "   API      : .\.venv\Scripts\python.exe -m uvicorn main:app --port 8010"
     Write-Host "   Interface: http://localhost:8010/web/html/entity.html"
@@ -88,6 +116,7 @@ if (-not (Get-Command docker -ErrorAction SilentlyContinue)) {
 }
 
 New-EnvFile
+Ensure-AuthConfig
 
 $composeArgs = @()
 if ($WithOllama) {
@@ -122,6 +151,8 @@ Write-Ok "Ananta est installé."
 Write-Host "   Interface : http://localhost:$port/web/html/index.html"
 Write-Host "   Entités   : http://localhost:$port/web/html/entity.html"
 Write-Host "   API docs  : http://localhost:$port/docs"
+Write-Host ""
+Write-Host "   Premier accès : ouvrez « Accès » et utilisez ANANTA_BOOTSTRAP_TOKEN depuis .env"
 Write-Host ""
 Write-Host "   Moteur IA : Entités > Options > Moteur IA, ou LLM_PROVIDER dans .env"
 Write-Host "   Journaux  : docker compose logs -f api worker"

@@ -1,0 +1,234 @@
+.ananta-shell-dock {
+  position: fixed;
+  right: 1rem;
+  bottom: 1rem;
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+}
+
+.ananta-access-trigger,
+.ananta-modules-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-height: 2.25rem;
+  padding: 0.5rem 0.7rem;
+  border: 1px solid rgba(71, 85, 105, 0.72);
+  border-radius: 0.45rem;
+  color: #94a3b8;
+  background: rgba(2, 6, 23, 0.9);
+  box-shadow: 0 12px 32px rgba(1, 8, 20, 0.32);
+  font: 700 0.6875rem/1 "JetBrains Mono", monospace;
+  cursor: pointer;
+  transition: border-color 180ms ease, color 180ms ease, transform 180ms ease;
+}
+
+.ananta-access-trigger:hover,
+.ananta-access-trigger:focus-visible,
+.ananta-modules-trigger:hover,
+.ananta-modules-trigger:focus-visible {
+  border-color: rgba(34, 211, 238, 0.6);
+  color: #cbd5e1;
+}
+
+.ananta-access-trigger:active {
+  transform: translateY(1px);
+}
+
+.ananta-modules-menu {
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + 0.6rem);
+  width: min(20rem, calc(100vw - 2rem));
+  padding: 0.7rem;
+  border: 1px solid rgba(71, 85, 105, 0.82);
+  border-radius: 0.7rem;
+  background: rgba(7, 16, 31, 0.98);
+  box-shadow: 0 24px 70px rgba(0, 8, 24, 0.62);
+}
+
+.ananta-modules-menu[hidden] {
+  display: none;
+}
+
+.ananta-modules-menu > span {
+  display: block;
+  padding: 0.35rem 0.45rem 0.55rem;
+}
+
+.ananta-modules-menu a {
+  display: grid;
+  gap: 0.2rem;
+  padding: 0.65rem 0.7rem;
+  border-radius: 0.4rem;
+  color: #cbd5e1;
+  text-decoration: none;
+  font-family: "JetBrains Mono", monospace;
+}
+
+.ananta-modules-menu a:hover,
+.ananta-modules-menu a:focus-visible {
+  color: #a5f3fc;
+  background: rgba(8, 145, 178, 0.1);
+  outline: none;
+}
+
+.ananta-modules-menu strong {
+  font-size: 0.72rem;
+}
+
+.ananta-modules-menu small {
+  color: #64748b;
+  font-size: 0.6rem;
+}
+
+.ananta-access-dot {
+  width: 0.4rem;
+  height: 0.4rem;
+  border: 1px solid #f59e0b;
+  background: rgba(245, 158, 11, 0.18);
+}
+
+.ananta-access-trigger[data-configured="true"] .ananta-access-dot {
+  border-color: #34d399;
+  background: rgba(52, 211, 153, 0.22);
+}
+
+.ananta-access-dialog {
+  width: min(31rem, calc(100vw - 2rem));
+  max-width: none;
+  padding: 0;
+  border: 1px solid rgba(71, 85, 105, 0.82);
+  border-radius: 0.75rem;
+  color: #cbd5e1;
+  background: #07101f;
+  box-shadow: 0 28px 90px rgba(0, 8, 24, 0.68);
+}
+
+.ananta-access-dialog::backdrop {
+  background: rgba(1, 5, 15, 0.72);
+  backdrop-filter: blur(5px);
+}
+
+.ananta-access-card {
+  display: grid;
+  gap: 0.7rem;
+  padding: 1.25rem;
+  font-family: "JetBrains Mono", monospace;
+}
+
+.ananta-access-card header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 0.35rem;
+}
+
+.ananta-access-card h2 {
+  margin: 0.2rem 0 0;
+  color: #e2e8f0;
+  font-size: 1rem;
+}
+
+.ananta-access-kicker {
+  color: #64748b;
+  font-size: 0.6rem;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.ananta-access-card label {
+  color: #94a3b8;
+  font-size: 0.6875rem;
+  font-weight: 700;
+}
+
+.ananta-access-card input {
+  width: 100%;
+  padding: 0.7rem 0.75rem;
+  border: 1px solid #334155;
+  border-radius: 0.4rem;
+  color: #e2e8f0;
+  background: rgba(15, 23, 42, 0.82);
+  font: 500 0.75rem/1.4 "JetBrains Mono", monospace;
+}
+
+.ananta-access-card input:focus {
+  outline: 2px solid rgba(34, 211, 238, 0.45);
+  outline-offset: 1px;
+}
+
+.ananta-access-help,
+.ananta-access-message {
+  margin: 0;
+  color: #64748b;
+  font-size: 0.65rem;
+  line-height: 1.55;
+}
+
+.ananta-access-message[data-tone="success"] { color: #6ee7b7; }
+.ananta-access-message[data-tone="warning"] { color: #fbbf24; }
+.ananta-access-message[data-tone="error"] { color: #fda4af; }
+
+.ananta-access-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.55rem;
+  margin-top: 0.25rem;
+}
+
+.ananta-access-primary,
+.ananta-access-secondary,
+.ananta-access-close {
+  border: 0;
+  cursor: pointer;
+  font: 700 0.6875rem/1 "JetBrains Mono", monospace;
+}
+
+.ananta-access-primary,
+.ananta-access-secondary {
+  min-height: 2.25rem;
+  padding: 0.55rem 0.8rem;
+  border-radius: 0.4rem;
+}
+
+.ananta-access-primary {
+  color: #082f49;
+  background: #67e8f9;
+}
+
+.ananta-access-secondary {
+  border: 1px solid #334155;
+  color: #94a3b8;
+  background: transparent;
+}
+
+.ananta-access-close {
+  padding: 0.1rem 0.35rem;
+  color: #64748b;
+  background: transparent;
+  font-size: 1.25rem;
+}
+
+.ananta-bootstrap-section {
+  display: grid;
+  gap: 0.65rem;
+  margin-top: 0.5rem;
+  padding-top: 1rem;
+  border-top: 1px solid rgba(51, 65, 85, 0.75);
+}
+
+.ananta-bootstrap-section[hidden] {
+  display: none;
+}
+
+@media (max-width: 640px) {
+  .ananta-shell-dock {
+    right: 0.75rem;
+    bottom: 0.75rem;
+  }
+}

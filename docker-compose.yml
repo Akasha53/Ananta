@@ -59,7 +59,11 @@ services:
       CELERY_BROKER_URL: redis://redis:6379/0
       CELERY_RESULT_BACKEND: redis://redis:6379/1
       ENVIRONMENT: ${ENVIRONMENT:-production}
+      AUTH_REQUIRED: ${AUTH_REQUIRED:-true}
+      ANANTA_BOOTSTRAP_TOKEN: ${ANANTA_BOOTSTRAP_TOKEN:-}
       CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:8010}
+      TRUSTED_PROXY_IPS: ${TRUSTED_PROXY_IPS:-127.0.0.1,::1}
+      ALLOW_INSECURE_TARGET_TLS: ${ALLOW_INSECURE_TARGET_TLS:-false}
       RATE_LIMIT_ENABLED: ${RATE_LIMIT_ENABLED:-true}
 
       # --- Moteur d'inférence (interchangeable à chaud via /llm/provider) ---

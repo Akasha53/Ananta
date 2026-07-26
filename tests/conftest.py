@@ -90,6 +90,7 @@ def client() -> Generator:
 
     # Override the database dependency
     app.dependency_overrides[get_db] = override_get_db
+    app.state.auth_session_factory = TestingSessionLocal
 
     # Create tables
     Base.metadata.create_all(bind=engine)
@@ -100,6 +101,8 @@ def client() -> Generator:
     # Cleanup
     Base.metadata.drop_all(bind=engine)
     app.dependency_overrides.clear()
+    if hasattr(app.state, "auth_session_factory"):
+        del app.state.auth_session_factory
 
 
 @pytest.fixture(scope="function")
@@ -107,11 +110,14 @@ def fresh_client(db_session) -> Generator:
     """Create a fresh test client for each test (isolated)."""
     app = _get_app()
     app.dependency_overrides[get_db] = lambda: db_session
+    app.state.auth_session_factory = TestingSessionLocal
 
     with TestClient(app) as test_client:
         yield test_client
 
     app.dependency_overrides.clear()
+    if hasattr(app.state, "auth_session_factory"):
+        del app.state.auth_session_factory
 
 
 # ==================== MOCK FIXTURES ====================

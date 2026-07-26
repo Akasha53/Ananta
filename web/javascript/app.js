@@ -1648,7 +1648,10 @@ function createJobWebSocket(jobId, onUpdate, onComplete, onError) {
 
     console.log('[WebSocket] Connecting to:', wsUrl);
 
-    const ws = new WebSocket(wsUrl);
+    const protocols = ['ananta'];
+    const apiKey = window.AnantaAuth?.getKey?.();
+    if (apiKey) protocols.push(apiKey);
+    const ws = new WebSocket(wsUrl, protocols);
 
     ws.onopen = () => {
         console.log('[WebSocket] Connected for job:', jobId);

@@ -6,6 +6,7 @@ from pydantic import BaseModel, ValidationError
 from typing import Optional, List, Dict, Set
 import re
 import logging
+import os
 import psutil
 import time
 import uuid
@@ -26,6 +27,7 @@ from database import (
     ScheduledScan,
     EntityResearchRun,
     ResearchEntity,
+    EntityWatch,
 )
 import backend_logic as logic
 from middleware import get_full_health_status
@@ -87,7 +89,7 @@ def generate_etag(data: any) -> str:
         content = data
     else:
         content = json.dumps(data, sort_keys=True, default=str)
-    return f'"{hashlib.md5(content.encode()).hexdigest()}"'
+    return f'"{hashlib.md5(content.encode(), usedforsecurity=False).hexdigest()}"'
 
 
 def format_http_date(dt: datetime) -> str:
@@ -329,6 +331,40 @@ def health(request: Request, db: Session = Depends(get_db)):
                 "error": str(e),
             }
         }
+
+
+@router.get("/ready")
+def readiness(response: Response, db: Session = Depends(get_db)):
+    """Sonde légère pour l'orchestrateur : base et broker, sans appeler le LLM."""
+    services = {"database": "ok", "redis": "not_configured"}
+    ready = True
+
+    try:
+        db.execute(text("SELECT 1"))
+    except Exception:
+        logger.exception("Échec de la sonde de disponibilité SQL")
+        services["database"] = "error"
+        ready = False
+
+    redis_url = os.getenv("REDIS_URL") or os.getenv("CELERY_BROKER_URL")
+    if redis_url:
+        try:
+            import redis
+
+            redis.Redis.from_url(
+                redis_url,
+                socket_connect_timeout=1,
+                socket_timeout=1,
+            ).ping()
+            services["redis"] = "ok"
+        except Exception:
+            services["redis"] = "error"
+            ready = False
+
+    if not ready:
+        response.status_code = 503
+    response.headers["Cache-Control"] = "no-store"
+    return {"ready": ready, "services": services}
 
 
 @router.get("/system/iocs")
@@ -914,8 +950,7 @@ def export_xml(request: Request, query: str, db: Session = Depends(get_db)):
             )
 
         import json
-        from xml.etree.ElementTree import Element, SubElement, tostring
-        from xml.dom import minidom
+        from xml.etree.ElementTree import Element, SubElement, indent, tostring
 
         raw_data = {}
         try:
@@ -962,8 +997,12 @@ def export_xml(request: Request, query: str, db: Session = Depends(get_db)):
         report_elem = SubElement(root, "report")
         report_elem.text = report.final_report
 
-        # Pretty print
-        xml_str = minidom.parseString(tostring(root, encoding='unicode')).toprettyxml(indent="  ")
+        # Indentation sans reparsing : les données restent échappées par ElementTree.
+        indent(root, space="  ")
+        xml_str = '<?xml version="1.0" encoding="utf-8"?>\n' + tostring(
+            root,
+            encoding="unicode",
+        )
 
         response = Response(
             content=xml_str,
@@ -2056,13 +2095,31 @@ def get_log_detail(log_id: int, db: Session = Depends(get_db)):
 
 @router.post("/api-keys/create")
 def create_api_key(
+    request: Request,
     name: str = Query(..., description="Nom descriptif de la clé"),
-    created_by: str = Query("ANALYSTE_01", description="Créateur de la clé"),
+    role: str = Query("analyst", description="Rôle: admin, analyst ou viewer"),
+    owner_id: Optional[str] = Query(None, max_length=100),
     db: Session = Depends(get_db)
 ):
     """Crée une nouvelle API key."""
     try:
         from auth import generate_api_key
+
+        role = role.strip().lower()
+        if role not in {"admin", "analyst", "viewer"}:
+            raise HTTPException(status_code=422, detail="Rôle invalide")
+
+        # La clé de bootstrap doit toujours être administratrice.
+        if db.query(APIKey).filter(APIKey.is_active.is_(True)).count() == 0:
+            role = "admin"
+
+        principal = getattr(request.state, "principal", None)
+        actor_id = getattr(principal, "actor_id", None) or "local"
+        resolved_owner_id = (
+            owner_id.strip()
+            if owner_id and owner_id.strip()
+            else f"principal:{uuid.uuid4().hex}"
+        )
 
         # Générer la clé
         api_key, key_hash = generate_api_key()
@@ -2073,7 +2130,9 @@ def create_api_key(
             name=name,
             prefix=api_key[:12],  # Stocker le préfixe pour l'affichage
             is_active=True,
-            created_by=created_by
+            role=role,
+            owner_id=resolved_owner_id,
+            created_by=actor_id,
         )
 
         db.add(new_key)
@@ -2090,6 +2149,8 @@ def create_api_key(
             "id": new_key.id,
             "name": new_key.name,
             "prefix": new_key.prefix,
+            "role": new_key.role,
+            "owner_id": new_key.owner_id,
             "created_at": new_key.created_at.isoformat(),
             "warning": "⚠️ Copiez cette clé maintenant. Elle ne sera plus affichée."
         }
@@ -2113,6 +2174,8 @@ def list_api_keys(db: Session = Depends(get_db)):
                 "name": key.name,
                 "prefix": key.prefix,
                 "is_active": key.is_active,
+                "role": key.role,
+                "owner_id": key.owner_id,
                 "created_at": key.created_at.isoformat() if key.created_at else None,
                 "last_used_at": key.last_used_at.isoformat() if key.last_used_at else None,
                 "created_by": key.created_by,
@@ -3130,8 +3193,8 @@ class ConnectionManager:
     def __init__(self):
         self.active_connections: Dict[str, Set[WebSocket]] = {}  # job_id -> set of websockets
 
-    async def connect(self, websocket: WebSocket, job_id: str):
-        await websocket.accept()
+    async def connect(self, websocket: WebSocket, job_id: str, subprotocol: str | None = None):
+        await websocket.accept(subprotocol=subprotocol)
         if job_id not in self.active_connections:
             self.active_connections[job_id] = set()
         self.active_connections[job_id].add(websocket)
@@ -3181,11 +3244,30 @@ async def websocket_job_status(websocket: WebSocket, job_id: str):
             console.log('Job update:', data);
         };
     """
-    await ws_manager.connect(websocket, job_id)
+    from auth import authenticate_api_key_value, authentication_required
+    from database import SessionLocal
+
+    protocols = [
+        value.strip()
+        for value in websocket.headers.get("sec-websocket-protocol", "").split(",")
+        if value.strip()
+    ]
+    supplied_key = next((value for value in protocols if value.startswith("ananta_")), None)
+
+    if authentication_required():
+        auth_db = SessionLocal()
+        try:
+            if authenticate_api_key_value(supplied_key, auth_db) is None:
+                await websocket.close(code=4401, reason="API key required")
+                return
+        finally:
+            auth_db.close()
+
+    accepted_protocol = "ananta" if "ananta" in protocols else None
+    await ws_manager.connect(websocket, job_id, subprotocol=accepted_protocol)
 
     try:
         # Get database session
-        from database import SessionLocal
         db = SessionLocal()
 
         try:
@@ -3581,6 +3663,40 @@ def _entity_engine():
     return entity_research
 
 
+def _request_principal(request: Request):
+    """Identité posée par le middleware, avec repli local explicite."""
+    from auth import AuthPrincipal
+
+    return getattr(
+        request.state,
+        "principal",
+        AuthPrincipal(actor_id="local", role="admin", name="local"),
+    )
+
+
+def _owned_run_query(db: Session, request: Request):
+    query = db.query(EntityResearchRun)
+    principal = _request_principal(request)
+    if principal.role != "admin":
+        query = query.filter(EntityResearchRun.created_by == principal.actor_id)
+    return query
+
+
+def _owned_run_or_404(db: Session, request: Request, run_id: str):
+    run = _owned_run_query(db, request).filter(EntityResearchRun.run_id == run_id).first()
+    if not run:
+        raise HTTPException(status_code=404, detail="Dossier non trouvé")
+    return run
+
+
+def _owned_watch_query(db: Session, request: Request):
+    query = db.query(EntityWatch)
+    principal = _request_principal(request)
+    if principal.role != "admin":
+        query = query.filter(EntityWatch.created_by == principal.actor_id)
+    return query
+
+
 def _run_to_summary(run: EntityResearchRun) -> Dict:
     return {
         "run_id": run.run_id,
@@ -3601,8 +3717,31 @@ def _run_to_summary(run: EntityResearchRun) -> Dict:
         "sources_ok": run.sources_ok,
         "partial": run.partial,
         "error_message": run.error_message,
+        "created_by": run.created_by,
         "created_at": run.created_at.isoformat() if run.created_at else None,
         "updated_at": run.updated_at.isoformat() if run.updated_at else None,
+    }
+
+
+def _watch_to_summary(watch: EntityWatch) -> Dict:
+    return {
+        "id": watch.id,
+        "query": watch.query,
+        "label": watch.label,
+        "entity_kind": watch.entity_kind,
+        "root_key": watch.root_key,
+        "mode": watch.mode,
+        "purpose": watch.purpose,
+        "baseline_run_id": watch.baseline_run_id,
+        "last_run_id": watch.last_run_id,
+        "last_change_score": watch.last_change_score or 0,
+        "last_change_summary": watch.last_change_summary,
+        "last_checked_at": (
+            watch.last_checked_at.isoformat() if watch.last_checked_at else None
+        ),
+        "is_active": watch.is_active,
+        "created_by": watch.created_by,
+        "created_at": watch.created_at.isoformat() if watch.created_at else None,
     }
 
 
@@ -3655,6 +3794,19 @@ def entity_sources(request: Request, response: Response):
     return payload
 
 
+@router.get("/auth/status")
+def auth_status(db: Session = Depends(get_db)):
+    """État public minimal permettant à l'interface de proposer le bon accès."""
+    from auth import authentication_required
+
+    initialized = db.query(APIKey).filter(APIKey.is_active.is_(True)).first() is not None
+    return {
+        "required": authentication_required(),
+        "initialized": initialized,
+        "bootstrap_configured": bool(os.getenv("ANANTA_BOOTSTRAP_TOKEN")),
+    }
+
+
 def _research_kwargs(body: EntityResearchRequest) -> Dict:
     return {
         "mode": body.mode,
@@ -3683,7 +3835,11 @@ def _research_kwargs(body: EntityResearchRequest) -> Dict:
 
 
 @router.post("/entity/research")
-def entity_research(body: EntityResearchRequest, db: Session = Depends(get_db)):
+def entity_research(
+    body: EntityResearchRequest,
+    request: Request,
+    db: Session = Depends(get_db),
+):
     """
     Recherche synchrone : renvoie le dossier complet dans la réponse.
 
@@ -3707,6 +3863,7 @@ def entity_research(body: EntityResearchRequest, db: Session = Depends(get_db)):
             purpose=body.purpose,
             language=body.language,
             report_template=body.report_template,
+            created_by=_request_principal(request).actor_id,
         )
     except Exception as e:
         # Un dossier non persisté reste un dossier utilisable : on le renvoie.
@@ -3717,7 +3874,11 @@ def entity_research(body: EntityResearchRequest, db: Session = Depends(get_db)):
 
 
 @router.post("/entity/research_async")
-def entity_research_async(body: EntityResearchRequest, db: Session = Depends(get_db)):
+def entity_research_async(
+    body: EntityResearchRequest,
+    request: Request,
+    db: Session = Depends(get_db),
+):
     """Lance la recherche en tâche de fond et retourne un run_id à suivre."""
     if not HAS_CELERY or entity_research_task is None:
         raise HTTPException(
@@ -3727,7 +3888,10 @@ def entity_research_async(body: EntityResearchRequest, db: Session = Depends(get
 
     from entity_research.storage import create_run
 
-    task = entity_research_task.delay(body.query, _research_kwargs(body))
+    principal = _request_principal(request)
+    options = _research_kwargs(body)
+    options["_created_by"] = principal.actor_id
+    task = entity_research_task.delay(body.query, options)
 
     run = create_run(
         db,
@@ -3738,6 +3902,7 @@ def entity_research_async(body: EntityResearchRequest, db: Session = Depends(get
         purpose=body.purpose,
         language=body.language,
         report_template=body.report_template,
+        created_by=principal.actor_id,
     )
 
     logger.info(f"[ENTITY ASYNC] Run {task.id} lancé pour '{body.query}' (mode={body.mode})")
@@ -3754,6 +3919,7 @@ def entity_research_async(body: EntityResearchRequest, db: Session = Depends(get
 
 @router.get("/entity/runs")
 def entity_runs(
+    request: Request,
     limit: int = Query(20, ge=1, le=100),
     page: int = Query(1, ge=1),
     entity_kind: Optional[str] = Query(None),
@@ -3762,7 +3928,7 @@ def entity_runs(
     db: Session = Depends(get_db),
 ):
     """Historique paginé des dossiers d'entité."""
-    query = db.query(EntityResearchRun)
+    query = _owned_run_query(db, request)
 
     if entity_kind in {"person", "organization", "unknown"}:
         query = query.filter(EntityResearchRun.entity_kind == entity_kind)
@@ -3794,13 +3960,12 @@ def entity_runs(
 @router.get("/entity/run/{run_id}")
 def entity_run_detail(
     run_id: str,
+    request: Request,
     include_sources: bool = Query(True),
     db: Session = Depends(get_db),
 ):
     """Dossier complet d'un run (ou son état s'il est encore en cours)."""
-    run = db.query(EntityResearchRun).filter_by(run_id=run_id).first()
-    if not run:
-        raise HTTPException(status_code=404, detail="Dossier non trouvé")
+    run = _owned_run_or_404(db, request, run_id)
 
     payload = _run_to_summary(run)
 
@@ -3818,10 +3983,14 @@ def entity_run_detail(
 
 
 @router.get("/entity/run/{run_id}/graph")
-def entity_run_graph(run_id: str, db: Session = Depends(get_db)):
+def entity_run_graph(
+    run_id: str,
+    request: Request,
+    db: Session = Depends(get_db),
+):
     """Graphe entités/relations, prêt pour un rendu visuel."""
-    run = db.query(EntityResearchRun).filter_by(run_id=run_id).first()
-    if not run or not run.dossier:
+    run = _owned_run_or_404(db, request, run_id)
+    if not run.dossier:
         raise HTTPException(status_code=404, detail="Dossier non trouvé ou incomplet")
 
     try:
@@ -3833,11 +4002,13 @@ def entity_run_graph(run_id: str, db: Session = Depends(get_db)):
 
 
 @router.get("/entity/run/{run_id}/report")
-def entity_run_report(run_id: str, db: Session = Depends(get_db)):
+def entity_run_report(
+    run_id: str,
+    request: Request,
+    db: Session = Depends(get_db),
+):
     """Rapport Markdown du dossier."""
-    run = db.query(EntityResearchRun).filter_by(run_id=run_id).first()
-    if not run:
-        raise HTTPException(status_code=404, detail="Dossier non trouvé")
+    run = _owned_run_or_404(db, request, run_id)
 
     return {
         "run_id": run.run_id,
@@ -3849,10 +4020,15 @@ def entity_run_report(run_id: str, db: Session = Depends(get_db)):
 
 
 @router.get("/entity/run/{run_id}/export/{export_format}")
-def entity_run_export(run_id: str, export_format: str, db: Session = Depends(get_db)):
+def entity_run_export(
+    run_id: str,
+    export_format: str,
+    request: Request,
+    db: Session = Depends(get_db),
+):
     """Export du dossier en JSON, Markdown ou CSV (faits sourcés)."""
-    run = db.query(EntityResearchRun).filter_by(run_id=run_id).first()
-    if not run or not run.dossier:
+    run = _owned_run_or_404(db, request, run_id)
+    if not run.dossier:
         raise HTTPException(status_code=404, detail="Dossier non trouvé ou incomplet")
 
     export_format = (export_format or "json").lower()
@@ -3916,6 +4092,7 @@ def entity_run_export(run_id: str, export_format: str, db: Session = Depends(get
 @router.get("/entity/entity/{entity_key:path}/runs")
 def entity_related_runs(
     entity_key: str,
+    request: Request,
     exclude_run_id: Optional[str] = Query(None),
     db: Session = Depends(get_db),
 ):
@@ -3927,18 +4104,26 @@ def entity_related_runs(
     """
     from entity_research.storage import find_related_runs
 
+    principal = _request_principal(request)
     return {
         "entity_key": entity_key,
-        "runs": find_related_runs(db, entity_key, exclude_run_id=exclude_run_id or ""),
+        "runs": find_related_runs(
+            db,
+            entity_key,
+            exclude_run_id=exclude_run_id or "",
+            created_by=None if principal.role == "admin" else principal.actor_id,
+        ),
     }
 
 
 @router.delete("/entity/run/{run_id}")
-def entity_run_delete(run_id: str, db: Session = Depends(get_db)):
+def entity_run_delete(
+    run_id: str,
+    request: Request,
+    db: Session = Depends(get_db),
+):
     """Supprime un dossier et ses entités normalisées (droit à l'effacement)."""
-    run = db.query(EntityResearchRun).filter_by(run_id=run_id).first()
-    if not run:
-        raise HTTPException(status_code=404, detail="Dossier non trouvé")
+    run = _owned_run_or_404(db, request, run_id)
 
     db.query(ResearchEntity).filter_by(run_id=run_id).delete(synchronize_session=False)
     db.delete(run)
@@ -3946,6 +4131,160 @@ def entity_run_delete(run_id: str, db: Session = Depends(get_db)):
 
     logger.info(f"[ENTITY] Dossier {run_id} supprimé")
     return {"success": True, "message": f"Dossier {run_id} supprimé"}
+
+
+@router.get("/entity/run/{run_id}/changes")
+def entity_run_changes(
+    run_id: str,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    """Compare ce dossier au précédent dossier de la même entité."""
+    from entity_research.changes import compare_dossiers
+
+    run = _owned_run_or_404(db, request, run_id)
+    if not run.dossier:
+        raise HTTPException(status_code=404, detail="Dossier incomplet")
+
+    previous_query = _owned_run_query(db, request).filter(
+        EntityResearchRun.id < run.id,
+        EntityResearchRun.status == "COMPLETED",
+        EntityResearchRun.dossier.isnot(None),
+    )
+    if run.root_key:
+        previous_query = previous_query.filter(EntityResearchRun.root_key == run.root_key)
+    else:
+        previous_query = previous_query.filter(EntityResearchRun.query == run.query)
+    previous = previous_query.order_by(EntityResearchRun.id.desc()).first()
+
+    if not previous:
+        return {
+            "comparison_available": False,
+            "current_run_id": run.run_id,
+            "previous_run_id": None,
+            "has_changes": False,
+            "change_score": 0,
+            "counts": {},
+        }
+
+    try:
+        return compare_dossiers(
+            json.loads(run.dossier),
+            json.loads(previous.dossier),
+            current_run_id=run.run_id,
+            previous_run_id=previous.run_id,
+        )
+    except json.JSONDecodeError:
+        raise HTTPException(status_code=500, detail="Dossier illisible")
+
+
+@router.get("/entity/watches")
+def entity_watch_list(request: Request, db: Session = Depends(get_db)):
+    """Liste des entités suivies par l'utilisateur courant."""
+    watches = (
+        _owned_watch_query(db, request)
+        .filter(EntityWatch.is_active.is_(True))
+        .order_by(EntityWatch.updated_at.desc())
+        .all()
+    )
+    return {"items": [_watch_to_summary(watch) for watch in watches], "total": len(watches)}
+
+
+@router.post("/entity/watch/{run_id}")
+def entity_watch_create(
+    run_id: str,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    """Place l'entité racine d'un dossier sous surveillance."""
+    run = _owned_run_or_404(db, request, run_id)
+    if not run.root_key:
+        raise HTTPException(status_code=409, detail="Le dossier n'a pas d'entité racine")
+
+    principal = _request_principal(request)
+    watch = (
+        db.query(EntityWatch)
+        .filter(
+            EntityWatch.root_key == run.root_key,
+            EntityWatch.created_by == principal.actor_id,
+        )
+        .first()
+    )
+    if watch is None:
+        watch = EntityWatch(root_key=run.root_key, created_by=principal.actor_id)
+        db.add(watch)
+
+    watch.query = run.query
+    watch.label = run.label
+    watch.entity_kind = run.entity_kind
+    watch.mode = run.mode
+    watch.purpose = run.purpose
+    watch.language = run.language
+    watch.report_template = run.report_template
+    watch.baseline_run_id = watch.baseline_run_id or run.run_id
+    watch.last_run_id = run.run_id
+    watch.is_active = True
+    watch.last_checked_at = run.updated_at or run.created_at
+    db.commit()
+    db.refresh(watch)
+    return _watch_to_summary(watch)
+
+
+@router.delete("/entity/watch/{watch_id}")
+def entity_watch_delete(
+    watch_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    """Retire une entité de la liste de surveillance."""
+    watch = _owned_watch_query(db, request).filter(EntityWatch.id == watch_id).first()
+    if not watch:
+        raise HTTPException(status_code=404, detail="Veille non trouvée")
+    db.delete(watch)
+    db.commit()
+    return {"success": True}
+
+
+@router.post("/entity/watch/{watch_id}/refresh")
+def entity_watch_refresh(
+    watch_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    """Relance la collecte d'une veille et calcule son delta à la fin."""
+    if not HAS_CELERY or entity_research_task is None:
+        raise HTTPException(status_code=503, detail="Workers Celery indisponibles")
+
+    from entity_research.storage import create_run
+
+    watch = _owned_watch_query(db, request).filter(EntityWatch.id == watch_id).first()
+    if not watch:
+        raise HTTPException(status_code=404, detail="Veille non trouvée")
+
+    principal = _request_principal(request)
+    options = {
+        "mode": watch.mode or "standard",
+        "purpose": watch.purpose or "due_diligence",
+        "entity_kind": (
+            watch.entity_kind if watch.entity_kind in {"person", "organization"} else None
+        ),
+        "language": watch.language or "fr",
+        "template": watch.report_template or "detailed",
+        "_created_by": principal.actor_id,
+    }
+    task = entity_research_task.delay(watch.query, options)
+    create_run(
+        db,
+        run_id=task.id,
+        query=watch.query,
+        job_id=task.id,
+        mode=watch.mode,
+        purpose=watch.purpose,
+        language=watch.language,
+        report_template=watch.report_template,
+        created_by=principal.actor_id,
+    )
+    return {"run_id": task.id, "status": "PENDING", "watch_id": watch.id}
 
 # ============================================================================
 # MOTEUR D'INFÉRENCE - Choix du LLM

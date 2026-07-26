@@ -4,8 +4,11 @@ Permet de protéger l'accès aux endpoints de l'API en production.
 """
 
 import hashlib
+import hmac
+import os
 import secrets
 import logging
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from fastapi import Header, HTTPException, Depends
 from sqlalchemy.orm import Session
@@ -18,6 +21,68 @@ logger = logging.getLogger(__name__)
 # API Key format: ananta_<32 caractères aléatoires>
 API_KEY_PREFIX = "ananta_"
 API_KEY_LENGTH = 32
+VALID_ROLES = {"admin", "analyst", "viewer"}
+
+
+@dataclass(frozen=True)
+class AuthPrincipal:
+    """Identité minimale propagée aux routes et aux journaux."""
+
+    actor_id: str
+    role: str
+    key_id: int | None = None
+    name: str = "local"
+
+
+def authentication_required() -> bool:
+    """Active l'authentification par défaut en production.
+
+    ``AUTH_REQUIRED`` permet un choix explicite. En développement et dans les
+    tests, l'instance reste utilisable sans clé pour préserver le mode
+    local-first.
+    """
+
+    configured = os.getenv("AUTH_REQUIRED")
+    if configured is not None:
+        return configured.strip().lower() in {"1", "true", "yes", "on"}
+    return os.getenv("ENVIRONMENT", "development").lower() == "production"
+
+
+def principal_from_key(api_key_obj: APIKey) -> AuthPrincipal:
+    role = (getattr(api_key_obj, "role", None) or "analyst").lower()
+    if role not in VALID_ROLES:
+        role = "viewer"
+    owner_id = getattr(api_key_obj, "owner_id", None) or f"key:{api_key_obj.id}"
+    return AuthPrincipal(
+        actor_id=owner_id,
+        role=role,
+        key_id=api_key_obj.id,
+        name=api_key_obj.name,
+    )
+
+
+def authenticate_api_key_value(api_key: str | None, db: Session) -> AuthPrincipal | None:
+    """Valide une clé brute et renvoie son identité sans exposer la clé."""
+
+    if not api_key or not api_key.startswith(API_KEY_PREFIX):
+        return None
+
+    key_hash = hash_api_key(api_key)
+    api_key_obj = db.query(APIKey).filter(
+        APIKey.key_hash == key_hash,
+        APIKey.is_active.is_(True),
+    ).first()
+    if not api_key_obj:
+        return None
+
+    api_key_obj.last_used_at = datetime.now(timezone.utc)
+    db.commit()
+    return principal_from_key(api_key_obj)
+
+
+def bootstrap_token_valid(value: str | None) -> bool:
+    expected = os.getenv("ANANTA_BOOTSTRAP_TOKEN", "")
+    return bool(expected and value and hmac.compare_digest(value, expected))
 
 
 def generate_api_key() -> tuple[str, str]:
@@ -76,16 +141,8 @@ def verify_api_key(
             headers={"WWW-Authenticate": "ApiKey"}
         )
 
-    # Hasher la clé fournie
-    key_hash = hash_api_key(x_api_key)
-
-    # Chercher dans la base de données
-    api_key_obj = db.query(APIKey).filter(
-        APIKey.key_hash == key_hash,
-        APIKey.is_active == True
-    ).first()
-
-    if not api_key_obj:
+    principal = authenticate_api_key_value(x_api_key, db)
+    if not principal:
         logger.warning(f"[AUTH] Tentative d'accès avec une API Key invalide ou révoquée: {x_api_key[:20]}...")
         raise HTTPException(
             status_code=401,
@@ -96,12 +153,8 @@ def verify_api_key(
             headers={"WWW-Authenticate": "ApiKey"}
         )
 
-    # Mettre à jour la date de dernière utilisation
-    api_key_obj.last_used_at = datetime.now(timezone.utc)
-    db.commit()
-
-    logger.info(f"[AUTH] Accès autorisé avec l'API Key: {api_key_obj.name}")
-
+    api_key_obj = db.query(APIKey).filter(APIKey.id == principal.key_id).first()
+    logger.info("[AUTH] Accès autorisé avec la clé %s", principal.name)
     return api_key_obj
 
 

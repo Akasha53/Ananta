@@ -25,6 +25,12 @@ def _models():
     return EntityResearchRun, ResearchEntity
 
 
+def _watch_model():
+    from database import EntityWatch
+
+    return EntityWatch
+
+
 def create_run(
     db,
     *,
@@ -55,6 +61,7 @@ def create_run(
     db.add(run)
     db.commit()
     db.refresh(run)
+    _refresh_matching_watches(db, run)
     return run
 
 
@@ -188,15 +195,27 @@ def load_dossier(db, run_id: str) -> Optional[Dict[str, Any]]:
         return None
 
 
-def find_related_runs(db, entity_key: str, *, exclude_run_id: str = "", limit: int = 20) -> List[Dict[str, Any]]:
+def find_related_runs(
+    db,
+    entity_key: str,
+    *,
+    exclude_run_id: str = "",
+    limit: int = 20,
+    created_by: Optional[str] = None,
+) -> List[Dict[str, Any]]:
     """
     Autres dossiers où cette entité apparaît.
 
     C'est ce qui permet de repérer qu'un même dirigeant revient dans plusieurs
     sociétés analysées séparément.
     """
-    _, ResearchEntity = _models()
+    EntityResearchRun, ResearchEntity = _models()
     query = db.query(ResearchEntity).filter(ResearchEntity.entity_key == entity_key)
+    if created_by is not None:
+        query = query.join(
+            EntityResearchRun,
+            EntityResearchRun.run_id == ResearchEntity.run_id,
+        ).filter(EntityResearchRun.created_by == created_by)
     if exclude_run_id:
         query = query.filter(ResearchEntity.run_id != exclude_run_id)
     rows = query.order_by(ResearchEntity.created_at.desc()).limit(limit).all()
@@ -211,6 +230,71 @@ def find_related_runs(db, entity_key: str, *, exclude_run_id: str = "", limit: i
         }
         for row in rows
     ]
+
+
+def _refresh_matching_watches(db, run) -> None:
+    """Met à jour les veilles liées à un nouveau dossier terminé."""
+
+    if not run.root_key or not run.dossier:
+        return
+
+    EntityResearchRun, _ = _models()
+    EntityWatch = _watch_model()
+    watches = (
+        db.query(EntityWatch)
+        .filter(
+            EntityWatch.root_key == run.root_key,
+            EntityWatch.is_active.is_(True),
+        )
+        .all()
+    )
+    if not watches:
+        return
+
+    try:
+        current = json.loads(run.dossier)
+    except json.JSONDecodeError:
+        return
+
+    from entity_research.changes import compare_dossiers
+
+    changed = False
+    for watch in watches:
+        if watch.created_by and run.created_by != watch.created_by:
+            continue
+        previous_id = watch.last_run_id or watch.baseline_run_id
+        previous = (
+            db.query(EntityResearchRun)
+            .filter(EntityResearchRun.run_id == previous_id)
+            .first()
+            if previous_id
+            else None
+        )
+        if previous and previous.run_id != run.run_id and previous.dossier:
+            try:
+                comparison = compare_dossiers(
+                    current,
+                    json.loads(previous.dossier),
+                    current_run_id=run.run_id,
+                    previous_run_id=previous.run_id,
+                )
+            except (TypeError, json.JSONDecodeError):
+                comparison = None
+            if comparison:
+                watch.last_change_score = comparison["change_score"]
+                watch.last_change_summary = {
+                    "has_changes": comparison["has_changes"],
+                    "change_score": comparison["change_score"],
+                    "counts": comparison["counts"],
+                    "previous_run_id": previous.run_id,
+                    "current_run_id": run.run_id,
+                }
+        watch.last_run_id = run.run_id
+        watch.last_checked_at = run.updated_at or run.created_at
+        changed = True
+
+    if changed:
+        db.commit()
 
 
 def _identifier(entity: EntityNode, attribute: str, selector_type: SelectorType) -> Optional[str]:

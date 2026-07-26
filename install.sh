@@ -52,7 +52,9 @@ create_env() {
 
   info "Génération du fichier .env"
   local password
+  local bootstrap_token
   password="$(random_secret)"
+  bootstrap_token="$(random_secret)"
 
   cat > .env <<EOF
 # ============================================================================
@@ -67,8 +69,11 @@ POSTGRES_DB=ananta
 
 # --- Application ---
 ENVIRONMENT=production
+AUTH_REQUIRED=true
+ANANTA_BOOTSTRAP_TOKEN=${bootstrap_token}
 ANANTA_PORT=8010
 CORS_ORIGINS=http://localhost:8010
+TRUSTED_PROXY_IPS=127.0.0.1,::1
 RATE_LIMIT_ENABLED=true
 WORKER_CONCURRENCY=4
 
@@ -125,7 +130,30 @@ SECURITYTRAILS_API_KEY=
 EOF
 
   chmod 600 .env
-  ok "Fichier .env créé (mot de passe PostgreSQL généré aléatoirement)."
+  ok "Fichier .env créé (secrets PostgreSQL et initialisation générés aléatoirement)."
+}
+
+ensure_auth_config() {
+  local changed=0
+  if ! grep -q '^AUTH_REQUIRED=' .env; then
+    printf '\nAUTH_REQUIRED=true\n' >> .env
+    changed=1
+  fi
+  if ! grep -Eq '^ANANTA_BOOTSTRAP_TOKEN=.+$' .env; then
+    local token
+    token="$(random_secret)"
+    if grep -q '^ANANTA_BOOTSTRAP_TOKEN=' .env; then
+      sed -i.bak "s/^ANANTA_BOOTSTRAP_TOKEN=.*$/ANANTA_BOOTSTRAP_TOKEN=${token}/" .env
+      rm -f .env.bak
+    else
+      printf 'ANANTA_BOOTSTRAP_TOKEN=%s\n' "$token" >> .env
+    fi
+    changed=1
+  fi
+  if [ "$changed" -eq 1 ]; then
+    chmod 600 .env
+    ok "Configuration d'authentification ajoutée à .env."
+  fi
 }
 
 # ------------------------------------------------------------------- Docker
@@ -135,6 +163,7 @@ install_docker() {
   docker compose version >/dev/null 2>&1 || die "Le plugin 'docker compose' est requis (Docker >= 20.10)."
 
   create_env
+  ensure_auth_config
 
   local profile=()
   if [ "$WITH_OLLAMA" -eq 1 ]; then
@@ -182,6 +211,9 @@ install_docker() {
   echo "   API docs   : http://localhost:${port}/docs"
   echo "   Santé      : http://localhost:${port}/health"
   echo
+  echo "   Premier accès : ouvrez « Accès » puis utilisez le jeton initial de .env"
+  echo "                    (ANANTA_BOOTSTRAP_TOKEN) pour créer la clé admin."
+  echo
   echo "   Moteur IA  : configurable dans l'interface (Entités ▸ Options ▸ Moteur IA)"
   echo "                ou via LLM_PROVIDER dans .env."
   echo
@@ -199,6 +231,7 @@ install_bare() {
   info "Python détecté : ${version}"
 
   create_env
+  ensure_auth_config
 
   info "Création de l'environnement virtuel (.venv)…"
   python3 -m venv .venv
@@ -211,13 +244,13 @@ install_bare() {
     pip install -r requirements.txt
   else
     info "Installation des dépendances (sans la pile ML)…"
-    pip install -r requirements-core.txt
+    pip install -r requirements-lock.txt
   fi
 
   command -v redis-server >/dev/null 2>&1 || warn "Redis introuvable : les tâches de fond seront indisponibles."
 
   info "Initialisation de la base (SQLite par défaut si DATABASE_URL est vide)…"
-  python -c "from database import init_db; init_db()"
+  alembic upgrade head
   alembic upgrade head || warn "Migrations à appliquer manuellement (alembic upgrade head)."
 
   echo
