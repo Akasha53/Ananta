@@ -1,7 +1,7 @@
 from fastapi import FastAPI, Request, HTTPException
 from fastapi.exceptions import RequestValidationError
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import JSONResponse, RedirectResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 from contextlib import asynccontextmanager
@@ -259,17 +259,25 @@ app.include_router(api_router)
 BASE_DIR = Path(__file__).resolve().parent
 WEB_DIR = BASE_DIR / "web"
 
+@app.api_route(
+    "/web/html/index.html",
+    methods=["GET", "HEAD"],
+    include_in_schema=False,
+)
+def redirect_legacy_console():
+    """L'ancienne console a été retirée : Entités est l'accueil canonique."""
+    return RedirectResponse(url="/web/html/entity.html", status_code=308)
+
 if WEB_DIR.exists():
     app.mount("/web", StaticFiles(directory=str(WEB_DIR)), name="web")
 
-@app.get("/ui", include_in_schema=False)
+@app.api_route("/ui", methods=["GET", "HEAD"], include_in_schema=False)
 def serve_ui():
-    index_path = WEB_DIR / "html" / "index.html"
-    return FileResponse(str(index_path))
+    return RedirectResponse(url="/web/html/entity.html", status_code=308)
 
-@app.get("/")
+@app.api_route("/", methods=["GET", "HEAD"], include_in_schema=False)
 def read_root():
-    return {"message": "API OSINT & Cyber Ready", "ui": "/ui"}
+    return RedirectResponse(url="/web/html/entity.html", status_code=308)
 
 if __name__ == "__main__":
     import uvicorn

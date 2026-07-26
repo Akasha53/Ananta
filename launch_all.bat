@@ -99,7 +99,7 @@ echo   ANANTA DEMARRE
 echo ========================================
 echo.
 echo   FastAPI : http://localhost:8010
-echo   Web UI  : http://localhost:8010/web/html/index.html
+echo   Web UI  : http://localhost:8010/
 echo   LLM API : http://localhost:5000
 echo   Model   : %LLM_MODEL% (32k context)
 echo.

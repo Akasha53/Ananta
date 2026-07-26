@@ -13,12 +13,6 @@ Ananta is a local-first OSINT analysis platform built around a simple idea: coll
 
 It combines a FastAPI backend, a static web interface, optional Celery workers for background scans, and an optional local LLM served through `text-generation-webui` for richer report synthesis. The platform is designed for analysts, security practitioners, and researchers who want structured reconnaissance and reporting without sending their workflow to a third-party cloud service.
 
-## Preview
-
-| Main Console | Project View |
-|---|---|
-| ![Main Console](./img/Main_Page.png) | ![Project View](<./img/Capture d'écran 2026-02-15 170410.png>) |
-
 ## What Ananta Does
 
 Ananta accepts a target such as a domain, IP address, URL, or general research query and builds a report from multiple OSINT sources. The system can run lightweight passive lookups, API-backed enrichments, and, when explicitly approved, more sensitive checks such as port and vulnerability scans. Results are stored, rendered in multiple views, and exported in several formats.
@@ -169,8 +163,7 @@ The frontend is served directly by the FastAPI app and includes several focused 
 
 | Page | Purpose |
 |---|---|
-| `/web/html/index.html` | Main analysis console |
-| `/web/html/entity.html` | Entity research console (person / company dossiers) |
+| `/` or `/web/html/entity.html` | Primary entity research workspace |
 | `/web/html/database.html` | Stored reports and history |
 | `/web/html/monitoring.html` | Operational monitoring and logs |
 | `/web/html/workers.html` | Celery worker visibility |
@@ -480,7 +473,7 @@ python -m celery -A tasks.app worker -Q default,osint_fast,osint_medium,osint_cr
 
 ### 6. Open the Application
 
-- Web UI: `http://localhost:8010/web/html/index.html`
+- Web UI: `http://localhost:8010/`
 - API docs: `http://localhost:8010/docs`
 - Health check: `http://localhost:8010/health`
 
@@ -488,7 +481,7 @@ python -m celery -A tasks.app worker -Q default,osint_fast,osint_medium,osint_cr
 
 ### UI Workflow
 
-Open the main console and submit a target such as:
+Open the entity workspace and submit a target such as:
 
 - `example.com`
 - `8.8.8.8`

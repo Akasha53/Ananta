@@ -35,7 +35,6 @@
       <nav id="ananta-modules-menu" class="ananta-modules-menu" aria-label="Modules Ananta" hidden>
         <span class="ananta-access-kicker">Espace de travail</span>
         <a href="/web/html/entity.html"><strong>Entités</strong><small>Recherche et graphe</small></a>
-        <a href="/web/html/index.html"><strong>Console</strong><small>Agent et investigations</small></a>
         <a href="/web/html/database.html"><strong>Dossiers</strong><small>Base de connaissances</small></a>
         <a href="/web/html/scheduled.html"><strong>Automations</strong><small>Scans programmés</small></a>
         <a href="/web/html/monitoring.html"><strong>Opérations</strong><small>Santé et audit</small></a>
@@ -168,9 +167,17 @@
     refreshTrigger();
   }
 
+  function registerServiceWorker() {
+    if (!("serviceWorker" in navigator)) return;
+    navigator.serviceWorker
+      .register("/web/javascript/service-worker.js", { scope: "/web/" })
+      .catch((error) => console.warn("[PWA] Service Worker indisponible :", error));
+  }
+
   if (document.readyState === "loading") {
     document.addEventListener("DOMContentLoaded", install, { once: true });
   } else {
     install();
   }
+  global.addEventListener("load", registerServiceWorker, { once: true });
 })(window);

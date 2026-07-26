@@ -206,7 +206,7 @@ install_docker() {
 
   echo
   ok "Ananta est installé."
-  echo "   Interface  : http://localhost:${port}/web/html/index.html"
+  echo "   Interface  : http://localhost:${port}/"
   echo "   Entités    : http://localhost:${port}/web/html/entity.html"
   echo "   API docs   : http://localhost:${port}/docs"
   echo "   Santé      : http://localhost:${port}/health"

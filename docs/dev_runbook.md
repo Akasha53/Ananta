@@ -30,7 +30,7 @@ curl http://localhost:8010/jobs/{JOB_ID}
 Expected: Status should transition: `PENDING` → `PROCESSING` → `COMPLETED`
 
 ### 5. Verify Report in UI
-- Open http://localhost:8010/web/html/index.html
+- Open http://localhost:8010/
 - The job should appear in the history
 - Click to view the generated report
 
@@ -176,7 +176,7 @@ init_db()
 | Service | URL |
 |---------|-----|
 | API principale | http://localhost:8010 |
-| Interface Web | http://localhost:8010/web/html/index.html |
+| Interface Web | http://localhost:8010/ |
 | Documentation API | http://localhost:8010/docs |
 | Health check | http://localhost:8010/health |
 

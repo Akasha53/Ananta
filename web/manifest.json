@@ -1,8 +1,8 @@
 {
-  "name": "ANANTA OSINT Console",
+  "name": "ANANTA Entity Intelligence",
   "short_name": "ANANTA",
-  "description": "Next-Gen OSINT Intelligence Console - Analyse de domaines, IPs et menaces",
-  "start_url": "/web/html/index.html",
+  "description": "Recherche d'entités, résolution d'identité et graphes sourcés",
+  "start_url": "/web/html/entity.html",
   "scope": "/web/",
   "display": "standalone",
   "orientation": "portrait",
@@ -62,10 +62,10 @@
   ],
   "shortcuts": [
     {
-      "name": "Nouvelle Analyse",
-      "short_name": "Analyse",
-      "description": "Lancer une nouvelle analyse OSINT",
-      "url": "/web/html/index.html?action=new",
+      "name": "Nouvelle recherche d'entité",
+      "short_name": "Entité",
+      "description": "Lancer une nouvelle recherche d'entité",
+      "url": "/web/html/entity.html",
       "icons": [{ "src": "/web/icons/icon-96.png", "sizes": "96x96" }]
     },
     {
@@ -81,7 +81,7 @@
       "src": "/web/screenshots/console-desktop.png",
       "sizes": "1911x1030",
       "type": "image/png",
-      "label": "Ananta Main Console"
+      "label": "Ananta Entity Intelligence"
     },
     {
       "src": "/web/screenshots/console-mobile.png",

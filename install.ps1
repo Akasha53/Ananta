@@ -148,7 +148,7 @@ for ($i = 0; $i -lt 60; $i++) {
 
 Write-Host ""
 Write-Ok "Ananta est installé."
-Write-Host "   Interface : http://localhost:$port/web/html/index.html"
+Write-Host "   Interface : http://localhost:$port/"
 Write-Host "   Entités   : http://localhost:$port/web/html/entity.html"
 Write-Host "   API docs  : http://localhost:$port/docs"
 Write-Host ""

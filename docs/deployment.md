@@ -36,8 +36,7 @@ Au bout d'une à trois minutes :
 
 | | |
 |---|---|
-| Console | `http://<serveur>:8010/web/html/index.html` |
-| Recherche d'entité | `http://<serveur>:8010/web/html/entity.html` |
+| Espace Entités | `http://<serveur>:8010/` |
 | Documentation API | `http://<serveur>:8010/docs` |
 | Santé | `http://<serveur>:8010/health` |
 

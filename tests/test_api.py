@@ -57,17 +57,24 @@ class TestHealthEndpoint:
 
 
 class TestRootEndpoint:
-    """Tests for / endpoint."""
+    """Entités est l'interface canonique."""
 
     def test_root_returns_200(self, client: TestClient):
         response = client.get("/")
         assert response.status_code == 200
+        assert "ANANTA // ENTITÉ" in response.text
 
-    def test_root_contains_message(self, client: TestClient):
-        response = client.get("/")
-        data = response.json()
-        assert "message" in data
-        assert "ui" in data
+    @pytest.mark.parametrize("path", ["/", "/ui", "/web/html/index.html"])
+    def test_legacy_entries_redirect_to_entity(self, client: TestClient, path):
+        response = client.get(path, follow_redirects=False)
+        assert response.status_code == 308
+        assert response.headers["location"] == "/web/html/entity.html"
+
+    @pytest.mark.parametrize("path", ["/", "/ui", "/web/html/index.html"])
+    def test_legacy_head_requests_redirect_to_entity(self, client: TestClient, path):
+        response = client.head(path, follow_redirects=False)
+        assert response.status_code == 308
+        assert response.headers["location"] == "/web/html/entity.html"
 
 
 class TestSecurityHeaders:

@@ -4,7 +4,6 @@ from pathlib import Path
 
 
 ONLINE_PAGES = {
-    "index.html",
     "database.html",
     "entity.html",
     "monitoring.html",
@@ -50,6 +49,20 @@ def test_entity_ui_keeps_run_permalink_and_exposes_system_prompt():
     assert "/observations" in javascript
     assert "Corrélations automatiques" in javascript
     assert "Faux positif" in javascript
+
+
+def test_entity_is_the_only_primary_workspace():
+    shell = Path("web/javascript/app-shell.js").read_text(encoding="utf-8")
+    legacy = Path("web/html/index.html").read_text(encoding="utf-8")
+    service_worker = Path("web/javascript/service-worker.js").read_text(
+        encoding="utf-8"
+    )
+
+    assert "/web/html/index.html" not in shell
+    assert "<strong>Console</strong>" not in shell
+    assert 'content="0; url=entity.html"' in legacy
+    assert "/web/javascript/app.js" not in service_worker
+    assert "'/web/html/index.html'" not in service_worker
 
 
 def test_unified_launcher_is_present():

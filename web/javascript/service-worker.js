@@ -3,14 +3,13 @@
  * Gère le cache offline et les requêtes réseau
  */
 
-const CACHE_NAME = 'ananta-v1.3.0';
+const CACHE_NAME = 'ananta-v1.4.0';
 const OFFLINE_URL = '/web/html/offline.html';
 
 // Ressources à mettre en cache immédiatement
 const PRECACHE_ASSETS = [
-  '/web/html/index.html',
-  '/web/html/database.html',
   '/web/html/entity.html',
+  '/web/html/database.html',
   '/web/html/offline.html',
   '/web/css/tailwind.css',
   '/web/css/style.css',
@@ -21,7 +20,6 @@ const PRECACHE_ASSETS = [
   '/web/css/app-shell.css',
   '/web/javascript/api-client.js',
   '/web/javascript/app-shell.js',
-  '/web/javascript/app.js',
   '/web/javascript/database.js',
   '/web/javascript/entity.js',
   '/web/javascript/entity-graph.js',
