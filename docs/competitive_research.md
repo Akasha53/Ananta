@@ -25,13 +25,18 @@ L'implémentation Ananta est originale : aucun code tiers n'a été copié.
 - sanctions nominales soumises à revue manuelle, confirmation par identifiant ;
 - tests adversariaux déterministes sur noms, sigles, personnes, registres,
   domaines, sanctions et parcours du graphe.
+- file de revue persistante pour confirmer, rejeter ou documenter un candidat ;
+- faux positifs exclus logiquement sans suppression de la trace d'audit ;
+- historique `first_seen` / `last_seen` des entités et relations récurrentes ;
+- corrélations YAML sans `eval`, avec métriques et opérateurs en liste blanche.
 
 ## Pistes suivantes
 
 - apprendre les pondérations sur un jeu de paires annotées, sans remplacer les
   veto déterministes ;
-- afficher une file de revue humaine permettant d'accepter ou rejeter un
-  candidat et de conserver la justification de l'opérateur ;
 - mesurer précision, rappel et taux de faux positifs sur un corpus versionné ;
-- ajouter `first_seen` / `last_seen` aux relations pour mieux distinguer une
-  identité actuelle d'une ancienne observation.
+- exporter/importer un corpus de décisions analyste anonymisé pour cette mesure.
+
+Le moteur de règles utilise `yaml.safe_load` de PyYAML, déjà présent dans le
+projet. Aucun code de SpiderFoot, OpenCTI ou Aleph n'a été copié. Les playbooks
+Enterprise d'OpenCTI ne sont ni importés ni reproduits.

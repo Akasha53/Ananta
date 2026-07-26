@@ -14,6 +14,7 @@ contradiction sur un identifiant stable l'emporte sur plusieurs ressemblances.
 from __future__ import annotations
 
 import hashlib
+import json
 import math
 import re
 from dataclasses import dataclass, field
@@ -65,7 +66,7 @@ class ResolutionDecision:
     source: str = ""
 
     def to_dict(self) -> Dict[str, Any]:
-        return {
+        payload = {
             "verdict": self.verdict.value,
             "score": round(max(0.0, min(1.0, self.score)), 3),
             "action": self.action,
@@ -77,6 +78,34 @@ class ResolutionDecision:
             "conflicts": self.conflicts,
             "source": self.source,
         }
+        payload["decision_id"] = resolution_decision_id(payload)
+        return payload
+
+
+def resolution_decision_id(payload: Dict[str, Any]) -> str:
+    """Identifiant stable d'une décision, y compris pour les anciens dossiers."""
+    identity = {
+        key: payload.get(key)
+        for key in (
+            "verdict",
+            "action",
+            "left_key",
+            "right_key",
+            "label",
+            "reasons",
+            "evidence",
+            "conflicts",
+            "source",
+        )
+    }
+    encoded = json.dumps(
+        identity,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+        default=str,
+    )
+    return f"res_{hashlib.sha256(encoded.encode('utf-8')).hexdigest()[:16]}"
 
 
 # Ces identifiants sont stables et mono-valués pour une même identité logique.

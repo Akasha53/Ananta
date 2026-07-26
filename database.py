@@ -1,7 +1,7 @@
 import os
 import logging
 from dotenv import load_dotenv
-from sqlalchemy import create_engine, Column, Integer, String, Text, DateTime, Float, Boolean, JSON, func, ForeignKey, Index
+from sqlalchemy import create_engine, Column, Integer, String, Text, DateTime, Float, Boolean, JSON, func, ForeignKey, Index, UniqueConstraint
 from sqlalchemy.orm import declarative_base, sessionmaker, relationship
 
 # --- CONFIG ---
@@ -476,6 +476,36 @@ class ResearchEntity(Base):
     relations = Column(JSON, nullable=True)      # Liens sortants/entrants
 
     created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+
+class EntityResolutionReview(Base):
+    """Validation humaine d'une décision de résolution d'identité."""
+
+    __tablename__ = "entity_resolution_reviews"
+    __table_args__ = (
+        UniqueConstraint(
+            "run_id",
+            "decision_id",
+            name="uq_entity_resolution_reviews_run_decision",
+        ),
+        Index("ix_entity_resolution_reviews_run", "run_id"),
+        Index("ix_entity_resolution_reviews_status", "status"),
+        Index("ix_entity_resolution_reviews_owner", "created_by"),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+    run_id = Column(
+        String,
+        ForeignKey("entity_research_runs.run_id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    decision_id = Column(String, nullable=False)
+    status = Column(String, nullable=False)  # confirmed | rejected | needs_info
+    note = Column(Text, nullable=True)
+    created_by = Column(String, nullable=True)
+    updated_by = Column(String, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
 
 class EntityWatch(Base):

@@ -281,6 +281,7 @@ class Dossier:
     source_results: List[SourceResult] = field(default_factory=list)
     conflicts: List[Dict[str, Any]] = field(default_factory=list)
     resolution: List[Dict[str, Any]] = field(default_factory=list)
+    correlations: List[Dict[str, Any]] = field(default_factory=list)
     gaps: List[Dict[str, Any]] = field(default_factory=list)
     risk_flags: List[Dict[str, Any]] = field(default_factory=list)
     timeline: List[Dict[str, Any]] = field(default_factory=list)
@@ -376,6 +377,7 @@ class Dossier:
             "sources": [r.to_dict(include_raw=include_raw) for r in self.source_results],
             "conflicts": self.conflicts,
             "resolution": self.resolution,
+            "correlations": self.correlations,
             "gaps": self.gaps,
             "risk_flags": self.risk_flags,
             "timeline": self.timeline,

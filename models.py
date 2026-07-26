@@ -377,6 +377,18 @@ class EntityPreviewRequest(BaseModel):
         return validate_entity_query(v)
 
 
+class EntityResolutionReviewRequest(BaseModel):
+    """Validation humaine d'un rapprochement proposé par le moteur."""
+
+    status: Literal["confirmed", "rejected", "needs_info"]
+    note: str = Field(default="", max_length=2000)
+
+    @field_validator("note")
+    @classmethod
+    def normalize_note(cls, value: str) -> str:
+        return value.strip()
+
+
 # ==================== LLM PROVIDER ====================
 
 

@@ -34,6 +34,7 @@ LABELS: Dict[str, Dict[str, str]] = {
         "unknown": "Nature indéterminée",
         "summary": "Synthèse",
         "briefing": "Informations fournies",
+        "correlations": "Corrélations automatiques",
         "resolution": "Résolution d'identité",
         "identity": "Identité",
         "legal": "Situation légale et administrative",
@@ -78,6 +79,7 @@ LABELS: Dict[str, Dict[str, str]] = {
         "unknown": "Undetermined type",
         "summary": "Summary",
         "briefing": "Provided information",
+        "correlations": "Automated correlations",
         "resolution": "Identity resolution",
         "identity": "Identity",
         "legal": "Legal and administrative status",
@@ -122,6 +124,7 @@ LABELS: Dict[str, Dict[str, str]] = {
         "unknown": "Naturaleza indeterminada",
         "summary": "Resumen",
         "briefing": "Información proporcionada",
+        "correlations": "Correlaciones automáticas",
         "resolution": "Resolución de identidad",
         "identity": "Identidad",
         "legal": "Situación legal y administrativa",
@@ -166,6 +169,7 @@ LABELS: Dict[str, Dict[str, str]] = {
         "unknown": "Unbestimmte Art",
         "summary": "Zusammenfassung",
         "briefing": "Bereitgestellte Informationen",
+        "correlations": "Automatische Korrelationen",
         "resolution": "Identitätsauflösung",
         "identity": "Identität",
         "legal": "Rechtlicher und administrativer Status",
@@ -210,15 +214,15 @@ TEMPLATE_SECTIONS: Dict[Template, Sequence[str]] = {
     "detailed": (
         "header", "summary", "briefing", "risk", "identity", "legal", "financial",
         "network", "digital", "contact", "timeline", "conflicts", "gaps",
-        "resolution", "sources", "compliance",
+        "correlations", "resolution", "sources", "compliance",
     ),
     "executive": (
         "header", "summary", "briefing", "risk", "identity", "network", "gaps",
-        "resolution", "compliance",
+        "correlations", "resolution", "compliance",
     ),
     "technical": (
         "header", "briefing", "identity", "digital", "contact", "network", "sources",
-        "resolution", "compliance",
+        "correlations", "resolution", "compliance",
     ),
     "minimal": ("header", "summary", "briefing", "risk", "identity", "compliance"),
 }
@@ -290,6 +294,8 @@ def render_markdown(
             parts.append(_render_sources(dossier, L))
         elif section == "resolution":
             parts.append(_render_resolution(dossier, L))
+        elif section == "correlations":
+            parts.append(_render_correlations(dossier, L))
         elif section == "compliance":
             parts.append(_render_compliance(dossier, L))
 
@@ -622,6 +628,31 @@ def _render_resolution(dossier: Dossier, L: Dict[str, str]) -> str:
             f"{_escape_cell(item.get('action') or '—')} | "
             f"{_escape_cell(reasons)} |"
         )
+    return "\n".join(lines)
+
+
+def _render_correlations(dossier: Dossier, L: Dict[str, str]) -> str:
+    if not dossier.correlations:
+        return ""
+    icons = {
+        "critical": "🔴",
+        "high": "🟠",
+        "medium": "🟡",
+        "low": "🔵",
+        "info": "ℹ️",
+    }
+    lines = [f"## {L['correlations']}", ""]
+    for finding in dossier.correlations:
+        severity = finding.get("severity", "info")
+        lines.append(
+            f"- {icons.get(severity, '•')} **{_escape_cell(finding.get('title') or '')}** "
+            f"({severity}) — {_escape_cell(finding.get('description') or '')}"
+        )
+        if finding.get("recommendation"):
+            lines.append(
+                f"  - {L['recommendation']} : "
+                f"{_escape_cell(finding['recommendation'])}"
+            )
     return "\n".join(lines)
 
 

@@ -1,0 +1,60 @@
+version: 1
+rules:
+  - id: identity_review_backlog
+    title: Plusieurs rapprochements doivent être revus
+    description: La collecte a accumulé des identités ambiguës ou mises en quarantaine.
+    severity: medium
+    recommendation: Confirmer ou marquer comme faux positifs les rapprochements avant de diffuser le dossier.
+    all:
+      - metric: quarantined
+        op: gte
+        value: 3
+
+  - id: sanctions_candidate_review
+    title: Candidat sanctions ou PEP non confirmé
+    description: Une source de conformité a retourné un homonyme qui ne possède pas assez d'identifiants concordants.
+    severity: high
+    recommendation: Comparer les identifiants légaux, la date de naissance et la juridiction avant toute conclusion.
+    all:
+      - metric: manual_review_candidates
+        op: gte
+        value: 1
+
+  - id: single_source_dependency
+    title: Profil dépendant d'une seule source
+    description: Plusieurs faits sont présents mais ne sont pas recoupés entre des sources indépendantes.
+    severity: medium
+    recommendation: Obtenir une deuxième source indépendante avant d'utiliser le profil pour une décision.
+    all:
+      - metric: root_attributes
+        op: gte
+        value: 3
+      - metric: independent_sources
+        op: lte
+        value: 1
+
+  - id: strong_identity_corroborated
+    title: Identité forte recoupée
+    description: Un identifiant stable est soutenu par plusieurs sources indépendantes.
+    severity: info
+    recommendation: Conserver les sources primaires dans l'export d'audit.
+    all:
+      - metric: strong_identifiers
+        op: gte
+        value: 1
+      - metric: independent_sources
+        op: gte
+        value: 2
+
+  - id: dense_person_network
+    title: Réseau de personnes dense
+    description: Le dossier contient un réseau assez dense pour justifier une revue relationnelle.
+    severity: info
+    recommendation: Examiner les rôles, les périodes de validité et les relations récurrentes.
+    all:
+      - metric: people
+        op: gte
+        value: 10
+      - metric: relationships
+        op: gte
+        value: 10

@@ -46,6 +46,10 @@ def test_entity_ui_keeps_run_permalink_and_exposes_system_prompt():
     assert 'data-tab="resolution"' in html
     assert 'match_policy: $("select-match-policy").value' in javascript
     assert "function renderResolutionTab(dossier)" in javascript
+    assert "function saveResolutionReview(button)" in javascript
+    assert "/observations" in javascript
+    assert "Corrélations automatiques" in javascript
+    assert "Faux positif" in javascript
 
 
 def test_unified_launcher_is_present():

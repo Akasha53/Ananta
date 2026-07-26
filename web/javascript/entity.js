@@ -590,24 +590,34 @@ function renderHiddenFacts(node) {
 
 async function showRelatedRuns(entity) {
   try {
-    const payload = await api(`/entity/entity/${encodeURIComponent(entity.key)}/runs`);
-    const runs = payload.runs || [];
+    const payload = await api(`/entity/entity/${encodeURIComponent(entity.key)}/observations`);
+    const runs = (payload.runs || []).filter((run) => run.run_id !== state.runId);
     const rows = runs.length
       ? runs
           .map(
             (run) => `<button class="related-run w-full text-left fact-row px-2 py-2 rounded" data-run="${escapeHtml(run.run_id)}">
               <div class="text-[13px] text-slate-200">${escapeHtml(run.label || run.run_id)}</div>
-              <div class="text-[10px] text-slate-500">${escapeHtml((run.created_at || "").slice(0, 10))}</div>
+              <div class="text-[10px] text-slate-500">${escapeHtml((run.observed_at || "").slice(0, 10))} · ${Math.round(Number(run.confidence || 0) * 100)}%</div>
             </button>`
           )
           .join("")
       : '<p class="text-slate-500 text-xs">Cette entité n\'apparaît dans aucun autre dossier.</p>';
+    const relationRows = (payload.relationships || []).slice(0, 6).map((relation) => `
+      <div class="flex items-center justify-between gap-2 text-[10px] py-1 border-t border-slate-800/70">
+        <span class="text-slate-400">${escapeHtml(humanize(relation.rel_type || "relation"))}${relation.role ? ` · ${escapeHtml(relation.role)}` : ""}</span>
+        <span class="text-cyan-400">${Number(relation.observations || 0)}×</span>
+      </div>`).join("");
 
     $("inspector-body").insertAdjacentHTML(
       "afterbegin",
       `<div class="mb-4 p-2.5 bg-slate-900/60 rounded border border-slate-800">
-        <div class="text-[10px] uppercase tracking-widest text-slate-500 mb-2">Autres dossiers</div>
+        <div class="flex items-center justify-between gap-2 mb-2">
+          <div class="text-[10px] uppercase tracking-widest text-slate-500">Historique d'observation</div>
+          <span class="text-[10px] text-cyan-400">${Number(payload.sightings || 0)} observation${Number(payload.sightings || 0) > 1 ? "s" : ""}</span>
+        </div>
+        <div class="text-[9px] text-slate-600 mb-2">Première : ${escapeHtml((payload.first_seen || "—").slice(0, 10))} · Dernière : ${escapeHtml((payload.last_seen || "—").slice(0, 10))}</div>
         <div class="space-y-1">${rows}</div>
+        ${relationRows ? `<div class="mt-3"><div class="text-[9px] uppercase tracking-wider text-slate-600 mb-1">Relations récurrentes</div>${relationRows}</div>` : ""}
       </div>`
     );
     $("inspector-body").querySelectorAll(".related-run").forEach((button) => {
@@ -645,6 +655,7 @@ function renderDetails(dossier) {
 function renderResolutionTab(dossier) {
   const container = $("tab-resolution");
   const decisions = dossier.resolution || [];
+  const correlations = dossier.correlations || [];
   const labels = {
     confirmed: ["Confirmé", "text-emerald-300", "border-emerald-500/30 bg-emerald-500/5"],
     probable: ["Probable", "text-cyan-300", "border-cyan-500/30 bg-cyan-500/5"],
@@ -663,13 +674,31 @@ function renderResolutionTab(dossier) {
     exploratory: "Exploratoire",
   };
 
-  if (!decisions.length) {
-    container.innerHTML = `<div class="p-4 border border-emerald-500/30 bg-emerald-500/5 rounded-lg">
-      <div class="text-emerald-300 text-sm font-bold">Aucun rapprochement incertain</div>
-      <p class="text-xs text-slate-500 mt-1">Le profil ${escapeHtml(policyLabels[policy] || policy)} n'a rencontré ni collision d'identité ni pivot faible.</p>
+  const correlationRows = correlations.map((finding) => {
+    const style = SEVERITY_STYLES[finding.severity] || SEVERITY_STYLES.info;
+    const metrics = Object.entries(finding.matched_metrics || {})
+      .map(([key, value]) => `${humanize(key)} : ${formatValue(value)}`)
+      .join(" · ");
+    return `<div class="p-3 border rounded-lg ${style.cls}">
+      <div class="flex items-start justify-between gap-3">
+        <div>
+          <div class="text-[9px] uppercase tracking-widest">${escapeHtml(style.label)}</div>
+          <div class="text-sm font-bold mt-0.5">${escapeHtml(finding.title || finding.rule_id)}</div>
+        </div>
+        <code class="text-[9px] opacity-60">${escapeHtml(finding.rule_id || "")}</code>
+      </div>
+      ${finding.description ? `<p class="text-[11px] opacity-80 mt-1">${escapeHtml(finding.description)}</p>` : ""}
+      ${metrics ? `<p class="text-[9px] opacity-60 mt-1">${escapeHtml(metrics)}</p>` : ""}
+      ${finding.recommendation ? `<p class="text-[11px] mt-2"><i class="fas fa-arrow-right mr-1"></i>${escapeHtml(finding.recommendation)}</p>` : ""}
     </div>`;
-    return;
-  }
+  }).join("");
+  const correlationSection = `<div class="mb-5">
+    <div class="flex items-center justify-between gap-3 mb-2">
+      <div class="text-sm font-bold text-slate-200">Corrélations automatiques</div>
+      <span class="text-[10px] text-slate-500">${correlations.length} règle${correlations.length > 1 ? "s" : ""} déclenchée${correlations.length > 1 ? "s" : ""}</span>
+    </div>
+    ${correlationRows || '<div class="p-3 border border-emerald-500/20 bg-emerald-500/5 rounded text-xs text-emerald-300">Aucune règle d’alerte déclenchée.</div>'}
+  </div>`;
 
   const cards = Object.entries(labels).map(([key, meta]) => `
     <div class="p-2.5 border ${meta[2]} rounded">
@@ -679,6 +708,13 @@ function renderResolutionTab(dossier) {
 
   const rows = decisions.map((item) => {
     const meta = labels[item.verdict] || [humanize(item.verdict), "text-slate-300", "border-slate-700"];
+    const review = item.review || null;
+    const reviewLabels = {
+      confirmed: ["Validé par l'analyste", "text-emerald-300 border-emerald-500/40"],
+      rejected: ["Faux positif", "text-red-300 border-red-500/40"],
+      needs_info: ["Informations requises", "text-amber-300 border-amber-500/40"],
+    };
+    const reviewMeta = review ? reviewLabels[review.status] : null;
     const evidence = (item.evidence || []).map((entry) => {
       const value = entry.value === undefined ? "" : ` : ${formatValue(entry.value)}`;
       return `${humanize(entry.field || "preuve")}${value}`;
@@ -687,28 +723,72 @@ function renderResolutionTab(dossier) {
       `Contradiction ${humanize(entry.field || "")}`
     );
     const reasons = [...(item.reasons || []), ...evidence, ...conflicts];
-    return `<div class="p-3 border ${meta[2]} rounded-lg">
+    return `<div class="p-3 border ${review?.status === "rejected" ? "border-red-500/40 bg-red-500/5 opacity-80" : meta[2]} rounded-lg">
       <div class="flex items-start justify-between gap-3">
         <div class="min-w-0">
           <span class="text-[9px] uppercase tracking-widest ${meta[1]}">${meta[0]}</span>
           <div class="text-sm text-slate-200 font-bold break-words">${escapeHtml(item.label || item.right_key || "Décision de rapprochement")}</div>
           <div class="text-[10px] text-slate-600 mt-0.5">${escapeHtml(item.source || "moteur")} · ${escapeHtml(item.action || "")}</div>
+          ${reviewMeta ? `<span class="inline-block mt-1 px-1.5 py-0.5 text-[9px] uppercase tracking-wider border rounded ${reviewMeta[1]}">${reviewMeta[0]}</span>` : ""}
         </div>
         <span class="text-sm font-bold ${meta[1]}">${Math.round(Number(item.score || 0) * 100)}%</span>
       </div>
       ${reasons.length ? `<ul class="mt-2 space-y-1 text-[11px] text-slate-400">${reasons.map((reason) => `<li>• ${escapeHtml(reason)}</li>`).join("")}</ul>` : ""}
+      ${item.decision_id && state.runId ? `<div class="mt-3 pt-3 border-t border-slate-700/50">
+        <textarea class="resolution-note w-full px-2 py-1.5 text-[11px] text-slate-200 bg-slate-950/60 border border-slate-700 rounded resize-y" rows="2" data-decision="${escapeHtml(item.decision_id)}" placeholder="Note d’audit facultative…">${escapeHtml(review?.note || "")}</textarea>
+        <div class="flex flex-wrap gap-1.5 mt-2">
+          <button class="resolution-review px-2 py-1 text-[10px] border border-emerald-500/30 text-emerald-300 rounded hover:bg-emerald-500/10" data-decision="${escapeHtml(item.decision_id)}" data-status="confirmed"><i class="fas fa-check mr-1"></i>Confirmer</button>
+          <button class="resolution-review px-2 py-1 text-[10px] border border-red-500/30 text-red-300 rounded hover:bg-red-500/10" data-decision="${escapeHtml(item.decision_id)}" data-status="rejected"><i class="fas fa-ban mr-1"></i>Faux positif</button>
+          <button class="resolution-review px-2 py-1 text-[10px] border border-amber-500/30 text-amber-300 rounded hover:bg-amber-500/10" data-decision="${escapeHtml(item.decision_id)}" data-status="needs_info"><i class="fas fa-question mr-1"></i>À vérifier</button>
+          ${review ? `<button class="resolution-review px-2 py-1 text-[10px] border border-slate-700 text-slate-400 rounded hover:bg-slate-800" data-decision="${escapeHtml(item.decision_id)}" data-status="clear">Effacer l’avis</button>` : ""}
+        </div>
+      </div>` : ""}
     </div>`;
   }).join("");
 
   container.innerHTML = `
+    ${correlationSection}
     <div class="flex items-center justify-between gap-3 mb-3">
       <div>
         <div class="text-sm font-bold text-slate-200">Journal de résolution d'identité</div>
         <div class="text-[11px] text-slate-500">Profil ${escapeHtml(policyLabels[policy] || policy)} · décisions explicables, aucune fusion silencieuse.</div>
       </div>
     </div>
-    <div class="grid grid-cols-2 md:grid-cols-5 gap-2 mb-4">${cards}</div>
-    <div class="space-y-2">${rows}</div>`;
+    ${decisions.length ? `<div class="grid grid-cols-2 md:grid-cols-5 gap-2 mb-4">${cards}</div>
+      <div class="space-y-2">${rows}</div>` : `<div class="p-4 border border-emerald-500/30 bg-emerald-500/5 rounded-lg">
+      <div class="text-emerald-300 text-sm font-bold">Aucun rapprochement incertain</div>
+      <p class="text-xs text-slate-500 mt-1">Le profil ${escapeHtml(policyLabels[policy] || policy)} n'a rencontré ni collision d'identité ni pivot faible.</p>
+    </div>`}`;
+
+  container.querySelectorAll(".resolution-review").forEach((button) => {
+    button.addEventListener("click", () => saveResolutionReview(button));
+  });
+}
+
+async function saveResolutionReview(button) {
+  if (!state.runId || !button.dataset.decision) return;
+  const decisionId = button.dataset.decision;
+  const noteField = [...document.querySelectorAll(".resolution-note")]
+    .find((field) => field.dataset.decision === decisionId);
+  button.disabled = true;
+  try {
+    const path = `/entity/run/${encodeURIComponent(state.runId)}/resolution/${encodeURIComponent(decisionId)}/review`;
+    const payload = button.dataset.status === "clear"
+      ? await api(path, { method: "DELETE" })
+      : await api(path, {
+          method: "PUT",
+          body: JSON.stringify({
+            status: button.dataset.status,
+            note: noteField?.value || "",
+          }),
+        });
+    state.dossier.resolution = payload.decisions || [];
+    state.dossier.resolution_review_counts = payload.review_counts || {};
+    renderResolutionTab(state.dossier);
+  } catch (error) {
+    button.disabled = false;
+    showError(`Avis non enregistré : ${error.message}`);
+  }
 }
 
 async function renderChangesTab() {

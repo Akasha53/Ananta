@@ -29,6 +29,7 @@ from entity_research.compliance import (
     apply_minimization,
     compliance_notice,
 )
+from entity_research.correlation import CorrelationRuleError, correlate
 from entity_research.identifiers import EntityKind, Selector, parse_selectors
 from entity_research.pivot import PivotEngine, ProgressCallback
 from entity_research.report import render_markdown, synthesize_with_llm
@@ -215,6 +216,20 @@ def research_entity(
     availability = _source_availability(active_registry, policy, env)
     enrich(dossier, available_sources=availability)
     dossier.briefing_verdict = build_briefing_verdict(briefing, dossier)
+    try:
+        dossier.correlations = correlate(dossier)
+    except CorrelationRuleError as exc:
+        logger.error("[entity_research] règles de corrélation ignorées : %s", exc)
+        dossier.correlations = [
+            {
+                "rule_id": "correlation_rules_error",
+                "title": "Règles de corrélation invalides",
+                "description": str(exc),
+                "severity": "medium",
+                "recommendation": "Corriger le fichier YAML puis relancer la recherche.",
+                "matched_metrics": {},
+            }
+        ]
 
     narrative = ""
     if use_llm and dossier.entities:

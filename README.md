@@ -28,6 +28,8 @@ Core capabilities include:
 - Local-first OSINT workflow with a browser-based interface.
 - Entity research: start from any single clue about a person or a company and pivot across public registries until a sourced dossier emerges.
 - Entity watchlists with one-click refresh and a deterministic delta across facts, people, relationships, and risk signals.
+- Persistent analyst review of identity matches, including false-positive exclusion and an audit note.
+- Temporal entity sightings (`first_seen`, `last_seen`, recurring relationships) and safe YAML correlation rules.
 - Layered execution model that separates passive, enriched, and sensitive tooling.
 - Async background jobs with progress tracking and worker monitoring.
 - Structured intelligence outputs such as graph data, exposures, timeline events, and diffs.

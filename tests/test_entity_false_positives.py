@@ -139,6 +139,23 @@ def test_same_person_name_alone_is_never_merged_in_strict_mode():
     assert decision.verdict is MatchVerdict.AMBIGUOUS
 
 
+def test_resolution_decision_ids_are_stable_and_content_addressed():
+    left = _node(EntityKind.PERSON, "Jean Martin")
+    right = _node(EntityKind.PERSON, "Jean Martin")
+    first = compare_entities(left, right, policy="strict").to_dict()
+    second = compare_entities(left, right, policy="strict").to_dict()
+
+    assert first["decision_id"] == second["decision_id"]
+    assert first["decision_id"].startswith("res_")
+
+    other = compare_entities(
+        left,
+        _node(EntityKind.PERSON, "Jeanne Martin"),
+        policy="strict",
+    ).to_dict()
+    assert other["decision_id"] != first["decision_id"]
+
+
 def test_same_organization_name_alone_is_not_merged_in_strict_mode():
     left = _node(EntityKind.ORGANIZATION, "ACME SAS")
     right = _node(EntityKind.ORGANIZATION, "ACME")

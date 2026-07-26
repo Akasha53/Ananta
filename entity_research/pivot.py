@@ -679,7 +679,17 @@ class PivotEngine:
         stats: PivotStats,
     ) -> None:
         """Ajoute une décision au journal et alimente ses compteurs."""
-        resolution_events.append(decision.to_dict())
+        payload = decision.to_dict()
+        base_id = payload["decision_id"]
+        duplicate_count = sum(
+            1
+            for item in resolution_events
+            if item.get("decision_id") == base_id
+            or str(item.get("decision_id", "")).startswith(f"{base_id}-")
+        )
+        if duplicate_count:
+            payload["decision_id"] = f"{base_id}-{duplicate_count + 1}"
+        resolution_events.append(payload)
         if decision.action == "merge":
             stats.matches_merged += 1
         elif decision.verdict is MatchVerdict.AMBIGUOUS:

@@ -61,6 +61,21 @@ def build_fake_dossier(run_id: str = "test_run_1") -> Dossier:
     dossier.timeline = [
         {"date": "2011-04-12", "label": "Immatriculation", "detail": "2011-04-12", "source": "sirene", "url": None, "confidence": 0.97}
     ]
+    dossier.resolution = [
+        {
+            "decision_id": "res_api_test",
+            "verdict": "ambiguous",
+            "score": 0.61,
+            "action": "keep_separate",
+            "left_key": root.key,
+            "right_key": officer.key,
+            "label": "Jean Dupont",
+            "reasons": ["Nom seul insuffisant"],
+            "evidence": [],
+            "conflicts": [],
+            "source": "test",
+        }
+    ]
     dossier.stats = {"sources_ok": 2, "source_calls": 3}
     dossier.finished_at = "2026-07-26T10:00:00+00:00"
     return dossier
@@ -350,6 +365,59 @@ class TestEntityRunViews:
         response = client.get(f"/entity/entity/{officer['key']}/runs")
         assert response.status_code == 200
         assert any(r["run_id"] == existing_run for r in response.json()["runs"])
+
+    def test_observation_history_includes_relationship_sightings(
+        self, client, existing_run
+    ):
+        detail = client.get(f"/entity/run/{existing_run}").json()
+        officer = next(e for e in detail["dossier"]["entities"] if e["kind"] == "person")
+
+        response = client.get(f"/entity/entity/{officer['key']}/observations")
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["sightings"] >= 1
+        assert payload["first_seen"] <= payload["last_seen"]
+        assert any(
+            relation["rel_type"] == "officer_of"
+            for relation in payload["relationships"]
+        )
+
+    def test_resolution_review_lifecycle(self, client, existing_run):
+        reviewed = client.put(
+            f"/entity/run/{existing_run}/resolution/res_api_test/review",
+            json={"status": "rejected", "note": "Homonyme confirmé par l'analyste."},
+        )
+        assert reviewed.status_code == 200
+        decision = reviewed.json()["decisions"][0]
+        assert decision["review"]["status"] == "rejected"
+        assert decision["review"]["updated_by"] == "local"
+        assert decision["excluded"] is True
+
+        detail = client.get(f"/entity/run/{existing_run}").json()["dossier"]
+        assert detail["resolution"][0]["review"]["note"].startswith("Homonyme")
+        assert detail["resolution_review_counts"]["rejected"] == 1
+
+        exported = client.get(f"/entity/run/{existing_run}/export/json").json()
+        assert exported["resolution"][0]["excluded"] is True
+
+        invalid = client.put(
+            f"/entity/run/{existing_run}/resolution/res_api_test/review",
+            json={"status": "maybe"},
+        )
+        assert invalid.status_code == 422
+
+        cleared = client.delete(
+            f"/entity/run/{existing_run}/resolution/res_api_test/review"
+        )
+        assert cleared.status_code == 200
+        assert cleared.json()["decisions"][0]["review"] is None
+
+    def test_unknown_resolution_decision_is_rejected(self, client, existing_run):
+        response = client.put(
+            f"/entity/run/{existing_run}/resolution/res_unknown/review",
+            json={"status": "confirmed"},
+        )
+        assert response.status_code == 404
 
     def test_watchlist_create_list_and_delete(self, client, existing_run):
         created = client.post(f"/entity/watch/{existing_run}")

@@ -10,7 +10,10 @@ from __future__ import annotations
 
 import json
 import logging
+from collections import defaultdict
 from typing import Any, Dict, List, Optional
+
+from sqlalchemy import func
 
 from entity_research.analysis import risk_level
 from entity_research.identifiers import SelectorType
@@ -29,6 +32,12 @@ def _watch_model():
     from database import EntityWatch
 
     return EntityWatch
+
+
+def _review_model():
+    from database import EntityResolutionReview
+
+    return EntityResolutionReview
 
 
 def create_run(
@@ -230,6 +239,181 @@ def find_related_runs(
         }
         for row in rows
     ]
+
+
+def entity_observation_history(
+    db,
+    entity_key: str,
+    *,
+    limit: int = 100,
+    created_by: Optional[str] = None,
+) -> Dict[str, Any]:
+    """Historique des apparitions d'une entité et de ses relations."""
+    EntityResearchRun, ResearchEntity = _models()
+    query = db.query(ResearchEntity).filter(ResearchEntity.entity_key == entity_key)
+    if created_by is not None:
+        query = query.join(
+            EntityResearchRun,
+            EntityResearchRun.run_id == ResearchEntity.run_id,
+        ).filter(EntityResearchRun.created_by == created_by)
+    first_seen, last_seen, total_sightings = query.with_entities(
+        func.min(ResearchEntity.created_at),
+        func.max(ResearchEntity.created_at),
+        func.count(ResearchEntity.id),
+    ).one()
+    rows = query.order_by(ResearchEntity.created_at.desc()).limit(limit).all()
+    rows.reverse()
+
+    if not rows:
+        return {
+            "entity_key": entity_key,
+            "label": None,
+            "kind": None,
+            "first_seen": None,
+            "last_seen": None,
+            "sightings": 0,
+            "runs": [],
+            "relationships": [],
+        }
+
+    run_records = {
+        run.run_id: run
+        for run in db.query(EntityResearchRun)
+        .filter(EntityResearchRun.run_id.in_([row.run_id for row in rows]))
+        .all()
+    }
+    runs = [
+        {
+            "run_id": row.run_id,
+            "label": (
+                run_records[row.run_id].label
+                if row.run_id in run_records
+                else row.label
+            ),
+            "query": (
+                run_records[row.run_id].query
+                if row.run_id in run_records
+                else None
+            ),
+            "entity_label": row.label,
+            "kind": row.entity_kind,
+            "is_root": row.is_root,
+            "confidence": row.confidence,
+            "observed_at": row.created_at.isoformat() if row.created_at else None,
+        }
+        for row in rows
+    ]
+    relation_sightings: Dict[str, List[Dict[str, Any]]] = defaultdict(list)
+    for row in rows:
+        seen_in_run = set()
+        for relation in row.relations or []:
+            key = "|".join(
+                str(relation.get(name) or "")
+                for name in ("source", "type", "target", "role")
+            )
+            if not key.strip("|") or key in seen_in_run:
+                continue
+            seen_in_run.add(key)
+            relation_sightings[key].append(
+                {
+                    "run_id": row.run_id,
+                    "observed_at": row.created_at.isoformat() if row.created_at else None,
+                    "relation": relation,
+                }
+            )
+
+    relationships = []
+    for sightings in relation_sightings.values():
+        relation = sightings[-1]["relation"]
+        observed = [item["observed_at"] for item in sightings if item["observed_at"]]
+        relationships.append(
+            {
+                "source_key": relation.get("source"),
+                "target_key": relation.get("target"),
+                "rel_type": relation.get("type"),
+                "role": relation.get("role"),
+                "first_seen": min(observed) if observed else None,
+                "last_seen": max(observed) if observed else None,
+                "observations": len(sightings),
+                "confidence": max(
+                    float(item["relation"].get("confidence") or 0)
+                    for item in sightings
+                ),
+                "sources": sorted(
+                    {
+                        str(item["relation"].get("provenance", {}).get("source_id"))
+                        for item in sightings
+                        if item["relation"].get("provenance", {}).get("source_id")
+                    }
+                ),
+            }
+        )
+    relationships.sort(
+        key=lambda item: (-item["observations"], item["rel_type"] or "")
+    )
+    return {
+        "entity_key": entity_key,
+        "label": rows[-1].label,
+        "kind": rows[-1].entity_kind,
+        "first_seen": first_seen.isoformat() if first_seen else None,
+        "last_seen": last_seen.isoformat() if last_seen else None,
+        "sightings": int(total_sightings or 0),
+        "runs": list(reversed(runs)),
+        "relationships": relationships,
+        "truncated": int(total_sightings or 0) > len(rows),
+    }
+
+
+def resolution_with_reviews(
+    db,
+    run_id: str,
+    decisions: List[Dict[str, Any]],
+) -> Dict[str, Any]:
+    """Joint les décisions calculées aux validations humaines persistées."""
+    from entity_research.resolution import resolution_decision_id
+
+    Review = _review_model()
+    reviews = {
+        review.decision_id: review
+        for review in db.query(Review).filter(Review.run_id == run_id).all()
+    }
+    enriched = []
+    used_ids: Dict[str, int] = defaultdict(int)
+    for original in decisions:
+        item = dict(original)
+        base_id = str(item.get("decision_id") or resolution_decision_id(item))
+        used_ids[base_id] += 1
+        decision_id = (
+            base_id
+            if used_ids[base_id] == 1
+            else f"{base_id}-{used_ids[base_id]}"
+        )
+        item["decision_id"] = decision_id
+        review = reviews.get(decision_id)
+        if review:
+            item["review"] = {
+                "status": review.status,
+                "note": review.note or "",
+                "created_by": review.created_by,
+                "updated_by": review.updated_by,
+                "created_at": (
+                    review.created_at.isoformat() if review.created_at else None
+                ),
+                "updated_at": (
+                    review.updated_at.isoformat() if review.updated_at else None
+                ),
+            }
+            item["excluded"] = review.status == "rejected"
+        else:
+            item["review"] = None
+            item["excluded"] = False
+        enriched.append(item)
+
+    counts = {"confirmed": 0, "rejected": 0, "needs_info": 0, "unreviewed": 0}
+    for item in enriched:
+        status = (item.get("review") or {}).get("status") or "unreviewed"
+        counts[status] += 1
+    return {"decisions": enriched, "review_counts": counts}
 
 
 def _refresh_matching_watches(db, run) -> None:

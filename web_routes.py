@@ -27,6 +27,7 @@ from database import (
     ScheduledScan,
     EntityResearchRun,
     ResearchEntity,
+    EntityResolutionReview,
     EntityWatch,
 )
 import backend_logic as logic
@@ -45,6 +46,7 @@ from models import (
     ErrorResponse,
     EntityResearchRequest,
     EntityPreviewRequest,
+    EntityResolutionReviewRequest,
     LLMProviderRequest,
     LLMSystemPromptRequest,
     validate_target,
@@ -3757,6 +3759,17 @@ def _watch_to_summary(watch: EntityWatch) -> Dict:
     }
 
 
+def _resolution_payload(db: Session, run: EntityResearchRun, dossier: Dict) -> Dict:
+    """Ajoute les validations analyste sans réécrire le dossier source."""
+    from entity_research.storage import resolution_with_reviews
+
+    return resolution_with_reviews(
+        db,
+        run.run_id,
+        list(dossier.get("resolution") or []),
+    )
+
+
 @router.post("/entity/preview")
 def entity_preview(body: EntityPreviewRequest):
     """
@@ -3990,6 +4003,9 @@ def entity_run_detail(
     if run.dossier:
         try:
             dossier = json.loads(run.dossier)
+            resolution = _resolution_payload(db, run, dossier)
+            dossier["resolution"] = resolution["decisions"]
+            dossier["resolution_review_counts"] = resolution["review_counts"]
             if not include_sources:
                 dossier.pop("sources", None)
             payload["dossier"] = dossier
@@ -4063,6 +4079,9 @@ def entity_run_export(
     safe_name = re.sub(r"[^A-Za-z0-9._-]+", "_", (run.label or run.run_id))[:60]
 
     if export_format == "json":
+        resolution = _resolution_payload(db, run, dossier)
+        dossier["resolution"] = resolution["decisions"]
+        dossier["resolution_review_counts"] = resolution["review_counts"]
         return JSONResponse(
             content=dossier,
             headers={"Content-Disposition": f'attachment; filename="{safe_name}.json"'},
@@ -4107,6 +4126,25 @@ def entity_run_export(
     )
 
 
+@router.get("/entity/entity/{entity_key:path}/observations")
+def entity_observations(
+    entity_key: str,
+    request: Request,
+    limit: int = Query(100, ge=1, le=500),
+    db: Session = Depends(get_db),
+):
+    """Historique first/last seen de l'entité et de ses relations."""
+    from entity_research.storage import entity_observation_history
+
+    principal = _request_principal(request)
+    return entity_observation_history(
+        db,
+        entity_key,
+        limit=limit,
+        created_by=None if principal.role == "admin" else principal.actor_id,
+    )
+
+
 @router.get("/entity/entity/{entity_key:path}/runs")
 def entity_related_runs(
     entity_key: str,
@@ -4134,6 +4172,102 @@ def entity_related_runs(
     }
 
 
+@router.get("/entity/run/{run_id}/resolution")
+def entity_resolution(
+    run_id: str,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    """Journal de résolution enrichi des validations analyste."""
+    run = _owned_run_or_404(db, request, run_id)
+    if not run.dossier:
+        raise HTTPException(status_code=404, detail="Dossier incomplet")
+    try:
+        dossier = json.loads(run.dossier)
+    except json.JSONDecodeError:
+        raise HTTPException(status_code=500, detail="Dossier illisible")
+    return {"run_id": run_id, **_resolution_payload(db, run, dossier)}
+
+
+@router.put("/entity/run/{run_id}/resolution/{decision_id}/review")
+def entity_resolution_review(
+    run_id: str,
+    decision_id: str,
+    body: EntityResolutionReviewRequest,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    """Confirme, rejette ou place une décision en attente d'information."""
+    run = _owned_run_or_404(db, request, run_id)
+    if not run.dossier:
+        raise HTTPException(status_code=404, detail="Dossier incomplet")
+    try:
+        dossier = json.loads(run.dossier)
+    except json.JSONDecodeError:
+        raise HTTPException(status_code=500, detail="Dossier illisible")
+
+    current = _resolution_payload(db, run, dossier)
+    if not any(item["decision_id"] == decision_id for item in current["decisions"]):
+        raise HTTPException(status_code=404, detail="Décision de résolution inconnue")
+
+    review = (
+        db.query(EntityResolutionReview)
+        .filter(
+            EntityResolutionReview.run_id == run_id,
+            EntityResolutionReview.decision_id == decision_id,
+        )
+        .first()
+    )
+    principal = _request_principal(request)
+    if review is None:
+        review = EntityResolutionReview(
+            run_id=run_id,
+            decision_id=decision_id,
+            created_by=principal.actor_id,
+        )
+        db.add(review)
+    review.status = body.status
+    review.note = body.note or None
+    review.updated_by = principal.actor_id
+    review.updated_at = datetime.now(timezone.utc)
+    db.commit()
+    logger.info(
+        "[ENTITY] Résolution %s/%s revue par %s : %s",
+        run_id,
+        decision_id,
+        principal.actor_id,
+        body.status,
+    )
+    return {"run_id": run_id, **_resolution_payload(db, run, dossier)}
+
+
+@router.delete("/entity/run/{run_id}/resolution/{decision_id}/review")
+def entity_resolution_review_clear(
+    run_id: str,
+    decision_id: str,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    """Efface une validation humaine sans modifier la décision calculée."""
+    run = _owned_run_or_404(db, request, run_id)
+    review = (
+        db.query(EntityResolutionReview)
+        .filter(
+            EntityResolutionReview.run_id == run_id,
+            EntityResolutionReview.decision_id == decision_id,
+        )
+        .first()
+    )
+    if review:
+        db.delete(review)
+        db.commit()
+    try:
+        dossier = json.loads(run.dossier or "{}")
+    except json.JSONDecodeError:
+        raise HTTPException(status_code=500, detail="Dossier illisible")
+    return {"run_id": run_id, **_resolution_payload(db, run, dossier)}
+
+
 @router.delete("/entity/run/{run_id}")
 def entity_run_delete(
     run_id: str,
@@ -4143,6 +4277,9 @@ def entity_run_delete(
     """Supprime un dossier et ses entités normalisées (droit à l'effacement)."""
     run = _owned_run_or_404(db, request, run_id)
 
+    db.query(EntityResolutionReview).filter_by(run_id=run_id).delete(
+        synchronize_session=False
+    )
     db.query(ResearchEntity).filter_by(run_id=run_id).delete(synchronize_session=False)
     db.delete(run)
     db.commit()

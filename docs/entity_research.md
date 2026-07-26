@@ -147,6 +147,59 @@ preuves positives, les contradictions et l'action (`merge`, `keep_separate`,
 `pivot`, `quarantine`). L'onglet **Rapprochements** et le rapport Markdown le
 rendent lisible sans examiner le JSON.
 
+Chaque décision possède un `decision_id` stable. Un analyste peut la confirmer,
+la marquer comme faux positif ou demander des informations supplémentaires :
+
+```bash
+curl -X PUT \
+  http://localhost:8010/entity/run/RUN_ID/resolution/DECISION_ID/review \
+  -H "Content-Type: application/json" \
+  -d '{"status": "rejected", "note": "Homonyme, SIREN différent."}'
+```
+
+L'avis, son auteur et ses dates sont persistés séparément des résultats bruts.
+Un faux positif reçoit `excluded: true`, mais la décision calculée reste dans
+le journal pour préserver l'audit. `GET /entity/run/RUN_ID/resolution` restitue
+la file de revue et `DELETE .../review` efface seulement l'avis humain.
+
+### Observations temporelles et relations récurrentes
+
+Les apparitions d'une entité dans les dossiers successifs forment désormais un
+historique :
+
+```bash
+curl http://localhost:8010/entity/entity/ENTITY_KEY/observations
+```
+
+La réponse contient `first_seen`, `last_seen`, `sightings`, la liste des runs
+et les relations agrégées avec leur nombre d'observations. L'inspecteur affiche
+ces informations depuis le bouton **Autres dossiers**.
+
+### Corrélations YAML auditables
+
+Après l'analyse, un moteur déterministe évalue les règles de
+`entity_research/rules/correlations.yml`. Les règles ne peuvent consulter
+qu'une liste fermée de métriques et utiliser `eq`, `ne`, `gt`, `gte`, `lt` ou
+`lte` : aucun `eval`, import ou appel de commande n'est possible.
+
+```yaml
+version: 1
+rules:
+  - id: review_queue
+    title: File de revue chargée
+    severity: medium
+    recommendation: Traiter les rapprochements avant diffusion.
+    all:
+      - metric: quarantined
+        op: gte
+        value: 3
+```
+
+Un fichier local défini par `ANANTA_CORRELATION_RULES_FILE` est fusionné avec
+les règles intégrées. Un même `id` remplace proprement la règle intégrée. Une
+configuration invalide échoue de manière fermée et produit un signal visible
+dans le dossier au lieu d'exécuter silencieusement une règle douteuse.
+
 ---
 
 ## 3. Ce que le moteur sait reconnaître
