@@ -1013,12 +1013,8 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   });
 
-  document.querySelectorAll(".example-chip").forEach((chip) => {
-    chip.addEventListener("click", () => {
-      $("input-query").value = chip.dataset.example;
-      refreshPreview();
-      $("input-query").focus();
-    });
+  $("btn-focus-query").addEventListener("click", () => {
+    $("input-query").focus();
   });
 
   $("btn-demo").addEventListener("click", () => {

@@ -43,12 +43,154 @@
     .scroll-thin::-webkit-scrollbar { width: 6px; height: 6px; }
     .scroll-thin::-webkit-scrollbar-thumb { background: #1e293b; border-radius: 3px; }
     .fact-row:hover { background: rgba(30, 41, 59, 0.5); }
-    @keyframes pulse-ring {
-      0% { box-shadow: 0 0 0 0 rgba(34, 211, 238, 0.35); }
-      70% { box-shadow: 0 0 0 12px rgba(34, 211, 238, 0); }
-      100% { box-shadow: 0 0 0 0 rgba(34, 211, 238, 0); }
+    .empty-workspace {
+      background-image:
+        linear-gradient(rgba(51, 65, 85, 0.08) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(51, 65, 85, 0.08) 1px, transparent 1px);
+      background-size: 48px 48px;
+      -webkit-mask-image: radial-gradient(circle at center, black 0%, transparent 72%);
+      mask-image: radial-gradient(circle at center, black 0%, transparent 72%);
     }
-    .running { animation: pulse-ring 1.8s infinite; }
+    .workspace-origin {
+      position: absolute;
+      inset: 50% auto auto 50%;
+      width: 11rem;
+      height: 11rem;
+      transform: translate(-50%, -50%);
+      border: 1px solid rgba(34, 211, 238, 0.1);
+      border-radius: 50%;
+    }
+    .workspace-origin::before,
+    .workspace-origin::after {
+      content: "";
+      position: absolute;
+      background: rgba(34, 211, 238, 0.12);
+    }
+    .workspace-origin::before {
+      top: 50%;
+      left: -2.5rem;
+      right: -2.5rem;
+      height: 1px;
+    }
+    .workspace-origin::after {
+      top: -2.5rem;
+      bottom: -2.5rem;
+      left: 50%;
+      width: 1px;
+    }
+    .workspace-origin-dot {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      width: 0.45rem;
+      height: 0.45rem;
+      transform: translate(-50%, -50%);
+      border: 1px solid rgba(34, 211, 238, 0.55);
+      background: #020617;
+      box-shadow: 0 0 18px rgba(34, 211, 238, 0.18);
+    }
+    .empty-dossier {
+      position: absolute;
+      left: clamp(1rem, 3vw, 2.5rem);
+      bottom: clamp(1.25rem, 4vw, 3rem);
+      width: min(30rem, calc(100% - 2rem));
+      padding-left: 1rem;
+      border-left: 1px solid rgba(34, 211, 238, 0.38);
+    }
+    .empty-dossier-status {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      color: #64748b;
+      font-size: 0.625rem;
+      font-weight: 700;
+      letter-spacing: 0.16em;
+      text-transform: uppercase;
+    }
+    .empty-dossier-status::before {
+      content: "";
+      width: 0.4rem;
+      height: 0.4rem;
+      border: 1px solid #22d3ee;
+      background: rgba(34, 211, 238, 0.14);
+    }
+    .empty-dossier h2 {
+      margin-top: 0.65rem;
+      color: #e2e8f0;
+      font-size: 1rem;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+    }
+    .empty-dossier p {
+      max-width: 54ch;
+      margin-top: 0.35rem;
+      color: #64748b;
+      font-size: 0.75rem;
+      line-height: 1.6;
+    }
+    .empty-dossier-actions {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 0.6rem 1rem;
+      margin-top: 1rem;
+    }
+    .empty-primary,
+    .empty-secondary {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.6rem;
+      min-height: 2.25rem;
+      font-size: 0.6875rem;
+      font-weight: 700;
+      transition: color 180ms ease, background-color 180ms ease, border-color 180ms ease, transform 180ms ease;
+    }
+    .empty-primary {
+      padding: 0.55rem 0.8rem;
+      border: 1px solid rgba(34, 211, 238, 0.35);
+      border-radius: 0.375rem;
+      color: #a5f3fc;
+      background: rgba(8, 145, 178, 0.08);
+    }
+    .empty-primary:hover {
+      border-color: rgba(34, 211, 238, 0.65);
+      background: rgba(8, 145, 178, 0.15);
+    }
+    .empty-secondary {
+      color: #64748b;
+    }
+    .empty-secondary:hover {
+      color: #cbd5e1;
+    }
+    .empty-primary:active,
+    .empty-secondary:active {
+      transform: translateY(1px);
+    }
+    .empty-primary:focus-visible,
+    .empty-secondary:focus-visible {
+      outline: 2px solid #22d3ee;
+      outline-offset: 3px;
+    }
+    .empty-shortcut {
+      min-width: 1.25rem;
+      padding: 0.1rem 0.3rem;
+      border: 1px solid rgba(100, 116, 139, 0.5);
+      border-radius: 0.25rem;
+      color: #94a3b8;
+      background: rgba(15, 23, 42, 0.65);
+      font-size: 0.625rem;
+      line-height: 1;
+      text-align: center;
+    }
+    @media (max-width: 640px) {
+      .workspace-origin {
+        width: 8rem;
+        height: 8rem;
+      }
+      .empty-dossier {
+        bottom: 1rem;
+      }
+    }
   </style>
 </head>
 
@@ -106,28 +248,31 @@
 
     <canvas id="graph-canvas" aria-label="Graphe de l'entité"></canvas>
 
-    <!-- Écran d'accueil -->
-    <div id="welcome" class="absolute inset-0 flex items-center justify-center p-6 pointer-events-none">
-      <div class="text-center max-w-lg pointer-events-auto">
-        <div class="w-24 h-24 mx-auto mb-6 rounded-full border border-cyan-500/30 flex items-center justify-center running">
-          <i class="fas fa-circle-nodes text-4xl text-cyan-400/80" aria-hidden="true"></i>
-        </div>
-        <h2 class="text-xl font-bold text-slate-200 mb-2">L'entité au centre, tout le reste en orbite</h2>
-        <p class="text-sm text-slate-500 leading-relaxed mb-5">
-          Donnez le moindre indice — un nom de société suffit. Ananta remonte l'identité légale,
-          les dirigeants, l'équipe publiée, les actifs numériques et les signaux de risque,
-          puis les dispose autour de la cible. Cliquez une personne pour l'inspecter,
-          double-cliquez pour recentrer le graphe sur elle.
+    <!-- État vide de l'espace d'analyse -->
+    <div id="welcome" class="absolute inset-0 pointer-events-none">
+      <div class="empty-workspace absolute inset-0" aria-hidden="true"></div>
+      <div class="workspace-origin" aria-hidden="true">
+        <span class="workspace-origin-dot"></span>
+      </div>
+
+      <section class="empty-dossier pointer-events-auto" aria-labelledby="empty-dossier-title">
+        <div class="empty-dossier-status">Aucun dossier ouvert</div>
+        <h2 id="empty-dossier-title">Commencez par une cible</h2>
+        <p>
+          Saisissez un nom, un identifiant légal, un domaine ou un contact dans la barre de recherche.
         </p>
-        <div class="flex flex-wrap gap-2 justify-center text-xs">
-          <button class="example-chip chip px-3 py-1.5 rounded-full hover:border-cyan-500/50 transition-all" data-example="ACME INDUSTRIES SAS">ACME INDUSTRIES SAS</button>
-          <button class="example-chip chip px-3 py-1.5 rounded-full hover:border-cyan-500/50 transition-all" data-example="552 100 554">552 100 554</button>
-          <button class="example-chip chip px-3 py-1.5 rounded-full hover:border-cyan-500/50 transition-all" data-example="contact@acme.fr">contact@acme.fr</button>
-          <button id="btn-demo" class="chip px-3 py-1.5 rounded-full border-cyan-500/40 text-cyan-400 hover:bg-cyan-500/10 transition-all">
-            <i class="fas fa-play mr-1" aria-hidden="true"></i>Voir une démo
+        <div class="empty-dossier-actions">
+          <button id="btn-focus-query" class="empty-primary" type="button">
+            <i class="fas fa-magnifying-glass" aria-hidden="true"></i>
+            Nouvelle recherche
+            <kbd class="empty-shortcut">/</kbd>
+          </button>
+          <button id="btn-demo" class="empty-secondary" type="button">
+            <i class="fas fa-folder-open" aria-hidden="true"></i>
+            Ouvrir le dossier démo
           </button>
         </div>
-      </div>
+      </section>
     </div>
 
     <!-- Aperçu de la saisie -->
