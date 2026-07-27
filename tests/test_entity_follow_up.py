@@ -46,6 +46,26 @@ def test_follow_up_reinjects_linked_entities_without_misassigning_their_ids():
     assert not any(fact["value"] == "123456789" for fact in facts)
 
 
+def test_follow_up_does_not_flatten_same_name_homonym_into_the_root():
+    dossier = _person_dossier()
+    dossier.entities.append(
+        EntityNode(
+            kind=EntityKind.PERSON,
+            label="ALEXANDRA LATOUCHE",
+            key="person:alexandra latouche~homonym",
+            confidence=0.85,
+        )
+    )
+
+    facts = dossier_follow_up_facts(dossier)
+
+    assert not any(
+        fact["label"] == "Personne liée"
+        and fact["value"].casefold() == "alexandra latouche"
+        for fact in facts
+    )
+
+
 def test_automatic_follow_up_is_explicit_and_uses_tool_provenance():
     options = automatic_follow_up_options(
         _person_dossier(),
@@ -58,8 +78,10 @@ def test_automatic_follow_up_is_explicit_and_uses_tool_provenance():
 
     assert options["mode"] == "standard"
     assert options["briefing_origin"] == "tool"
-    assert "entreprises, mandats actuels et passés" in options["briefing_text"]
+    assert "ses entreprises, mandats actuels et passés" in options["briefing_text"]
+    assert "liens familiaux explicitement documentés" in options["briefing_text"]
     assert "Ne fusionner aucun homonyme" in options["briefing_text"]
+    assert "ni document d'identité, ni visa" in options["briefing_text"]
     assert any(fact["value"] == "SCI MARGOT" for fact in options["briefing_facts"])
 
 

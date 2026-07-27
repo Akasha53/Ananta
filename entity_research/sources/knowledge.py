@@ -93,10 +93,19 @@ _WIKIDATA_RELATIONS: Dict[str, Tuple[str, bool]] = {
     "P127": ("owned_by", False),       # owned by
     "P108": ("employee_of", False),    # employer
     "P463": ("member_of", False),      # member of
+    # Liens familiaux explicitement publiés dans la base de connaissance.
+    "P26": ("spouse_of", False),       # spouse
+    "P22": ("child_of", False),        # father
+    "P25": ("child_of", False),        # mother
+    "P40": ("parent_of", False),       # child
+    "P3373": ("sibling_of", False),    # sibling
 }
 
 #: QIDs de classes utiles pour trancher personne / organisation.
 _QID_HUMAN = "Q5"
+_PERSON_TO_PERSON_RELATIONS = frozenset(
+    {"spouse_of", "child_of", "parent_of", "sibling_of"}
+)
 
 
 class WikidataSource(BaseSource):
@@ -107,7 +116,8 @@ class WikidataSource(BaseSource):
         name="Wikidata",
         description=(
             "Base de connaissance structurée : dates clés, dirigeants, secteur, filiales "
-            "et identifiants croisés (LEI, SIREN, CIK, ISIN, ORCID, réseaux sociaux)."
+            "et identifiants croisés (LEI, SIREN, CIK, ISIN, ORCID, réseaux sociaux), "
+            "ainsi que les liens familiaux explicitement publiés pour les personnes."
         ),
         layer=1,
         accepts={
@@ -198,8 +208,16 @@ class WikidataSource(BaseSource):
                 other_label = labels.get(value_id)
                 if not other_label:
                     continue
-                # Une personne liée à une organisation, ou l'inverse.
-                other_kind = EntityKind.PERSON if rel_type in {"officer_of", "founder_of"} and reverse else EntityKind.ORGANIZATION
+                # Une personne liée à une organisation, ou une relation
+                # personne-personne explicitement publiée (famille).
+                other_kind = (
+                    EntityKind.PERSON
+                    if (
+                        rel_type in _PERSON_TO_PERSON_RELATIONS
+                        or rel_type in {"officer_of", "founder_of"} and reverse
+                    )
+                    else EntityKind.ORGANIZATION
+                )
                 node = (
                     person_entity(other_label, confidence=0.75)
                     if other_kind is EntityKind.PERSON

@@ -132,7 +132,23 @@
 
     // --- Faits du centre, regroupés par catégorie
     const grouped = {};
-    (center.attributes || []).forEach((attribute) => {
+    (center.attributes || []).filter((attribute) => {
+      const sourceId = String((attribute.provenance || {}).source_id || "");
+      if (["related_person", "related_organization"].includes(attribute.name)) return false;
+      if (
+        sourceId.startsWith("briefing_") &&
+        ["analyst_note", "job_title", "relationship"].includes(attribute.name)
+      ) {
+        return false;
+      }
+      if (
+        ["full_name", "legal_name"].includes(attribute.name) &&
+        foldLabel(attribute.value) === foldLabel(center.label)
+      ) {
+        return false;
+      }
+      return true;
+    }).forEach((attribute) => {
       const category = CATEGORY_ORDER.includes(attribute.category) ? attribute.category : "general";
       (grouped[category] = grouped[category] || []).push(attribute);
     });
@@ -198,7 +214,7 @@
         kind: "entity",
         category: entity.kind,
         label: entity.label,
-        sublabel: roleOf(entity, relationships, center.key) || (entity.kind === "person" ? "Personne" : "Organisation"),
+        sublabel: entitySublabel(entity, relationships, center),
         confidence: entity.confidence,
         weight: entity.kind === "organization" ? 0.8 : 0.65,
         entity,
@@ -213,7 +229,7 @@
         source: relationship.source,
         target: relationship.target,
         kind: "relation",
-        label: relationship.role || relationship.type,
+        label: relationshipLabel(relationship),
         type: relationship.type,
         confidence: relationship.confidence,
         strength: 0.85,
@@ -229,6 +245,36 @@
     return matches.sort((a, b) => (b.confidence || 0) - (a.confidence || 0))[0].value;
   }
 
+  function foldLabel(value) {
+    return String(value || "")
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .trim()
+      .toLowerCase();
+  }
+
+  function relationshipLabel(relationship) {
+    const fallbackLabels = {
+      officer_of: "Dirigeant",
+      possible_officer_of: "Dirigeant possible",
+      publicly_linked_to: "Lien public",
+      employee_of: "Travaille pour",
+      owns: "Détient",
+      subsidiary_of: "Filiale de",
+      spouse_of: "Conjoint public",
+      child_of: "Enfant de",
+      parent_of: "Parent de",
+      sibling_of: "Fratrie publique",
+    };
+    const label =
+      relationship.role ||
+      fallbackLabels[relationship.type] ||
+      String(relationship.type || "").replace(/_/g, " ");
+    return String(relationship.type || "").startsWith("possible_")
+      ? `À vérifier · ${label}`
+      : label;
+  }
+
   function roleOf(entity, relationships, centerKey) {
     const match = relationships.find(
       (r) =>
@@ -236,7 +282,24 @@
         (r.target === entity.key && r.source === centerKey)
     );
     if (!match) return null;
-    return match.role || match.type;
+    return relationshipLabel(match);
+  }
+
+  function entitySublabel(entity, relationships, center) {
+    if (
+      entity.key !== center.key &&
+      entity.kind === center.kind &&
+      foldLabel(entity.label) === foldLabel(center.label)
+    ) {
+      const birthYear = valueOf(entity, "birth_year");
+      return birthYear
+        ? `Homonyme possible · ${birthYear}`
+        : "Homonyme possible";
+    }
+    return (
+      roleOf(entity, relationships, center.key) ||
+      (entity.kind === "person" ? "Personne" : "Organisation")
+    );
   }
 
   // ==================== DISPOSITIONS ====================

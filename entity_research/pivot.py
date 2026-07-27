@@ -530,6 +530,23 @@ class PivotEngine:
             resolution_events=resolution_events,
             stats=stats,
         )
+        self._collapse_resolved_briefing_stubs(
+            entities,
+            attributes_by_entity,
+            relationships,
+            root_key,
+            resolution_events=resolution_events,
+            stats=stats,
+        )
+        self._merge_source_context_duplicates(
+            entities,
+            attributes_by_entity,
+            relationships,
+            root_key,
+            resolution_events=resolution_events,
+            stats=stats,
+        )
+        self._drop_redundant_briefing_links(relationships)
 
         for key, node in entities.items():
             raw_attributes = attributes_by_entity.get(key, [])
@@ -762,6 +779,301 @@ class PivotEngine:
                 merged[relationship.key] = relationship
         relationships.clear()
         relationships.update(merged)
+
+    @staticmethod
+    def _is_briefing_stub(
+        node: EntityNode,
+        attributes: Sequence[Attribute],
+    ) -> bool:
+        """Vrai pour une piste nominale issue uniquement d'un briefing."""
+
+        source_ids = {
+            selector.origin
+            for selector in node.selectors
+            if selector.origin
+        }
+        source_ids.update(
+            attribute.provenance.source_id
+            for attribute in [*attributes, *node.attributes]
+            if attribute.provenance.source_id
+        )
+        return bool(source_ids) and all(
+            source_id.startswith("briefing_") for source_id in source_ids
+        )
+
+    @staticmethod
+    def _merge_entity_into(
+        winner_key: str,
+        loser_key: str,
+        entities: Dict[str, EntityNode],
+        attributes_by_entity: Dict[str, List[Attribute]],
+    ) -> None:
+        """Fusionne les données d'un nœud dans un autre sans toucher aux liens."""
+
+        loser = entities.pop(loser_key, None)
+        if loser is None or winner_key not in entities:
+            return
+        winner = entities[winner_key]
+        attributes_by_entity.setdefault(winner_key, []).extend(
+            attributes_by_entity.pop(loser_key, [])
+        )
+        attributes_by_entity[winner_key].extend(loser.attributes)
+        if loser.label.casefold() != winner.label.casefold():
+            winner.aliases = sorted({*winner.aliases, loser.label})
+        winner.aliases = sorted({*winner.aliases, *loser.aliases})
+        known = {selector.key for selector in winner.selectors}
+        winner.selectors.extend(
+            selector for selector in loser.selectors if selector.key not in known
+        )
+
+    @staticmethod
+    def _remap_relationships(
+        relationships: Dict[str, Relationship],
+        remap: Dict[str, str],
+    ) -> None:
+        """Applique une table de fusion aux liens puis les déduplique."""
+
+        if not remap:
+            return
+
+        def resolved(key: str) -> str:
+            seen: Set[str] = set()
+            while key in remap and key not in seen:
+                seen.add(key)
+                key = remap[key]
+            return key
+
+        merged: Dict[str, Relationship] = {}
+        for relationship in relationships.values():
+            relationship.source_key = resolved(relationship.source_key)
+            relationship.target_key = resolved(relationship.target_key)
+            if relationship.source_key == relationship.target_key:
+                continue
+            existing = merged.get(relationship.key)
+            if existing is None or relationship.confidence > existing.confidence:
+                merged[relationship.key] = relationship
+        relationships.clear()
+        relationships.update(merged)
+
+    def _collapse_resolved_briefing_stubs(
+        self,
+        entities: Dict[str, EntityNode],
+        attributes_by_entity: Dict[str, List[Attribute]],
+        relationships: Dict[str, Relationship],
+        root_key: str,
+        *,
+        resolution_events: List[Dict[str, Any]],
+        stats: PivotStats,
+    ) -> None:
+        """Remplace une piste de briefing par son unique résultat externe.
+
+        On ne touche jamais au groupe nominal de la racine et on exige un
+        unique candidat vérifié. Deux sociétés externes portant le même nom
+        restent donc séparées et explicitement ambiguës.
+        """
+
+        groups: Dict[Tuple[str, str], List[str]] = {}
+        for key, node in entities.items():
+            canonical = (
+                canonical_org_name(node.label)
+                if node.kind is EntityKind.ORGANIZATION
+                else normalize_name(node.label)
+            )
+            if canonical:
+                groups.setdefault((node.kind.value, canonical), []).append(key)
+
+        remap: Dict[str, str] = {}
+        for keys in groups.values():
+            if len(keys) < 2 or root_key in keys:
+                continue
+            stubs = [
+                key
+                for key in keys
+                if self._is_briefing_stub(
+                    entities[key],
+                    attributes_by_entity.get(key, []),
+                )
+            ]
+            verified = [key for key in keys if key not in stubs]
+            if len(verified) != 1:
+                continue
+            winner = verified[0]
+            for loser in stubs:
+                decision = ResolutionDecision(
+                    verdict=MatchVerdict.PROBABLE,
+                    score=max(0.6, entities[winner].confidence),
+                    action="merge",
+                    left_key=winner,
+                    right_key=loser,
+                    label=entities[loser].label,
+                    reasons=[
+                        "La piste de la passe précédente correspond à l'unique "
+                        "entité externe vérifiée portant ce nom et ce type."
+                    ],
+                    evidence=[
+                        {
+                            "field": "briefing_stub",
+                            "value": entities[loser].label,
+                            "strength": "supporting",
+                        }
+                    ],
+                    source="consolidation_briefing",
+                )
+                self._record_resolution(decision, resolution_events, stats)
+                remap[loser] = winner
+                self._merge_entity_into(
+                    winner,
+                    loser,
+                    entities,
+                    attributes_by_entity,
+                )
+        self._remap_relationships(relationships, remap)
+
+    @staticmethod
+    def _relationship_contexts(
+        key: str,
+        relationships: Dict[str, Relationship],
+    ) -> Set[Tuple[str, str, str, str]]:
+        """Contexte externe stable d'une observation d'entité."""
+
+        contexts: Set[Tuple[str, str, str, str]] = set()
+        for relationship in relationships.values():
+            if relationship.source_key != key and relationship.target_key != key:
+                continue
+            source_id = relationship.provenance.source_id
+            if not source_id or source_id.startswith("briefing_"):
+                continue
+            other_key = (
+                relationship.target_key
+                if relationship.source_key == key
+                else relationship.source_key
+            )
+            contexts.add(
+                (
+                    other_key,
+                    relationship.rel_type,
+                    normalize_name(relationship.role or ""),
+                    source_id,
+                )
+            )
+        return contexts
+
+    @staticmethod
+    def _birth_years(
+        node: EntityNode,
+        attributes: Sequence[Attribute],
+    ) -> Set[str]:
+        return {
+            str(attribute.value).strip()
+            for attribute in [*attributes, *node.attributes]
+            if attribute.name == "birth_year" and str(attribute.value or "").strip()
+        }
+
+    def _merge_source_context_duplicates(
+        self,
+        entities: Dict[str, EntityNode],
+        attributes_by_entity: Dict[str, List[Attribute]],
+        relationships: Dict[str, Relationship],
+        root_key: str,
+        *,
+        resolution_events: List[Dict[str, Any]],
+        stats: PivotStats,
+    ) -> None:
+        """Fusionne les répétitions certaines d'un même mandat de registre.
+
+        Le même registre peut être interrogé par le nom puis par le SIREN et
+        renvoyer deux fois le même dirigeant. La fusion exige le même nom, le
+        même lien, la même organisation, la même source et des années de
+        naissance identiques (ou absentes des deux côtés).
+        """
+
+        groups: Dict[str, List[str]] = {}
+        for key, node in entities.items():
+            if key == root_key or node.kind is not EntityKind.PERSON:
+                continue
+            canonical = normalize_name(node.label)
+            if canonical:
+                groups.setdefault(canonical, []).append(key)
+
+        remap: Dict[str, str] = {}
+        for keys in groups.values():
+            remaining = [key for key in keys if key in entities]
+            while remaining:
+                winner = max(
+                    remaining,
+                    key=lambda key: len(attributes_by_entity.get(key, [])),
+                )
+                remaining.remove(winner)
+                winner_contexts = self._relationship_contexts(winner, relationships)
+                winner_years = self._birth_years(
+                    entities[winner],
+                    attributes_by_entity.get(winner, []),
+                )
+                for loser in list(remaining):
+                    loser_contexts = self._relationship_contexts(loser, relationships)
+                    loser_years = self._birth_years(
+                        entities[loser],
+                        attributes_by_entity.get(loser, []),
+                    )
+                    shared_context = winner_contexts & loser_contexts
+                    if not shared_context or winner_years != loser_years:
+                        continue
+                    decision = ResolutionDecision(
+                        verdict=MatchVerdict.CONFIRMED,
+                        score=0.98,
+                        action="merge",
+                        left_key=winner,
+                        right_key=loser,
+                        label=entities[loser].label,
+                        reasons=[
+                            "Même observation de mandat renvoyée par la même source "
+                            "pour la même organisation."
+                        ],
+                        evidence=[
+                            {
+                                "field": "relationship_context",
+                                "value": sorted(shared_context)[0],
+                                "strength": "strong",
+                            }
+                        ],
+                        source="consolidation_source_context",
+                    )
+                    self._record_resolution(decision, resolution_events, stats)
+                    remap[loser] = winner
+                    self._merge_entity_into(
+                        winner,
+                        loser,
+                        entities,
+                        attributes_by_entity,
+                    )
+                    remaining.remove(loser)
+        self._remap_relationships(relationships, remap)
+
+    @staticmethod
+    def _drop_redundant_briefing_links(
+        relationships: Dict[str, Relationship],
+    ) -> None:
+        """Retire un lien générique quand une source fournit un lien précis."""
+
+        externally_linked_pairs = {
+            frozenset((relationship.source_key, relationship.target_key))
+            for relationship in relationships.values()
+            if not relationship.provenance.source_id.startswith("briefing_")
+        }
+        filtered = {
+            key: relationship
+            for key, relationship in relationships.items()
+            if not (
+                relationship.rel_type == "publicly_linked_to"
+                and relationship.provenance.source_id.startswith("briefing_")
+                and frozenset(
+                    (relationship.source_key, relationship.target_key)
+                )
+                in externally_linked_pairs
+            )
+        }
+        relationships.clear()
+        relationships.update(filtered)
 
     def _record_resolution(
         self,

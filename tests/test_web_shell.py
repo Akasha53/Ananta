@@ -27,8 +27,9 @@ def test_service_worker_private_prefixes_cover_sensitive_features():
     source = Path("web/javascript/service-worker.js").read_text(encoding="utf-8")
     for prefix in ("/entity/", "/api-keys/", "/monitoring/", "/workers/", "/jobs/"):
         assert repr(prefix) in source
-    assert "ananta-v1.5.0" in source
-    assert "/web/javascript/entity.js?v=1.5.0" in source
+    assert "ananta-v1.5.4" in source
+    assert "/web/javascript/entity.js?v=1.5.4" in source
+    assert "/web/javascript/entity-graph.js?v=1.5.4" in source
 
 
 def test_entity_ui_keeps_run_permalink_and_exposes_system_prompt():
@@ -66,8 +67,13 @@ def test_entity_ui_keeps_run_permalink_and_exposes_system_prompt():
     assert "Connexion momentanément indisponible" in javascript
     assert 'id="run-summary"' in html
     assert "function renderRunSummary(run)" in javascript
+    assert 'id="btn-run-panel-toggle"' in html
+    assert "function toggleRunPanel()" in javascript
+    assert "Appels" in html
+    assert "Sans donnée" in html
     assert "préparation automatique de la passe 2" in javascript
     assert "run.next_run" in javascript
+    assert "À vérifier" in javascript
 
 
 def test_entity_is_the_only_primary_workspace():

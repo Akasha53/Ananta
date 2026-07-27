@@ -34,6 +34,8 @@ const state = {
   systemPrompt: null,
   activeRun: null,
   followUpWaits: 0,
+  runPanelRunId: null,
+  runPanelCollapsed: false,
 };
 
 // ==================== HELPERS ====================
@@ -61,6 +63,28 @@ function formatValue(value) {
 
 function humanize(name) {
   return String(name || "").replace(/_/g, " ").replace(/^./, (c) => c.toUpperCase());
+}
+
+function relationshipLabel(relationship) {
+  const fallbackLabels = {
+    officer_of: "Dirigeant",
+    possible_officer_of: "Dirigeant possible",
+    publicly_linked_to: "Lien public",
+    employee_of: "Travaille pour",
+    owns: "Détient",
+    subsidiary_of: "Filiale de",
+    spouse_of: "Conjoint public",
+    child_of: "Enfant de",
+    parent_of: "Parent de",
+    sibling_of: "Fratrie publique",
+  };
+  const label =
+    relationship.role ||
+    fallbackLabels[relationship.type] ||
+    humanize(relationship.type);
+  return String(relationship.type || "").startsWith("possible_")
+    ? `À vérifier · ${label}`
+    : label;
 }
 
 function confidenceClass(confidence) {
@@ -143,7 +167,6 @@ function renderRunSummary(run) {
   }
 
   const sources = dossier.sources || [];
-  const sourceIds = [...new Set(sources.map((source) => source.source_id).filter(Boolean))];
   const usefulSourceIds = [
     ...new Set(
       sources
@@ -155,6 +178,7 @@ function renderRunSummary(run) {
   const ok = sources.filter((source) => source.status === "ok").length;
   const empty = sources.filter((source) => source.status === "not_found").length;
   const blocked = sources.filter((source) => ["skipped", "denied", "error"].includes(source.status)).length;
+  const withoutData = sources.length - ok;
   const entities = dossier.entities || [];
   const links = dossier.relationships || [];
   const facts = entities.reduce((total, entity) => total + (entity.attributes || []).length, 0);
@@ -180,15 +204,20 @@ function renderRunSummary(run) {
     result += " Aucun lien suffisamment fiable n'a été retenu.";
   }
   if (relatedLabels.length) result += ` Pistes principales : ${relatedLabels.join(", ")}.`;
-  if (blocked) result += ` ${blocked} appel${blocked === 1 ? "" : "s"} écarté${blocked === 1 ? "" : "s"} (source non pertinente, absente ou sans accès).`;
+  if (withoutData) {
+    const details = [];
+    if (blocked) details.push(`${blocked} non applicable${blocked === 1 ? "" : "s"} ou bloqué${blocked === 1 ? "" : "s"}`);
+    if (empty) details.push(`${empty} sans résultat`);
+    result += ` ${withoutData} appel${withoutData === 1 ? "" : "s"} sans donnée exploitable${details.length ? ` (${details.join(", ")})` : ""}.`;
+  }
 
   $("run-summary-result").textContent = result;
   $("run-summary-source-list").textContent = usefulSourceIds.length
     ? `Avec données : ${usefulSourceIds.map((id) => SOURCE_LABELS[id] || humanize(id)).join(", ")}`
     : "Aucune source avec donnée exploitable";
-  $("run-summary-sources").textContent = sourceIds.length;
+  $("run-summary-sources").textContent = sources.length;
   $("run-summary-ok").textContent = ok;
-  $("run-summary-empty").textContent = empty;
+  $("run-summary-empty").textContent = withoutData;
   $("run-summary-entities").textContent = entities.length;
   $("run-summary-links").textContent = links.length;
   container.classList.remove("hidden");
@@ -201,6 +230,7 @@ function setResearchSession(run) {
     $("input-query").disabled = false;
     $("select-mode").disabled = false;
     $("btn-search").disabled = false;
+    $("btn-run-panel-toggle").classList.add("hidden");
     return;
   }
   state.activeRun = run;
@@ -208,7 +238,13 @@ function setResearchSession(run) {
   const automaticTransition =
     run.status === "COMPLETED" && Number(run.pass_number || 1) < 2;
   const progress = Math.max(0, Math.min(100, Number(run.progress || 0)));
+  if (state.runPanelRunId !== run.run_id) {
+    state.runPanelRunId = run.run_id;
+    state.runPanelCollapsed = false;
+  }
+  if (active || automaticTransition) state.runPanelCollapsed = false;
   $("active-run-panel").classList.remove("hidden");
+  applyRunPanelState(active || automaticTransition);
   $("preview-box").classList.add("hidden");
   $("active-run-kicker").textContent = active
     ? `Recherche en cours · passe ${run.pass_number || 1} · une seule à la fois`
@@ -251,6 +287,26 @@ function setResearchSession(run) {
   $("btn-search").innerHTML = active
     ? '<i class="fas fa-spinner fa-spin md:mr-2" aria-hidden="true"></i><span class="hidden md:inline">EN COURS</span>'
     : '<i class="fas fa-fingerprint md:mr-2" aria-hidden="true"></i><span class="hidden md:inline">ANALYSER</span>';
+}
+
+function applyRunPanelState(forceExpanded = false) {
+  if (forceExpanded) state.runPanelCollapsed = false;
+  const collapsed = Boolean(state.runPanelCollapsed);
+  $("active-run-content").classList.toggle("hidden", collapsed);
+  $("active-run-panel").classList.toggle("is-collapsed", collapsed);
+  const toggle = $("btn-run-panel-toggle");
+  const canCollapse =
+    state.activeRun &&
+    state.activeRun.status === "COMPLETED" &&
+    Number(state.activeRun.pass_number || 1) >= 2;
+  toggle.classList.toggle("hidden", !canCollapse);
+  toggle.textContent = collapsed ? "Afficher le bilan" : "Réduire";
+  toggle.setAttribute("aria-expanded", String(!collapsed));
+}
+
+function toggleRunPanel() {
+  state.runPanelCollapsed = !state.runPanelCollapsed;
+  applyRunPanelState();
 }
 
 function syncRunUrl(runId) {
@@ -753,9 +809,10 @@ function renderEntityInspector(node) {
       const other = (state.dossier.entities || []).find((e) => e.key === otherKey);
       const label = other ? other.label : otherKey;
       const icon = other && other.kind === "person" ? "fa-user" : "fa-building";
+      const tentative = String(relation.type || "").startsWith("possible_");
       html += `<button class="relation-jump w-full text-left fact-row px-2 py-1.5 rounded flex items-center justify-between gap-2" data-key="${escapeHtml(otherKey)}">
         <span class="text-[13px] text-slate-200 truncate"><i class="fas ${icon} text-[10px] text-slate-500 mr-1.5"></i>${escapeHtml(label)}</span>
-        <span class="text-[10px] text-cyan-500 shrink-0">${escapeHtml(relation.role || relation.type)}</span>
+        <span class="text-[10px] ${tentative ? "text-amber-400" : "text-cyan-500"} shrink-0">${escapeHtml(relationshipLabel(relation))} · ${Math.round((relation.confidence || 0) * 100)}%</span>
       </button>`;
     });
     html += `</div></div>`;
@@ -1693,6 +1750,7 @@ document.addEventListener("DOMContentLoaded", () => {
   $("btn-search").addEventListener("click", runSearch);
   $("btn-live-instruction").addEventListener("click", addLiveInstruction);
   $("btn-run-summary-sources").addEventListener("click", () => openPanel("sources"));
+  $("btn-run-panel-toggle").addEventListener("click", toggleRunPanel);
   $("btn-cancel-run").addEventListener("click", cancelActiveRun);
   $("btn-export-current").addEventListener("click", () => downloadExport("json"));
   $("live-instruction").addEventListener("keydown", (event) => {

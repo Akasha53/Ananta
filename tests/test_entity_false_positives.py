@@ -14,7 +14,7 @@ from entity_research.identifiers import (
     SelectorType,
     make_selector,
 )
-from entity_research.pivot import PivotEngine
+from entity_research.pivot import PivotEngine, PivotStats
 from entity_research.resolution import (
     MatchVerdict,
     compare_entities,
@@ -532,6 +532,151 @@ def test_pivot_engine_keeps_homonyms_separate_and_explains_rejection():
     assert len({entity.key for entity in homonyms}) == 2
     assert any(item["verdict"] == "rejected" for item in dossier.resolution)
     assert dossier.stats["matches_rejected"] >= 1
+
+
+def test_consolidation_replaces_unique_briefing_stub_with_verified_entity():
+    root = EntityNode(
+        kind=EntityKind.PERSON,
+        label="Alexandra Latouche",
+        is_root=True,
+    )
+    stub = EntityNode(
+        kind=EntityKind.ORGANIZATION,
+        label="MCM GESTION",
+        selectors=[
+            make_selector(
+                SelectorType.ORG_NAME,
+                "MCM GESTION",
+                origin="briefing_tool",
+            )
+        ],
+        attributes=[
+            make_attribute("legal_name", "MCM GESTION", "briefing_tool")
+        ],
+    )
+    verified = EntityNode(
+        kind=EntityKind.ORGANIZATION,
+        label="MCM GESTION",
+        key="organization:mcm gestion~verified",
+        selectors=[
+            make_selector(SelectorType.SIREN, "523676773", origin="sirene")
+        ],
+        attributes=[
+            make_attribute("siren", "523676773", "sirene", confidence=0.99)
+        ],
+    )
+    entities = {
+        root.key: root,
+        stub.key: stub,
+        verified.key: verified,
+    }
+    attributes = {key: list(node.attributes) for key, node in entities.items()}
+    briefing_link = make_relationship(
+        root.key,
+        stub.key,
+        "publicly_linked_to",
+        "briefing_tool",
+    )
+    verified_link = make_relationship(
+        root.key,
+        verified.key,
+        "possible_officer_of",
+        "sirene",
+        role="Gérant",
+        confidence=0.55,
+    )
+    relationships = {
+        briefing_link.key: briefing_link,
+        verified_link.key: verified_link,
+    }
+    events = []
+    stats = PivotStats()
+    engine = PivotEngine(registry=SourceRegistry())
+
+    engine._collapse_resolved_briefing_stubs(
+        entities,
+        attributes,
+        relationships,
+        root.key,
+        resolution_events=events,
+        stats=stats,
+    )
+    engine._drop_redundant_briefing_links(relationships)
+
+    assert stub.key not in entities
+    assert verified.key in entities
+    assert len(relationships) == 1
+    assert next(iter(relationships.values())).rel_type == "possible_officer_of"
+    assert stats.matches_merged == 1
+    assert events[-1]["source"] == "consolidation_briefing"
+
+
+def test_source_context_dedupes_repeated_officer_but_keeps_birth_year_conflict():
+    root = EntityNode(
+        kind=EntityKind.PERSON,
+        label="Cible",
+        is_root=True,
+    )
+    company = EntityNode(
+        kind=EntityKind.ORGANIZATION,
+        label="MCM GESTION",
+        key="organization:mcm gestion~verified",
+    )
+    first = EntityNode(
+        kind=EntityKind.PERSON,
+        label="Alexandra Latouche",
+        key="person:alexandra latouche~first",
+    )
+    repeated = EntityNode(
+        kind=EntityKind.PERSON,
+        label="Alexandra Latouche",
+        key="person:alexandra latouche~repeated",
+    )
+    different_birth_year = EntityNode(
+        kind=EntityKind.PERSON,
+        label="Alexandra Latouche",
+        key="person:alexandra latouche~different",
+        attributes=[
+            make_attribute("birth_year", "1974", "sirene")
+        ],
+    )
+    entities = {
+        node.key: node
+        for node in (root, company, first, repeated, different_birth_year)
+    }
+    attributes = {key: list(node.attributes) for key, node in entities.items()}
+    relationships = {}
+    for person in (first, repeated, different_birth_year):
+        link = make_relationship(
+            person.key,
+            company.key,
+            "officer_of",
+            "sirene",
+            role="Gérant",
+            confidence=0.95,
+        )
+        relationships[link.key] = link
+    events = []
+    stats = PivotStats()
+
+    PivotEngine(registry=SourceRegistry())._merge_source_context_duplicates(
+        entities,
+        attributes,
+        relationships,
+        root.key,
+        resolution_events=events,
+        stats=stats,
+    )
+
+    remaining = [
+        entity
+        for entity in entities.values()
+        if entity.label == "Alexandra Latouche"
+    ]
+    assert len(remaining) == 2
+    assert any(entity.get("birth_year") == "1974" for entity in remaining)
+    assert stats.matches_merged == 1
+    assert events[-1]["source"] == "consolidation_source_context"
 
 
 def test_pivot_engine_merges_nodes_with_shared_stable_identifier():

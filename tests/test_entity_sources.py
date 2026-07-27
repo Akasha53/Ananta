@@ -207,6 +207,86 @@ class TestWikidata:
         assert "Contoso Holding" in labels
         assert {r.rel_type for r in result.relationships} == {"officer_of", "subsidiary_of"}
 
+    def test_builds_only_explicitly_published_family_relationships_for_a_person(self):
+        search = {
+            "search": [
+                {
+                    "id": "Q100",
+                    "label": "Alice Martin",
+                    "description": "personne publique",
+                }
+            ]
+        }
+        entity = {
+            "entities": {
+                "Q100": {
+                    "claims": {
+                        "P31": [
+                            {
+                                "mainsnak": {
+                                    "datavalue": {
+                                        "type": "wikibase-entityid",
+                                        "value": {"id": "Q5"},
+                                    }
+                                }
+                            }
+                        ],
+                        "P26": [
+                            {
+                                "mainsnak": {
+                                    "datavalue": {
+                                        "type": "wikibase-entityid",
+                                        "value": {"id": "Q200"},
+                                    }
+                                }
+                            }
+                        ],
+                        "P40": [
+                            {
+                                "mainsnak": {
+                                    "datavalue": {
+                                        "type": "wikibase-entityid",
+                                        "value": {"id": "Q201"},
+                                    }
+                                }
+                            }
+                        ],
+                    }
+                }
+            }
+        }
+        labels = {
+            "entities": {
+                "Q5": {"labels": {"fr": {"value": "être humain"}}},
+                "Q200": {"labels": {"fr": {"value": "Camille Martin"}}},
+                "Q201": {"labels": {"fr": {"value": "Lou Martin"}}},
+            }
+        }
+        ctx = context(
+            {
+                "action=wbsearchentities": search,
+                "action=wbgetentities": labels,
+                "Special:EntityData": entity,
+            },
+            kind=EntityKind.PERSON,
+        )
+
+        result = WikidataSource().run(
+            make_selector(SelectorType.PERSON_NAME, "Alice Martin"),
+            ctx,
+        )
+
+        assert result.status is SourceStatus.OK
+        assert {node.kind for node in result.entities} == {EntityKind.PERSON}
+        assert {node.label for node in result.entities} == {
+            "Camille Martin",
+            "Lou Martin",
+        }
+        assert {relation.rel_type for relation in result.relationships} == {
+            "spouse_of",
+            "parent_of",
+        }
+
     def test_no_match_when_name_differs(self):
         result = WikidataSource().run(
             make_selector(SelectorType.ORG_NAME, "Totalement Autre Chose"), self._ctx()

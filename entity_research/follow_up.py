@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from typing import Any, Dict, Iterable, List
 
-from entity_research.identifiers import EntityKind, SelectorType
+from entity_research.identifiers import EntityKind, SelectorType, normalize_name
 from entity_research.schema import Dossier
 
 
@@ -83,6 +83,17 @@ def dossier_follow_up_facts(dossier: Dossier, *, limit: int = 160) -> List[Dict[
     for entity in dossier.entities:
         if entity.key == dossier.root_key:
             continue
+        if (
+            root is not None
+            and entity.kind is root.kind
+            and normalize_name(entity.label) == normalize_name(root.label)
+        ):
+            # Un homonyme portant exactement le nom de la racine ne peut pas
+            # être représenté sans ambiguïté par un fait plat « Personne liée » :
+            # son nœud reprendrait la clé nominale de la racine à la passe 2.
+            # Les sources le retrouveront avec leur propre contexte et leurs
+            # éventuels identifiants ; on ne le réinjecte donc pas comme fait.
+            continue
         label = (
             "Personne liée"
             if entity.kind is EntityKind.PERSON
@@ -113,12 +124,27 @@ def automatic_follow_up_options(
 
     target = dossier.label or dossier.query
     previous_text = str(options.get("briefing_text") or "").strip()
+    if dossier.kind is EntityKind.PERSON:
+        scope = (
+            "son identité publique, son parcours, ses entreprises, mandats actuels "
+            "et passés, participations, bénéficiaires effectifs, associés, "
+            "collaborateurs, coordonnées professionnelles publiées et liens "
+            "familiaux explicitement documentés par une source publique fiable"
+        )
+    else:
+        scope = (
+            "son identité légale, ses établissements, dirigeants, bénéficiaires "
+            "effectifs, actionnaires, filiales, sociétés mères, partenaires, "
+            "domaines, coordonnées professionnelles publiées et réseau public de "
+            "ses dirigeants"
+        )
     instruction = (
-        f"Approfondissement automatique de {target}. Rechercher et vérifier ses "
-        "entreprises, mandats actuels et passés, participations, bénéficiaires "
-        "effectifs, associés, collaborateurs et autres relations publiques. "
+        f"Approfondissement automatique de {target}. Rechercher et vérifier {scope}. "
         "Pivoter sur les entités trouvées jusqu'au second niveau. Ne fusionner "
-        "aucun homonyme sans identifiant concordant ou corroboration indépendante."
+        "aucun homonyme sans identifiant concordant ou corroboration indépendante. "
+        "Utiliser uniquement des informations publiquement accessibles et "
+        "pertinentes pour la finalité déclarée. Ne rechercher ni document "
+        "d'identité, ni visa, ni adresse privée, ni numéro personnel d'un proche."
     )
     briefing_text = "\n\n".join(part for part in (previous_text, instruction) if part)
 

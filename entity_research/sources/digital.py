@@ -1301,11 +1301,25 @@ class WebPresenceSource(BaseSource):
     def _search(self, query: str, ctx: ResearchContext) -> List[Tuple[str, str]]:
         """DuckDuckGo via la bibliothèque si présente, sinon endpoint HTML."""
         try:  # pragma: no cover - dépend de l'environnement
-            from duckduckgo_search import DDGS  # type: ignore
+            import warnings
 
-            with DDGS() as ddgs:
+            try:
+                from ddgs import DDGS  # type: ignore
+            except ImportError:
+                from duckduckgo_search import DDGS  # type: ignore
+
+            # L'ancien paquet force lui-même ``simplefilter("always")`` avant
+            # d'émettre son avertissement de renommage. Le capturer uniquement
+            # pendant l'instanciation évite de polluer les logs sans masquer les
+            # autres avertissements de la recherche.
+            with warnings.catch_warnings(record=True):
+                ddgs_client = DDGS()
+            with ddgs_client as ddgs:
                 return [
-                    (item.get("href") or item.get("url") or "", item.get("title") or "")
+                    (
+                        item.get("href") or item.get("url") or "",
+                        item.get("title") or "",
+                    )
                     for item in ddgs.text(query, max_results=self.MAX_RESULTS)
                     if item.get("href") or item.get("url")
                 ]
