@@ -27,6 +27,8 @@ def test_service_worker_private_prefixes_cover_sensitive_features():
     source = Path("web/javascript/service-worker.js").read_text(encoding="utf-8")
     for prefix in ("/entity/", "/api-keys/", "/monitoring/", "/workers/", "/jobs/"):
         assert repr(prefix) in source
+    assert "ananta-v1.5.0" in source
+    assert "/web/javascript/entity.js?v=1.5.0" in source
 
 
 def test_entity_ui_keeps_run_permalink_and_exposes_system_prompt():
@@ -62,6 +64,10 @@ def test_entity_ui_keeps_run_permalink_and_exposes_system_prompt():
     assert '$("select-mode").addEventListener("change", syncBackgroundExecution)' in javascript
     assert "state.pollFailures >= 3" in javascript
     assert "Connexion momentanément indisponible" in javascript
+    assert 'id="run-summary"' in html
+    assert "function renderRunSummary(run)" in javascript
+    assert "préparation automatique de la passe 2" in javascript
+    assert "run.next_run" in javascript
 
 
 def test_entity_is_the_only_primary_workspace():
@@ -76,6 +82,14 @@ def test_entity_is_the_only_primary_workspace():
     assert 'content="0; url=entity.html"' in legacy
     assert "/web/javascript/app.js" not in service_worker
     assert "'/web/html/index.html'" not in service_worker
+
+
+def test_entity_file_opening_redirects_to_the_running_http_app():
+    html = Path("web/html/entity.html").read_text(encoding="utf-8")
+
+    assert 'window.location.protocol === "file:"' in html
+    assert "http://127.0.0.1:8010/web/html/entity.html" in html
+    assert "window.location.replace" in html
 
 
 def test_unified_launcher_is_present():

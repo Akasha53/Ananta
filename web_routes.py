@@ -3992,6 +3992,8 @@ def _launch_entity_run(
 
     options = _research_kwargs(body)
     options["_created_by"] = principal.actor_id
+    options["_pass_number"] = pass_number
+    options["_parent_run_id"] = parent_run_id
     try:
         task = entity_research_task.apply_async(
             args=[body.query, options],
@@ -4081,6 +4083,13 @@ def entity_run_detail(
     from entity_research.storage import list_instructions
 
     payload["instructions"] = list_instructions(db, run_id)
+    next_run = (
+        _owned_run_query(db, request)
+        .filter(EntityResearchRun.parent_run_id == run_id)
+        .order_by(EntityResearchRun.created_at.desc())
+        .first()
+    )
+    payload["next_run"] = _run_to_summary(next_run) if next_run else None
 
     if run.dossier:
         try:

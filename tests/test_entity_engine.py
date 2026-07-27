@@ -292,6 +292,95 @@ class TestSireneSource:
         )
         assert result.status is SourceStatus.OK
 
+    def test_person_name_returns_all_exact_company_links_with_corroborated_birth_year(self):
+        payload = {
+            "total_results": 2,
+            "results": [
+                {
+                    "siren": "111111111",
+                    "nom_raison_sociale": "SCI MARGOT",
+                    "nom_complet": "SCI MARGOT",
+                    "etat_administratif": "A",
+                    "siege": {"libelle_commune": "Paris"},
+                    "dirigeants": [
+                        {
+                            "prenoms": "Alexandra",
+                            "nom": "Latouche",
+                            "annee_de_naissance": "1983",
+                            "qualite": "Gérante",
+                        }
+                    ],
+                },
+                {
+                    "siren": "222222222",
+                    "nom_raison_sociale": "ALTA CONSEIL",
+                    "nom_complet": "ALTA CONSEIL",
+                    "etat_administratif": "A",
+                    "siege": {"libelle_commune": "Lyon"},
+                    "dirigeants": [
+                        {
+                            "prenoms": "Alexandra",
+                            "nom": "Latouche",
+                            "annee_de_naissance": "1983",
+                            "qualite": "Présidente",
+                        }
+                    ],
+                },
+            ],
+        }
+        http = FakeHttpClient({"recherche-entreprises.api.gouv.fr": payload})
+        result = SireneSource().run(
+            make_selector(SelectorType.PERSON_NAME, "Alexandra Latouche"),
+            self._ctx(http, EntityKind.PERSON),
+        )
+
+        assert result.status is SourceStatus.OK
+        assert {entity.label for entity in result.entities} == {
+            "SCI MARGOT",
+            "ALTA CONSEIL",
+        }
+        assert not result.attributes
+        assert all(relation.rel_type == "officer_of" for relation in result.relationships)
+        assert all(relation.confidence == 0.9 for relation in result.relationships)
+        assert all(entity.selectors for entity in result.entities)
+
+    def test_person_name_keeps_uncorroborated_multiple_companies_as_possible_links(self):
+        officer = {
+            "prenoms": "Alexandra",
+            "nom": "Latouche",
+            "qualite": "Gérante",
+        }
+        payload = {
+            "total_results": 2,
+            "results": [
+                {
+                    "siren": "111111111",
+                    "nom_raison_sociale": "SCI MARGOT",
+                    "dirigeants": [officer],
+                },
+                {
+                    "siren": "222222222",
+                    "nom_raison_sociale": "ALTA CONSEIL",
+                    "dirigeants": [officer],
+                },
+            ],
+        }
+        http = FakeHttpClient({"recherche-entreprises.api.gouv.fr": payload})
+        result = SireneSource().run(
+            make_selector(SelectorType.PERSON_NAME, "Alexandra Latouche"),
+            self._ctx(http, EntityKind.PERSON),
+        )
+
+        assert result.status is SourceStatus.OK
+        assert all(
+            relation.rel_type == "possible_officer_of"
+            for relation in result.relationships
+        )
+        assert all(relation.confidence == 0.55 for relation in result.relationships)
+        assert {
+            candidate["identity_status"] for candidate in result.candidates
+        } == {"homonym_to_verify"}
+
     def test_network_failure_becomes_error_not_exception(self):
         http = FakeHttpClient({}, default_status=500)
         result = SireneSource().run(

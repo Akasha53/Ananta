@@ -3,7 +3,7 @@
  * Gère le cache offline et les requêtes réseau
  */
 
-const CACHE_NAME = 'ananta-v1.4.0';
+const CACHE_NAME = 'ananta-v1.5.0';
 const OFFLINE_URL = '/web/html/offline.html';
 
 // Ressources à mettre en cache immédiatement
@@ -21,7 +21,7 @@ const PRECACHE_ASSETS = [
   '/web/javascript/api-client.js',
   '/web/javascript/app-shell.js',
   '/web/javascript/database.js',
-  '/web/javascript/entity.js',
+  '/web/javascript/entity.js?v=1.5.0',
   '/web/javascript/entity-graph.js',
   '/web/javascript/entity-demo.js',
   '/web/manifest.json',

@@ -13,6 +13,7 @@ Architecture Multi-Workers:
 import os
 import sys
 import logging
+import uuid
 from celery import Celery
 
 # Ajouter le répertoire du projet au Python path pour permettre les imports
@@ -1160,13 +1161,20 @@ def entity_research_task(self, query: str, options: dict = None):
     from entity_research.briefing import parse_briefing
     from entity_research.storage import (
         claim_pending_instructions,
+        create_run,
         mark_failed,
         persist_dossier,
         update_run_progress,
     )
+    from entity_research.follow_up import (
+        MAX_AUTOMATIC_PASS,
+        automatic_follow_up_options,
+    )
 
     options = dict(options or {})
     created_by = options.pop("_created_by", None)
+    pass_number = max(1, int(options.pop("_pass_number", 1) or 1))
+    options.pop("_parent_run_id", None)
     run_id = self.request.id
     mode = options.get("mode", "standard")
 
@@ -1230,6 +1238,51 @@ def entity_research_task(self, query: str, options: dict = None):
             status="COMPLETED",
         )
 
+        follow_up_run_id = None
+        if pass_number < MAX_AUTOMATIC_PASS:
+            follow_up_run_id = str(uuid.uuid4())
+            follow_up_options = automatic_follow_up_options(dossier, options)
+            follow_up_options["_created_by"] = created_by
+            follow_up_options["_pass_number"] = pass_number + 1
+            follow_up_options["_parent_run_id"] = run_id
+            try:
+                create_run(
+                    db,
+                    run_id=follow_up_run_id,
+                    query=query,
+                    job_id=follow_up_run_id,
+                    mode=mode,
+                    purpose=options.get("purpose", "due_diligence"),
+                    language=options.get("language", "fr"),
+                    report_template=options.get("template", "detailed"),
+                    created_by=created_by,
+                    active_owner=created_by,
+                    parent_run_id=run_id,
+                    pass_number=pass_number + 1,
+                )
+                entity_research_task.apply_async(
+                    args=[query, follow_up_options],
+                    task_id=follow_up_run_id,
+                )
+                logger.info(
+                    "[ENTITY] Passe %s automatique lancée pour '%s' (run=%s, parent=%s)",
+                    pass_number + 1,
+                    query,
+                    follow_up_run_id,
+                    run_id,
+                )
+            except Exception as follow_up_error:
+                logger.error(
+                    "[ENTITY] Passe automatique non publiée pour '%s': %s",
+                    query,
+                    follow_up_error,
+                )
+                try:
+                    mark_failed(db, follow_up_run_id, str(follow_up_error))
+                except Exception:
+                    pass
+                follow_up_run_id = None
+
         logger.info(
             f"[ENTITY] Dossier terminé pour '{query}' : "
             f"{len(dossier.entities)} entités, {len(dossier.relationships)} relations, "
@@ -1245,6 +1298,7 @@ def entity_research_task(self, query: str, options: dict = None):
             "confidence_score": dossier.confidence_score(),
             "partial": dossier.partial,
             "stats": dossier.stats,
+            "follow_up_run_id": follow_up_run_id,
         }
 
     except Exception as e:

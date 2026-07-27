@@ -391,6 +391,9 @@ class TestTrackedEntityResearch:
         payload = continued.json()
         assert payload["parent_run_id"] == run_id
         assert payload["pass_number"] == 2
+        parent = client.get(f"/entity/run/{run_id}").json()
+        assert parent["next_run"]["run_id"] == payload["run_id"]
+        assert parent["next_run"]["pass_number"] == 2
 
 
 class TestEntityRunViews:

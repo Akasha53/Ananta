@@ -33,6 +33,7 @@ const state = {
   watches: null,
   systemPrompt: null,
   activeRun: null,
+  followUpWaits: 0,
 };
 
 // ==================== HELPERS ====================
@@ -93,6 +94,19 @@ const SELECTOR_LABELS = {
   postal_address: "Adresse", crypto_address: "Crypto", hash: "Empreinte", keyword: "Mot-clé",
 };
 
+const SOURCE_LABELS = {
+  sirene: "Registre des entreprises",
+  web_presence: "Recherche web",
+  wikidata: "Wikidata",
+  orcid: "ORCID",
+  opensanctions: "OpenSanctions",
+  pappers: "Pappers",
+  bodacc: "BODACC",
+  opencorporates: "OpenCorporates",
+  companies_house: "Companies House",
+  email_pattern: "Hypothèses email",
+};
+
 function showError(message) {
   const box = $("error-box");
   box.textContent = message;
@@ -120,6 +134,66 @@ function researchPhase(progress) {
   return "Dossier prêt";
 }
 
+function renderRunSummary(run) {
+  const container = $("run-summary");
+  const dossier = run && run.dossier;
+  if (!dossier || run.status !== "COMPLETED") {
+    container.classList.add("hidden");
+    return;
+  }
+
+  const sources = dossier.sources || [];
+  const sourceIds = [...new Set(sources.map((source) => source.source_id).filter(Boolean))];
+  const usefulSourceIds = [
+    ...new Set(
+      sources
+        .filter((source) => source.status === "ok")
+        .map((source) => source.source_id)
+        .filter(Boolean)
+    ),
+  ];
+  const ok = sources.filter((source) => source.status === "ok").length;
+  const empty = sources.filter((source) => source.status === "not_found").length;
+  const blocked = sources.filter((source) => ["skipped", "denied", "error"].includes(source.status)).length;
+  const entities = dossier.entities || [];
+  const links = dossier.relationships || [];
+  const facts = entities.reduce((total, entity) => total + (entity.attributes || []).length, 0);
+  const rootLabel = String(dossier.label || "").toLocaleLowerCase();
+  const relatedLabels = [
+    ...new Map(
+      entities
+        .filter(
+          (entity) =>
+            !entity.is_root &&
+            String(entity.label || "").toLocaleLowerCase() !== rootLabel
+        )
+        .map((entity) => [String(entity.label || "").toLocaleLowerCase(), entity.label])
+    ).values(),
+  ].slice(0, 3);
+
+  let result = `${facts} fait${facts === 1 ? "" : "s"} collecté${facts === 1 ? "" : "s"}.`;
+  if (links.length) {
+    result += ` ${links.length} lien${links.length === 1 ? "" : "s"} à examiner dans le graphe.`;
+  } else if ((run.pass_number || 1) === 1) {
+    result += " Aucun lien retenu pour le moment. La passe 2 élargit automatiquement les pivots.";
+  } else {
+    result += " Aucun lien suffisamment fiable n'a été retenu.";
+  }
+  if (relatedLabels.length) result += ` Pistes principales : ${relatedLabels.join(", ")}.`;
+  if (blocked) result += ` ${blocked} appel${blocked === 1 ? "" : "s"} écarté${blocked === 1 ? "" : "s"} (source non pertinente, absente ou sans accès).`;
+
+  $("run-summary-result").textContent = result;
+  $("run-summary-source-list").textContent = usefulSourceIds.length
+    ? `Avec données : ${usefulSourceIds.map((id) => SOURCE_LABELS[id] || humanize(id)).join(", ")}`
+    : "Aucune source avec donnée exploitable";
+  $("run-summary-sources").textContent = sourceIds.length;
+  $("run-summary-ok").textContent = ok;
+  $("run-summary-empty").textContent = empty;
+  $("run-summary-entities").textContent = entities.length;
+  $("run-summary-links").textContent = links.length;
+  container.classList.remove("hidden");
+}
+
 function setResearchSession(run) {
   if (!run) {
     state.activeRun = null;
@@ -131,29 +205,44 @@ function setResearchSession(run) {
   }
   state.activeRun = run;
   const active = ["PENDING", "PROCESSING"].includes(run.status);
+  const automaticTransition =
+    run.status === "COMPLETED" && Number(run.pass_number || 1) < 2;
   const progress = Math.max(0, Math.min(100, Number(run.progress || 0)));
   $("active-run-panel").classList.remove("hidden");
   $("preview-box").classList.add("hidden");
   $("active-run-kicker").textContent = active
     ? `Recherche en cours · passe ${run.pass_number || 1} · une seule à la fois`
-    : `Passe ${run.pass_number || 1} terminée · vous pouvez préciser la recherche`;
+    : automaticTransition
+      ? "Passe 1 terminée · préparation automatique de la passe 2"
+      : `Recherche terminée · ${run.pass_number || 1} passe${Number(run.pass_number || 1) > 1 ? "s" : ""}`;
   $("active-run-title").textContent = run.label || run.query || "Recherche suivie";
   $("active-run-phase").textContent = active
     ? researchPhase(progress)
     : run.status === "COMPLETED"
-      ? "Ajoutez une instruction pour lancer une nouvelle passe liée à ce dossier."
+      ? automaticTransition
+        ? "Les sociétés, mandats et relations trouvés deviennent les pivots de la passe suivante."
+        : "Le dossier est prêt. Vous pouvez ajouter une instruction pour approfondir un point précis."
       : `La passe s'est arrêtée : ${run.error_message || run.status}.`;
   $("active-run-percent").textContent = `${Math.round(progress)}%`;
   $("active-run-bar").style.width = `${progress}%`;
   $("live-instruction").placeholder = active
     ? "Ajoutez un lien, une société, un lieu ou une instruction pendant la recherche…"
-    : "Ex. Vérifie les mandats publics de Nadia Chaumont et les sociétés liées…";
+    : automaticTransition
+      ? "La passe 2 va démarrer automatiquement…"
+      : "Ex. Vérifie les mandats publics et les sociétés liées…";
   $("btn-live-instruction").textContent = active
     ? "Ajouter cet indice"
-    : "Lancer une nouvelle passe";
+    : automaticTransition
+      ? "Préparation de la passe 2"
+      : "Approfondir le dossier";
   $("live-instruction-help").textContent = active
     ? "L'indice sera recoupé à la prochaine vague de sources."
-    : "La nouvelle passe reste reliée au dossier actuel dans l'audit.";
+    : automaticTransition
+      ? "Aucune action nécessaire. Le suivi basculera automatiquement sur la passe 2."
+      : "La passe supplémentaire restera reliée au dossier dans l'audit.";
+  $("live-instruction").disabled = automaticTransition;
+  $("btn-live-instruction").disabled = automaticTransition;
+  renderRunSummary(run);
   $("btn-export-current").classList.toggle("hidden", run.status !== "COMPLETED");
   $("btn-cancel-run").classList.toggle("hidden", !active);
   $("input-query").disabled = active;
@@ -321,6 +410,7 @@ async function runSearch() {
       body: JSON.stringify(body),
     });
     state.runId = payload.run_id;
+    state.followUpWaits = 0;
     syncRunUrl(payload.run_id);
     setResearchSession({
       ...payload,
@@ -350,9 +440,22 @@ function pollRun(runId) {
       setResearchSession(run);
 
       if (run.status === "COMPLETED" && run.dossier) {
+        renderDossier(run.dossier);
+        const nextRun = run.next_run;
+        if (nextRun) {
+          state.followUpWaits = 0;
+          state.runId = nextRun.run_id;
+          syncRunUrl(nextRun.run_id);
+          setResearchSession(nextRun);
+          pollRun(nextRun.run_id);
+          return;
+        }
+        if (Number(run.pass_number || 1) < 2 && state.followUpWaits < 5) {
+          state.followUpWaits += 1;
+          return;
+        }
         if (state.pollTimer) clearInterval(state.pollTimer);
         state.pollTimer = null;
-        renderDossier(run.dossier);
       } else if (["FAILED", "CANCELLED"].includes(run.status)) {
         if (state.pollTimer) clearInterval(state.pollTimer);
         state.pollTimer = null;
@@ -459,6 +562,9 @@ function renderDossier(dossier, options = {}) {
   state.dossier = dossier;
   state.runId = dossier.run_id || state.runId;
   if (options.syncUrl !== false && state.runId) syncRunUrl(state.runId);
+  if (dossier.query || dossier.label) {
+    $("input-query").value = dossier.query || dossier.label;
+  }
 
   $("welcome").classList.add("hidden");
   $("left-rail").classList.remove("hidden");
@@ -1586,6 +1692,7 @@ document.addEventListener("DOMContentLoaded", () => {
   // Recherche
   $("btn-search").addEventListener("click", runSearch);
   $("btn-live-instruction").addEventListener("click", addLiveInstruction);
+  $("btn-run-summary-sources").addEventListener("click", () => openPanel("sources"));
   $("btn-cancel-run").addEventListener("click", cancelActiveRun);
   $("btn-export-current").addEventListener("click", () => downloadExport("json"));
   $("live-instruction").addEventListener("keydown", (event) => {

@@ -194,6 +194,9 @@ class SireneSource(BaseSource):
         if not results:
             raise SourceNotFound(f"Aucune entreprise pour '{sel.value}'")
 
+        if sel.type is SelectorType.PERSON_NAME:
+            return self._person_company_network(sel, payload, results)
+
         exact = _pick_best_sirene(results, sel)
         if exact is None:
             raise SourceNotFound(f"Aucune correspondance fiable pour '{sel.value}'")
@@ -300,6 +303,162 @@ class SireneSource(BaseSource):
         result.status = SourceStatus.OK
         return result
 
+    def _person_company_network(
+        self,
+        sel: Selector,
+        payload: Dict[str, Any],
+        results: List[Dict[str, Any]],
+    ) -> SourceResult:
+        """Retourne toutes les sociétés où le nom exact apparaît comme dirigeant.
+
+        Plusieurs sociétés ne prouvent pas qu'il s'agit de la même personne.
+        Sans année de naissance concordante, les liens restent donc marqués
+        comme possibles et conservent une confiance faible.
+        """
+
+        matches = _matching_person_companies(results, sel.value)
+        if not matches:
+            raise SourceNotFound(f"Aucun mandat exact pour '{sel.value}'")
+
+        birth_years = {
+            clean(officer.get("annee_de_naissance"))
+            for _, officer in matches
+            if clean(officer.get("annee_de_naissance"))
+        }
+        all_have_birth_year = all(
+            clean(officer.get("annee_de_naissance")) for _, officer in matches
+        )
+        corroborated_identity = (
+            len(matches) > 1 and all_have_birth_year and len(birth_years) == 1
+        )
+        unique_identity = len(matches) == 1
+        relation_type = (
+            "officer_of"
+            if corroborated_identity or unique_identity
+            else "possible_officer_of"
+        )
+        link_confidence = 0.9 if corroborated_identity else 0.82 if unique_identity else 0.55
+
+        result = self.result(
+            sel,
+            raw={
+                "total": payload.get("total_results"),
+                "exact_officer_matches": len(matches),
+                "identity_corroborated": corroborated_identity,
+            },
+        )
+
+        for item, officer in matches[:10]:
+            siren = clean(item.get("siren"))
+            legal_name = first(item.get("nom_raison_sociale"), item.get("nom_complet"))
+            if not legal_name:
+                continue
+            siege = item.get("siege") or {}
+            url = (
+                f"https://annuaire-entreprises.data.gouv.fr/entreprise/{siren}"
+                if siren
+                else None
+            )
+            node_selectors = collect(
+                selector(SelectorType.SIREN, siren, self.id, confidence=0.98),
+                selector(SelectorType.ORG_NAME, legal_name, self.id, confidence=0.95),
+            )
+            node = org_entity(
+                legal_name,
+                selectors=node_selectors,
+                attributes=collect(
+                    attr(
+                        "legal_name",
+                        legal_name,
+                        self.id,
+                        category="identity",
+                        url=url,
+                        reliability=0.97,
+                    ),
+                    attr(
+                        "siren",
+                        siren,
+                        self.id,
+                        category="legal",
+                        url=url,
+                        reliability=0.99,
+                    ),
+                    attr(
+                        "status",
+                        _SIRENE_STATE.get(
+                            item.get("etat_administratif"),
+                            clean(item.get("etat_administratif")),
+                        ),
+                        self.id,
+                        category="legal",
+                        url=url,
+                        reliability=0.97,
+                    ),
+                    attr(
+                        "headquarters_address",
+                        first(
+                            siege.get("adresse"),
+                            format_address(
+                                siege.get("numero_voie"),
+                                siege.get("type_voie"),
+                                siege.get("libelle_voie"),
+                                siege.get("code_postal"),
+                                siege.get("libelle_commune"),
+                            ),
+                        ),
+                        self.id,
+                        category="identity",
+                        url=url,
+                        reliability=0.95,
+                    ),
+                ),
+                confidence=link_confidence,
+            )
+            result.entities.append(node)
+            result.relationships.append(
+                _rel(
+                    node.key,
+                    relation_type,
+                    self.id,
+                    role=clean(officer.get("qualite")) or "Dirigeant",
+                    url=url,
+                    reliability=0.97,
+                    confidence=link_confidence,
+                    identity_status=(
+                        "corroborated"
+                        if corroborated_identity
+                        else "unique_exact_name"
+                        if unique_identity
+                        else "homonym_to_verify"
+                    ),
+                    birth_year=clean(officer.get("annee_de_naissance")),
+                )
+            )
+            result.candidates.append(
+                {
+                    "siren": siren,
+                    "name": legal_name,
+                    "city": dig(item, "siege", "libelle_commune"),
+                    "state": _SIRENE_STATE.get(
+                        item.get("etat_administratif"),
+                        item.get("etat_administratif"),
+                    ),
+                    "role": clean(officer.get("qualite")),
+                    "identity_status": (
+                        "corroborated"
+                        if corroborated_identity
+                        else "unique_exact_name"
+                        if unique_identity
+                        else "homonym_to_verify"
+                    ),
+                }
+            )
+
+        if not result.entities:
+            raise SourceNotFound(f"Aucune société exploitable pour '{sel.value}'")
+        result.status = SourceStatus.OK
+        return result
+
 
 def _pick_best_sirene(results: List[Dict[str, Any]], sel: Selector) -> Optional[Dict[str, Any]]:
     """Choisit le meilleur match Sirene pour un sélecteur donné."""
@@ -371,6 +530,39 @@ def _pick_best_sirene(results: List[Dict[str, Any]], sel: Selector) -> Optional[
     if len(ranked) > 1 and ranked[0][0] - ranked[1][0] < 0.08:
         return None
     return ranked[0][1]
+
+
+def _matching_person_companies(
+    results: List[Dict[str, Any]],
+    person_name: str,
+) -> List[tuple[Dict[str, Any], Dict[str, Any]]]:
+    """Conserve les sociétés dont un dirigeant porte exactement le nom demandé."""
+
+    target = normalize_name(person_name)
+    matches: List[tuple[Dict[str, Any], Dict[str, Any]]] = []
+    seen_sirens: set[str] = set()
+    for item in results:
+        for officer in item.get("dirigeants") or []:
+            if not isinstance(officer, dict):
+                continue
+            full_name = normalize_name(
+                " ".join(
+                    part
+                    for part in (
+                        clean(officer.get("prenoms")),
+                        clean(officer.get("nom")),
+                    )
+                    if part
+                )
+            )
+            if not target or full_name != target:
+                continue
+            siren = clean(item.get("siren")) or f"row:{len(matches)}"
+            if siren not in seen_sirens:
+                seen_sirens.add(siren)
+                matches.append((item, officer))
+            break
+    return matches
 
 
 def _name_similarity(a: str, b: str) -> float:
