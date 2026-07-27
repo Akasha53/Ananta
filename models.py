@@ -377,6 +377,24 @@ class EntityPreviewRequest(BaseModel):
         return validate_entity_query(v)
 
 
+class EntityInstructionRequest(BaseModel):
+    """Indice ou nouvelle consigne injecté dans un run actif."""
+
+    text: str = Field(..., min_length=1, max_length=20_000)
+    origin: Literal["analyst", "client", "document", "tool", "external_ai"] = "analyst"
+
+    @field_validator("text")
+    @classmethod
+    def normalize_text(cls, value: str) -> str:
+        return value.strip()
+
+
+class EntityContinueRequest(EntityInstructionRequest):
+    """Nouvelle passe liée à un dossier terminé."""
+
+    mode: Optional[Literal["passive", "standard", "deep"]] = None
+
+
 class EntityResolutionReviewRequest(BaseModel):
     """Validation humaine d'un rapprochement proposé par le moteur."""
 

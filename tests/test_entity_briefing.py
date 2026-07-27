@@ -83,6 +83,29 @@ def test_briefing_is_injected_into_dossier_graph_and_report():
     assert "Verdict de collecte" in dossier.report_markdown
 
 
+def test_live_briefing_is_consumed_between_source_waves():
+    pending = [
+        parse_briefing(
+            "Directrice : Nadia Chaumont\nSociété liée : SCI MARGOT",
+            origin="analyst",
+            hint=EntityKind.ORGANIZATION,
+        )
+    ]
+
+    dossier = research_entity(
+        "Alexandra Latouche",
+        entity_kind="person",
+        registry=SourceRegistry(),
+        budget=ResearchBudget(max_depth=2, max_source_calls=3),
+        live_briefing_provider=lambda: [pending.pop(0)] if pending else [],
+        use_llm=False,
+    )
+
+    assert dossier.stats["live_inputs_consumed"] == 1
+    assert any(entity.label == "Nadia Chaumont" for entity in dossier.entities)
+    assert dossier.briefing["live_inputs"][0]["origin"]["id"] == "briefing_analyst"
+
+
 def test_verdict_confirms_and_contradicts_against_independent_sources():
     briefing = parse_briefing(
         facts=[

@@ -56,6 +56,6 @@ def test_upgrade_accepts_precreated_development_schema(tmp_path: Path):
             )
         }
 
-    assert revision == ("b9c0d1e2f334",)
+    assert revision == ("c0d1e2f3a445",)
     assert {"role", "scopes", "owner_id"} <= columns
     assert "updated_by" in review_columns

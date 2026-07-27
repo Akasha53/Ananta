@@ -1157,7 +1157,13 @@ def entity_research_task(self, query: str, options: dict = None):
         dict: résumé du dossier (le dossier complet vit en base)
     """
     from entity_research import research_entity
-    from entity_research.storage import mark_failed, persist_dossier, update_run_progress
+    from entity_research.briefing import parse_briefing
+    from entity_research.storage import (
+        claim_pending_instructions,
+        mark_failed,
+        persist_dossier,
+        update_run_progress,
+    )
 
     options = dict(options or {})
     created_by = options.pop("_created_by", None)
@@ -1185,6 +1191,22 @@ def entity_research_task(self, query: str, options: dict = None):
         if message:
             logger.info(f"[ENTITY {progress}%] {message}")
 
+    def live_briefings():
+        """Récupère les nouveaux indices entre deux vagues de sources."""
+        instruction_db = SessionLocal()
+        try:
+            items = claim_pending_instructions(instruction_db, run_id)
+        finally:
+            instruction_db.close()
+        return [
+            parse_briefing(
+                item["text"],
+                origin=item["origin"],
+                default_region=options.get("default_region", "FR"),
+            )
+            for item in items
+        ]
+
     try:
         update_run_progress(db, run_id, progress=3, status="PROCESSING")
 
@@ -1192,6 +1214,7 @@ def entity_research_task(self, query: str, options: dict = None):
             query,
             run_id=run_id,
             progress=update_progress,
+            live_briefing_provider=live_briefings,
             **options,
         )
 

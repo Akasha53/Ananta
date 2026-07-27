@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request, Header, R
 from fastapi.responses import FileResponse, JSONResponse
 from sqlalchemy.orm import Session
 from sqlalchemy import text, func
+from sqlalchemy.exc import IntegrityError
 from pydantic import BaseModel, ValidationError
 from typing import Optional, List, Dict, Set
 import re
@@ -26,6 +27,7 @@ from database import (
     APIKey,
     ScheduledScan,
     EntityResearchRun,
+    EntityResearchInstruction,
     ResearchEntity,
     EntityResolutionReview,
     EntityWatch,
@@ -45,6 +47,8 @@ from models import (
     CompareRequest,
     ErrorResponse,
     EntityResearchRequest,
+    EntityInstructionRequest,
+    EntityContinueRequest,
     EntityPreviewRequest,
     EntityResolutionReviewRequest,
     LLMProviderRequest,
@@ -3715,6 +3719,8 @@ def _run_to_summary(run: EntityResearchRun) -> Dict:
     return {
         "run_id": run.run_id,
         "job_id": run.job_id,
+        "parent_run_id": run.parent_run_id,
+        "pass_number": run.pass_number or 1,
         "query": run.query,
         "label": run.label,
         "entity_kind": run.entity_kind,
@@ -3735,6 +3741,16 @@ def _run_to_summary(run: EntityResearchRun) -> Dict:
         "created_at": run.created_at.isoformat() if run.created_at else None,
         "updated_at": run.updated_at.isoformat() if run.updated_at else None,
     }
+
+
+def _active_run_for_principal(db: Session, request: Request):
+    principal = _request_principal(request)
+    return (
+        db.query(EntityResearchRun)
+        .filter(EntityResearchRun.active_owner == principal.actor_id)
+        .order_by(EntityResearchRun.created_at.desc())
+        .first()
+    )
 
 
 def _watch_to_summary(watch: EntityWatch) -> Dict:
@@ -3917,35 +3933,98 @@ def entity_research_async(
     if not ServiceStatus().is_redis_available():
         raise HTTPException(status_code=503, detail="File de tâches Redis indisponible")
 
-    from entity_research.storage import create_run
+    return _launch_entity_run(body, request, db)
+
+
+def _launch_entity_run(
+    body: EntityResearchRequest,
+    request: Request,
+    db: Session,
+    *,
+    parent_run_id: Optional[str] = None,
+    pass_number: int = 1,
+):
+    """Crée le verrou et le run avant de publier la tâche Celery."""
+    from entity_research.storage import create_run, mark_failed
+
+    if not HAS_CELERY or entity_research_task is None:
+        raise HTTPException(
+            status_code=503,
+            detail="Recherche suivie indisponible. Démarrez Celery et Redis.",
+        )
+    if not ServiceStatus().is_redis_available():
+        raise HTTPException(status_code=503, detail="File de tâches Redis indisponible")
 
     principal = _request_principal(request)
+    active = _active_run_for_principal(db, request)
+    if active:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"Une recherche est déjà en cours pour « {active.query} » "
+                f"(run {active.run_id}). Ajoutez-y un indice au lieu d'en lancer une autre."
+            ),
+        )
+
+    run_id = str(uuid.uuid4())
+    try:
+        run = create_run(
+            db,
+            run_id=run_id,
+            query=body.query,
+            job_id=run_id,
+            mode=body.mode,
+            purpose=body.purpose,
+            language=body.language,
+            report_template=body.report_template,
+            created_by=principal.actor_id,
+            active_owner=principal.actor_id,
+            parent_run_id=parent_run_id,
+            pass_number=pass_number,
+        )
+    except IntegrityError:
+        db.rollback()
+        active = _active_run_for_principal(db, request)
+        detail = "Une recherche est déjà en cours."
+        if active:
+            detail += f" Run actif : {active.run_id}."
+        raise HTTPException(status_code=409, detail=detail)
+
     options = _research_kwargs(body)
     options["_created_by"] = principal.actor_id
-    task = entity_research_task.delay(body.query, options)
+    try:
+        task = entity_research_task.apply_async(
+            args=[body.query, options],
+            task_id=run_id,
+        )
+    except Exception as exc:
+        mark_failed(db, run_id, f"Publication de la tâche impossible: {exc}")
+        raise HTTPException(status_code=503, detail="Impossible de démarrer le worker")
 
-    run = create_run(
-        db,
-        run_id=task.id,
-        query=body.query,
-        job_id=task.id,
-        mode=body.mode,
-        purpose=body.purpose,
-        language=body.language,
-        report_template=body.report_template,
-        created_by=principal.actor_id,
+    logger.info(
+        "[ENTITY ASYNC] Run %s lancé pour '%s' (mode=%s, passe=%s)",
+        run_id,
+        body.query,
+        body.mode,
+        pass_number,
     )
-
-    logger.info(f"[ENTITY ASYNC] Run {task.id} lancé pour '{body.query}' (mode={body.mode})")
-
     return {
         "type": "async",
         "run_id": run.run_id,
         "job_id": task.id,
         "status": "PENDING",
         "mode": body.mode,
-        "message": f"Recherche lancée. Suivre la progression sur /entity/run/{task.id}",
+        "pass_number": pass_number,
+        "parent_run_id": parent_run_id,
+        "message": f"Recherche lancée. Suivre la progression sur /entity/run/{run_id}",
     }
+
+
+@router.get("/entity/active")
+def entity_active(request: Request, db: Session = Depends(get_db)):
+    """Run actif de l'utilisateur, utilisé pour restaurer l'UI après rechargement."""
+    run = _active_run_for_principal(db, request)
+    return {"active": _run_to_summary(run) if run else None}
 
 
 @router.get("/entity/runs")
@@ -3999,6 +4078,9 @@ def entity_run_detail(
     run = _owned_run_or_404(db, request, run_id)
 
     payload = _run_to_summary(run)
+    from entity_research.storage import list_instructions
+
+    payload["instructions"] = list_instructions(db, run_id)
 
     if run.dossier:
         try:
@@ -4014,6 +4096,107 @@ def entity_run_detail(
             payload["dossier"] = None
 
     return payload
+
+
+@router.post("/entity/run/{run_id}/instructions")
+def entity_run_instruction_add(
+    run_id: str,
+    body: EntityInstructionRequest,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    """Ajoute un indice au run actif ; le worker le prend à la vague suivante."""
+    from entity_research.storage import add_instruction
+
+    run = _owned_run_or_404(db, request, run_id)
+    if run.status not in {"PENDING", "PROCESSING"} or not run.active_owner:
+        raise HTTPException(
+            status_code=409,
+            detail="Cette passe est terminée. Lancez une nouvelle passe avec cette instruction.",
+        )
+    if (run.progress or 0) >= 88:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "Le dossier est déjà en consolidation. Attendez sa fin puis lancez "
+                "une nouvelle passe avec cette instruction."
+            ),
+        )
+    principal = _request_principal(request)
+    item = add_instruction(
+        db,
+        run_id=run_id,
+        text=body.text,
+        origin=body.origin,
+        created_by=principal.actor_id,
+    )
+    return {
+        "id": item.id,
+        "run_id": run_id,
+        "text": item.text,
+        "origin": item.origin,
+        "status": item.status,
+        "message": "Indice ajouté. Le moteur l'intégrera à la prochaine vague.",
+    }
+
+
+@router.post("/entity/run/{run_id}/continue")
+def entity_run_continue(
+    run_id: str,
+    body: EntityContinueRequest,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    """Lance une passe liée en conservant la cible et la traçabilité."""
+    previous = _owned_run_or_404(db, request, run_id)
+    if previous.status not in {"COMPLETED", "FAILED", "CANCELLED"}:
+        raise HTTPException(status_code=409, detail="La passe actuelle est encore en cours")
+    kind = previous.entity_kind if previous.entity_kind in {"person", "organization"} else None
+    follow_up = EntityResearchRequest(
+        query=previous.query,
+        mode=body.mode or previous.mode or "standard",
+        entity_kind=kind,
+        purpose=previous.purpose or "due_diligence",
+        language=previous.language or "fr",
+        report_template=previous.report_template or "detailed",
+        briefing_text=body.text,
+        briefing_origin=body.origin,
+        authorized_investigation_acknowledged=(
+            previous.purpose == "authorized_investigation"
+        ),
+    )
+    return _launch_entity_run(
+        follow_up,
+        request,
+        db,
+        parent_run_id=previous.run_id,
+        pass_number=(previous.pass_number or 1) + 1,
+    )
+
+
+@router.post("/entity/run/{run_id}/cancel")
+def entity_run_cancel(
+    run_id: str,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    """Arrête un run suivi et libère immédiatement le verrou utilisateur."""
+    from entity_research.storage import update_run_progress
+
+    run = _owned_run_or_404(db, request, run_id)
+    if run.status not in {"PENDING", "PROCESSING"}:
+        return _run_to_summary(run)
+    try:
+        entity_research_task.app.control.revoke(
+            run.job_id or run.run_id,
+            terminate=True,
+            signal="SIGTERM",
+        )
+    except Exception as exc:
+        logger.warning("[ENTITY] révocation Celery non confirmée pour %s: %s", run_id, exc)
+    update_run_progress(db, run_id, progress=run.progress or 0, status="CANCELLED")
+    db.refresh(run)
+    return _run_to_summary(run)
 
 
 @router.get("/entity/run/{run_id}/graph")
@@ -4278,6 +4461,9 @@ def entity_run_delete(
     run = _owned_run_or_404(db, request, run_id)
 
     db.query(EntityResolutionReview).filter_by(run_id=run_id).delete(
+        synchronize_session=False
+    )
+    db.query(EntityResearchInstruction).filter_by(run_id=run_id).delete(
         synchronize_session=False
     )
     db.query(ResearchEntity).filter_by(run_id=run_id).delete(synchronize_session=False)

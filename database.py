@@ -407,6 +407,11 @@ class EntityResearchRun(Base):
     id = Column(Integer, primary_key=True, index=True)
     run_id = Column(String, unique=True, index=True, nullable=False)
     job_id = Column(String, index=True, nullable=True)  # Task Celery si asynchrone
+    # Verrou libéré dès que le run devient terminal. L'unicité garantit qu'un
+    # même analyste ne peut pas lancer plusieurs enquêtes concurrentes.
+    active_owner = Column(String, unique=True, index=True, nullable=True)
+    parent_run_id = Column(String, index=True, nullable=True)
+    pass_number = Column(Integer, default=1, nullable=False)
 
     query = Column(String, nullable=False)          # Requête d'origine
     label = Column(String, nullable=True)           # Libellé retenu de l'entité
@@ -437,6 +442,29 @@ class EntityResearchRun(Base):
     created_by = Column(String, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+
+class EntityResearchInstruction(Base):
+    """Indice ou consigne ajouté pendant une enquête suivie."""
+
+    __tablename__ = "entity_research_instructions"
+    __table_args__ = (
+        Index("ix_entity_instructions_run_status", "run_id", "status"),
+        Index("ix_entity_instructions_created_at", "created_at"),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+    run_id = Column(
+        String,
+        ForeignKey("entity_research_runs.run_id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    text = Column(Text, nullable=False)
+    origin = Column(String, default="analyst", nullable=False)
+    status = Column(String, default="PENDING", nullable=False)
+    created_by = Column(String, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    consumed_at = Column(DateTime(timezone=True), nullable=True)
 
 
 class ResearchEntity(Base):

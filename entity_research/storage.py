@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 import logging
 from collections import defaultdict
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 from sqlalchemy import func
@@ -26,6 +27,12 @@ def _models():
     from database import EntityResearchRun, ResearchEntity
 
     return EntityResearchRun, ResearchEntity
+
+
+def _instruction_model():
+    from database import EntityResearchInstruction
+
+    return EntityResearchInstruction
 
 
 def _watch_model():
@@ -51,6 +58,9 @@ def create_run(
     language: str = "fr",
     report_template: str = "detailed",
     created_by: Optional[str] = None,
+    active_owner: Optional[str] = None,
+    parent_run_id: Optional[str] = None,
+    pass_number: int = 1,
     status: str = "PENDING",
 ) -> Any:
     """Crée l'enregistrement d'un run avant son exécution (suivi de progression)."""
@@ -64,6 +74,9 @@ def create_run(
         language=language,
         report_template=report_template,
         created_by=created_by,
+        active_owner=active_owner,
+        parent_run_id=parent_run_id,
+        pass_number=max(1, int(pass_number)),
         status=status,
         progress=0,
     )
@@ -84,6 +97,8 @@ def update_run_progress(
         values["progress"] = max(0, min(100, int(progress)))
     if status is not None:
         values["status"] = status
+        if status in {"COMPLETED", "FAILED", "CANCELLED"}:
+            values["active_owner"] = None
     if not values:
         return
     try:
@@ -134,6 +149,8 @@ def persist_dossier(
     run.language = language
     run.report_template = report_template
     run.status = status
+    if status in {"COMPLETED", "FAILED", "CANCELLED"}:
+        run.active_owner = None
     run.progress = 100 if status == "COMPLETED" else run.progress or 0
     run.confidence_score = dossier.confidence_score()
     run.risk_level = risk.get("level")
@@ -182,13 +199,83 @@ def mark_failed(db, run_id: str, error: str) -> None:
     EntityResearchRun, _ = _models()
     try:
         db.query(EntityResearchRun).filter_by(run_id=run_id).update(
-            {"status": "FAILED", "error_message": str(error)[:4000]},
+            {
+                "status": "FAILED",
+                "error_message": str(error)[:4000],
+                "active_owner": None,
+            },
             synchronize_session=False,
         )
         db.commit()
     except Exception as exc:  # pragma: no cover
         logger.warning("[entity_research] échec non enregistré (%s): %s", run_id, exc)
         db.rollback()
+
+
+def add_instruction(
+    db,
+    *,
+    run_id: str,
+    text: str,
+    origin: str = "analyst",
+    created_by: Optional[str] = None,
+) -> Any:
+    """Ajoute un indice consommable par la prochaine vague du moteur."""
+    Instruction = _instruction_model()
+    item = Instruction(
+        run_id=run_id,
+        text=text.strip(),
+        origin=origin,
+        created_by=created_by,
+        status="PENDING",
+    )
+    db.add(item)
+    db.commit()
+    db.refresh(item)
+    return item
+
+
+def list_instructions(db, run_id: str) -> List[Dict[str, Any]]:
+    Instruction = _instruction_model()
+    rows = (
+        db.query(Instruction)
+        .filter(Instruction.run_id == run_id)
+        .order_by(Instruction.id.asc())
+        .all()
+    )
+    return [
+        {
+            "id": row.id,
+            "text": row.text,
+            "origin": row.origin,
+            "status": row.status,
+            "created_by": row.created_by,
+            "created_at": row.created_at.isoformat() if row.created_at else None,
+            "consumed_at": row.consumed_at.isoformat() if row.consumed_at else None,
+        }
+        for row in rows
+    ]
+
+
+def claim_pending_instructions(db, run_id: str) -> List[Dict[str, Any]]:
+    """Réserve atomiquement les consignes en attente pour l'unique worker du run."""
+    Instruction = _instruction_model()
+    rows = (
+        db.query(Instruction)
+        .filter(Instruction.run_id == run_id, Instruction.status == "PENDING")
+        .order_by(Instruction.id.asc())
+        .all()
+    )
+    if not rows:
+        return []
+    now = datetime.now(timezone.utc)
+    payload = []
+    for row in rows:
+        row.status = "CONSUMED"
+        row.consumed_at = now
+        payload.append({"id": row.id, "text": row.text, "origin": row.origin})
+    db.commit()
+    return payload
 
 
 def load_dossier(db, run_id: str) -> Optional[Dict[str, Any]]:

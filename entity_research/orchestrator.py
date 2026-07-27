@@ -31,7 +31,7 @@ from entity_research.compliance import (
 )
 from entity_research.correlation import CorrelationRuleError, correlate
 from entity_research.identifiers import EntityKind, Selector, parse_selectors
-from entity_research.pivot import PivotEngine, ProgressCallback
+from entity_research.pivot import LiveBriefingProvider, PivotEngine, ProgressCallback
 from entity_research.report import render_markdown, synthesize_with_llm
 from entity_research.schema import Dossier, ResearchBudget
 from entity_research.sources import registry as source_registry
@@ -48,7 +48,7 @@ MODE_BUDGETS: Dict[ResearchMode, ResearchBudget] = {
         max_depth=2, max_source_calls=60, max_seconds=180.0, max_entities=120, max_selectors=80
     ),
     ResearchMode.DEEP: ResearchBudget(
-        max_depth=3, max_source_calls=140, max_seconds=420.0, max_entities=250, max_selectors=160
+        max_depth=2, max_source_calls=140, max_seconds=420.0, max_entities=250, max_selectors=160
     ),
 }
 
@@ -130,6 +130,7 @@ def research_entity(
     user_consent: bool = False,
     default_region: str = "FR",
     match_policy: str = "strict",
+    live_briefing_provider: Optional[LiveBriefingProvider] = None,
 ) -> Dossier:
     """
     Recherche tout ce qui est publiquement connaissable sur une entité.
@@ -204,6 +205,7 @@ def research_entity(
         run_id=run_id,
         default_region=default_region,
         match_policy=match_policy,
+        live_briefing_provider=live_briefing_provider,
     )
 
     # Minimisation RGPD avant toute restitution.

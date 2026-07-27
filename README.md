@@ -26,6 +26,10 @@ Core capabilities include:
 - Temporal entity sightings (`first_seen`, `last_seen`, recurring relationships) and safe YAML correlation rules.
 - Layered execution model that separates passive, enriched, and sensitive tooling.
 - Async background jobs with progress tracking and worker monitoring.
+- One tracked entity investigation per analyst, with live instructions, linked
+  follow-up passes, and automatic session recovery after a page reload.
+- A local MCP server for Codex, Claude, and other agents to read dossiers,
+  inspect graphs, and add instructions to the active investigation.
 - Structured intelligence outputs such as graph data, exposures, timeline events, and diffs.
 - Multi-format export to PDF, JSON, CSV, XML, Markdown, and XLSX.
 - Audit logging for tool execution, approvals, and operational observability.
@@ -52,6 +56,11 @@ Give the engine any single fragment — a name, an email, a phone number, a
 domain, a French SIREN, an EU VAT number, a LEI, a username — and it walks a
 graph of selectors: each source consumes selectors and produces new ones, until
 the leads run out or a budget is reached.
+
+The global traversal depth is deliberately capped at two: target, direct public
+relations, then the sourced public/professional network of those relations.
+Selecting a second-level node in the UI offers a dedicated investigation of
+that person or organization. Ananta does not infer private relatives.
 
 - **23 connectors, 18 of which need no API key**: Sirene/INSEE, GLEIF (LEI and
   group structure), EU VIES, SEC EDGAR, BODACC (French insolvency notices),
@@ -212,8 +221,12 @@ Ananta exposes a wide API surface. The most important endpoints are grouped belo
 - `GET /entity/sources`
 - `POST /entity/research`
 - `POST /entity/research_async`
+- `GET /entity/active`
 - `GET /entity/runs`
 - `GET /entity/run/{run_id}`
+- `POST /entity/run/{run_id}/instructions`
+- `POST /entity/run/{run_id}/continue`
+- `POST /entity/run/{run_id}/cancel`
 - `GET /entity/run/{run_id}/graph`
 - `GET /entity/run/{run_id}/report`
 - `GET /entity/run/{run_id}/export/{json|markdown|csv}`
@@ -302,6 +315,7 @@ The main persisted entities include:
 - `PendingApproval`: approval records for sensitive tools.
 - `ScheduledScan`: recurring analysis definitions.
 - `EntityResearchRun`: entity dossier (status, report, serialized dossier, risk level).
+- `EntityResearchInstruction`: live analyst/agent input and its consumption state.
 - `ResearchEntity`: normalized entities extracted from dossiers, for cross-dossier correlation.
 - `EntityWatch`: an analyst-owned watch target, baseline run, and latest change summary.
 
@@ -413,6 +427,35 @@ Useful commands:
 ./ananta test
 ./ananta stop
 ```
+
+### Connect an AI agent through MCP
+
+Ananta ships an official-SDK MCP server over stdio. Start it directly with:
+
+```bash
+./ananta mcp
+```
+
+Example client configuration:
+
+```json
+{
+  "mcpServers": {
+    "ananta": {
+      "command": "/absolute/path/to/Ananta/ananta",
+      "args": ["mcp"],
+      "env": {
+        "ANANTA_API_URL": "http://127.0.0.1:8010",
+        "ANANTA_API_KEY": "ananta_..."
+      }
+    }
+  }
+}
+```
+
+The MCP tools expose the active run, dossier history, graph and report reads,
+live instruction injection, and linked continuation passes. Omit
+`ANANTA_API_KEY` only for a local instance where authentication is disabled.
 
 For a lightweight synchronous session without Redis/Celery:
 

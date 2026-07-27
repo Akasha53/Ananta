@@ -68,6 +68,7 @@ from entity_research.schema import ResearchBudget
 logger = logging.getLogger(__name__)
 
 ProgressCallback = Callable[[int, str], None]
+LiveBriefingProvider = Callable[[], Sequence[Briefing]]
 
 #: Sélecteurs sur lesquels on ne pivote jamais (trop génériques ou trop sensibles).
 NON_PIVOTABLE = frozenset({SelectorType.KEYWORD, SelectorType.HASH, SelectorType.IBAN})
@@ -75,8 +76,8 @@ NON_PIVOTABLE = frozenset({SelectorType.KEYWORD, SelectorType.HASH, SelectorType
 #: Profondeur maximale par type de sélecteur découvert (évite la dérive).
 #: Un nom de personne découvert au niveau 2 n'ouvre pas une nouvelle enquête.
 MAX_DEPTH_BY_TYPE: Dict[SelectorType, int] = {
-    # 3 permet la chaîne domaine -> annuaire d'équipe -> personne -> ses mandats.
-    SelectorType.PERSON_NAME: 3,
+    # Deux niveaux globaux : cible -> relation publiée -> réseau public de celle-ci.
+    SelectorType.PERSON_NAME: 2,
     SelectorType.ORG_NAME: 2,
     SelectorType.USERNAME: 2,
     SelectorType.SOCIAL_PROFILE: 1,
@@ -174,6 +175,7 @@ class PivotEngine:
         run_id: Optional[str] = None,
         default_region: str = "FR",
         match_policy: str | MatchPolicy = MatchPolicy.STRICT,
+        live_briefing_provider: Optional[LiveBriefingProvider] = None,
     ) -> Dossier:
         """
         Lance une recherche complète à partir d'une requête libre.
@@ -193,6 +195,7 @@ class PivotEngine:
             default_region: région par défaut pour les numéros de téléphone.
             match_policy: tolérance de rapprochement (`strict`, `balanced`,
                 `exploratory`).
+            live_briefing_provider: fournit les indices ajoutés pendant le run.
 
         Returns:
             Un `Dossier` complet (jamais d'exception pour une source défaillante).
@@ -305,11 +308,97 @@ class PivotEngine:
                 continue
             frontier.append(_QueuedSelector(sel, 0, root_key))
             queued_keys.add(sel.key)
+        if briefing:
+            for node in briefing.entities:
+                for selector in filter_selectors(node.selectors, policy, node.kind):
+                    if selector.key in queued_keys or selector.type in NON_PIVOTABLE:
+                        continue
+                    decision = selector_pivot_decision(
+                        selector,
+                        policy=resolved_match_policy,
+                        is_seed=True,
+                    )
+                    self._record_resolution(decision, resolution_events, stats)
+                    if decision.action != "pivot":
+                        continue
+                    queued_keys.add(selector.key)
+                    frontier.append(_QueuedSelector(selector, 1, node.key))
 
         self._notify(2, f"Analyse de la cible : {label}")
 
         # 4. Parcours en largeur
-        while frontier:
+        live_inputs_count = 0
+        while True:
+            if live_briefing_provider is not None:
+                try:
+                    live_briefings = list(live_briefing_provider() or [])
+                except Exception as exc:  # pragma: no cover - la collecte doit continuer
+                    logger.warning("[entity_research] lecture des indices live impossible: %s", exc)
+                    live_briefings = []
+                for live in live_briefings:
+                    if live.is_empty:
+                        continue
+                    live_inputs_count += 1
+                    dossier.briefing = dict(dossier.briefing or {})
+                    dossier.briefing.setdefault("live_inputs", []).append(live.to_dict())
+                    attributes_by_entity[root_key].extend(live.attributes)
+                    for node in live.entities:
+                        if node.key == root_key:
+                            attributes_by_entity[root_key].extend(node.attributes)
+                        else:
+                            entities[node.key] = node
+                            attributes_by_entity.setdefault(node.key, []).extend(node.attributes)
+                            for selector in filter_selectors(
+                                node.selectors, policy, node.kind
+                            ):
+                                if (
+                                    selector.key in queued_keys
+                                    or selector.type in NON_PIVOTABLE
+                                    or len(queued_keys) >= self.budget.max_selectors
+                                ):
+                                    continue
+                                decision = selector_pivot_decision(
+                                    selector,
+                                    policy=resolved_match_policy,
+                                    is_seed=True,
+                                )
+                                self._record_resolution(
+                                    decision, resolution_events, stats
+                                )
+                                if decision.action != "pivot":
+                                    continue
+                                queued_keys.add(selector.key)
+                                frontier.append(
+                                    _QueuedSelector(selector, 1, node.key)
+                                )
+                    for relationship in live.relationships:
+                        resolved = self._resolve_relationship(relationship, root_key)
+                        if resolved is not None:
+                            relationships[resolved.key] = resolved
+                    for selector in filter_selectors(live.selectors, policy, kind):
+                        if selector.key in queued_keys or selector.type in NON_PIVOTABLE:
+                            continue
+                        if len(queued_keys) >= self.budget.max_selectors:
+                            break
+                        decision = selector_pivot_decision(
+                            selector,
+                            policy=resolved_match_policy,
+                            is_seed=True,
+                        )
+                        self._record_resolution(decision, resolution_events, stats)
+                        if decision.action != "pivot":
+                            continue
+                        queued_keys.add(selector.key)
+                        frontier.append(_QueuedSelector(selector, 0, root_key))
+                        root.selectors.append(selector)
+                        dossier.seed_selectors.append(selector)
+                    self._notify(
+                        min(84, 8 + stats.source_calls),
+                        f"Nouvel indice intégré ({live_inputs_count})",
+                    )
+
+            if not frontier:
+                break
             if ctx.expired():
                 stats.stopped_reason = "timeout"
                 dossier.partial = True
@@ -460,6 +549,8 @@ class PivotEngine:
         dossier.resolution = resolution_events
         dossier.stats = stats.to_dict()
         dossier.stats["match_policy"] = resolved_match_policy.value
+        dossier.stats["max_depth"] = self.budget.max_depth
+        dossier.stats["live_inputs_consumed"] = live_inputs_count
         if briefing and not briefing.is_empty:
             dossier.stats["briefing"] = {
                 "facts": len(briefing.facts),

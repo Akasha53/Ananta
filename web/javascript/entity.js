@@ -32,6 +32,7 @@ const state = {
   selected: null,
   watches: null,
   systemPrompt: null,
+  activeRun: null,
 };
 
 // ==================== HELPERS ====================
@@ -108,6 +109,59 @@ function setProgress(percent, label) {
 
 function hideProgress() {
   $("progress-box").classList.add("hidden");
+}
+
+function researchPhase(progress) {
+  if (progress < 8) return "Préparation de la cible et des sources";
+  if (progress < 45) return "Collecte des registres et sources publiques";
+  if (progress < 86) return "Exploration du réseau public sur deux niveaux";
+  if (progress < 92) return "Recoupement des faits et élimination des homonymes";
+  if (progress < 100) return "Synthèse du dossier";
+  return "Dossier prêt";
+}
+
+function setResearchSession(run) {
+  if (!run) {
+    state.activeRun = null;
+    $("active-run-panel").classList.add("hidden");
+    $("input-query").disabled = false;
+    $("select-mode").disabled = false;
+    $("btn-search").disabled = false;
+    return;
+  }
+  state.activeRun = run;
+  const active = ["PENDING", "PROCESSING"].includes(run.status);
+  const progress = Math.max(0, Math.min(100, Number(run.progress || 0)));
+  $("active-run-panel").classList.remove("hidden");
+  $("preview-box").classList.add("hidden");
+  $("active-run-kicker").textContent = active
+    ? `Recherche en cours · passe ${run.pass_number || 1} · une seule à la fois`
+    : `Passe ${run.pass_number || 1} terminée · vous pouvez préciser la recherche`;
+  $("active-run-title").textContent = run.label || run.query || "Recherche suivie";
+  $("active-run-phase").textContent = active
+    ? researchPhase(progress)
+    : run.status === "COMPLETED"
+      ? "Ajoutez une instruction pour lancer une nouvelle passe liée à ce dossier."
+      : `La passe s'est arrêtée : ${run.error_message || run.status}.`;
+  $("active-run-percent").textContent = `${Math.round(progress)}%`;
+  $("active-run-bar").style.width = `${progress}%`;
+  $("live-instruction").placeholder = active
+    ? "Ajoutez un lien, une société, un lieu ou une instruction pendant la recherche…"
+    : "Ex. Vérifie les mandats publics de Nadia Chaumont et les sociétés liées…";
+  $("btn-live-instruction").textContent = active
+    ? "Ajouter cet indice"
+    : "Lancer une nouvelle passe";
+  $("live-instruction-help").textContent = active
+    ? "L'indice sera recoupé à la prochaine vague de sources."
+    : "La nouvelle passe reste reliée au dossier actuel dans l'audit.";
+  $("btn-export-current").classList.toggle("hidden", run.status !== "COMPLETED");
+  $("btn-cancel-run").classList.toggle("hidden", !active);
+  $("input-query").disabled = active;
+  $("select-mode").disabled = active;
+  $("btn-search").disabled = active;
+  $("btn-search").innerHTML = active
+    ? '<i class="fas fa-spinner fa-spin md:mr-2" aria-hidden="true"></i><span class="hidden md:inline">EN COURS</span>'
+    : '<i class="fas fa-fingerprint md:mr-2" aria-hidden="true"></i><span class="hidden md:inline">ANALYSER</span>';
 }
 
 function syncRunUrl(runId) {
@@ -231,18 +285,21 @@ function buildRequest() {
 }
 
 function syncBackgroundExecution() {
-  const deep = $("select-mode").value === "deep";
   const option = $("opt-async");
   const help = $("opt-async-help");
 
-  if (deep) option.checked = true;
-  option.disabled = deep;
-  help.textContent = deep
-    ? "Obligatoire en mode Deep. La recherche utilise Celery + Redis."
-    : "Activé par défaut. Décochez-le uniquement pour une recherche synchrone courte.";
+  option.checked = true;
+  option.disabled = true;
+  help.textContent =
+    "Toutes les recherches utilisent le worker et Redis : progression fiable, reprise après rechargement et une seule recherche à la fois.";
 }
 
 async function runSearch() {
+  if (state.activeRun && ["PENDING", "PROCESSING"].includes(state.activeRun.status)) {
+    showError("Une recherche est déjà en cours. Ajoutez votre information dans le bandeau de suivi.");
+    $("live-instruction").focus();
+    return;
+  }
   const body = buildRequest();
   if (!body.query) {
     showError("Renseignez au moins un indice sur l'entité recherchée.");
@@ -259,29 +316,26 @@ async function runSearch() {
   $("preview-box").classList.add("hidden");
 
   try {
-    const runInBackground = body.mode === "deep" || $("opt-async").checked;
-    if (runInBackground) {
-      const payload = await api("/entity/research_async", {
-        method: "POST",
-        body: JSON.stringify(body),
-      });
-      state.runId = payload.run_id;
-      syncRunUrl(payload.run_id);
-      setProgress(5, "Recherche lancée en tâche de fond…");
-      pollRun(payload.run_id);
-    } else {
-      setProgress(12, "Collecte en cours — une à trois minutes selon la profondeur…");
-      const payload = await api("/entity/research", { method: "POST", body: JSON.stringify(body) });
-      setProgress(100, "Dossier prêt");
-      state.runId = payload.run_id;
-      renderDossier(payload);
-      setTimeout(hideProgress, 700);
-    }
+    const payload = await api("/entity/research_async", {
+      method: "POST",
+      body: JSON.stringify(body),
+    });
+    state.runId = payload.run_id;
+    syncRunUrl(payload.run_id);
+    setResearchSession({
+      ...payload,
+      query: body.query,
+      progress: 3,
+      pass_number: payload.pass_number || 1,
+    });
+    pollRun(payload.run_id);
   } catch (error) {
-    hideProgress();
     showError(`Recherche impossible : ${error.message}`);
+    await resumeActiveRun();
   } finally {
-    $("btn-search").disabled = false;
+    if (!state.activeRun || !["PENDING", "PROCESSING"].includes(state.activeRun.status)) {
+      $("btn-search").disabled = false;
+    }
   }
 }
 
@@ -289,38 +343,102 @@ function pollRun(runId) {
   if (state.pollTimer) clearInterval(state.pollTimer);
   state.pollFailures = 0;
 
-  state.pollTimer = setInterval(async () => {
+  const refresh = async () => {
     try {
       const run = await api(`/entity/run/${encodeURIComponent(runId)}`);
       state.pollFailures = 0;
-      setProgress(run.progress || 5, `Statut : ${run.status}`);
+      setResearchSession(run);
 
       if (run.status === "COMPLETED" && run.dossier) {
-        clearInterval(state.pollTimer);
+        if (state.pollTimer) clearInterval(state.pollTimer);
         state.pollTimer = null;
         renderDossier(run.dossier);
-        setTimeout(hideProgress, 700);
-      } else if (run.status === "FAILED") {
-        clearInterval(state.pollTimer);
+      } else if (["FAILED", "CANCELLED"].includes(run.status)) {
+        if (state.pollTimer) clearInterval(state.pollTimer);
         state.pollTimer = null;
-        hideProgress();
         showError(`Recherche échouée : ${run.error_message || "raison inconnue"}`);
       }
     } catch (error) {
       state.pollFailures += 1;
       if (state.pollFailures >= 3) {
-        clearInterval(state.pollTimer);
+        if (state.pollTimer) clearInterval(state.pollTimer);
         state.pollTimer = null;
-        hideProgress();
         showError(`Suivi interrompu après 3 tentatives : ${error.message}`);
       } else {
-        setProgress(
-          5,
-          `Connexion momentanément indisponible — nouvelle tentative (${state.pollFailures}/3)…`,
-        );
+        $("active-run-phase").textContent =
+          `Connexion momentanément indisponible — nouvelle tentative (${state.pollFailures}/3)…`;
       }
     }
-  }, 3000);
+  };
+  refresh();
+  state.pollTimer = setInterval(refresh, 3000);
+}
+
+async function resumeActiveRun() {
+  try {
+    const payload = await api("/entity/active");
+    if (!payload.active) return false;
+    state.runId = payload.active.run_id;
+    syncRunUrl(state.runId);
+    setResearchSession(payload.active);
+    pollRun(state.runId);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function addLiveInstruction() {
+  const text = $("live-instruction").value.trim();
+  if (!text || !state.activeRun || !state.runId) {
+    showError("Ajoutez une information ou une instruction précise.");
+    return;
+  }
+  const button = $("btn-live-instruction");
+  button.disabled = true;
+  try {
+    const active = ["PENDING", "PROCESSING"].includes(state.activeRun.status);
+    const path = active
+      ? `/entity/run/${encodeURIComponent(state.runId)}/instructions`
+      : `/entity/run/${encodeURIComponent(state.runId)}/continue`;
+    const payload = await api(path, {
+      method: "POST",
+      body: JSON.stringify({
+        text,
+        origin: "analyst",
+        ...(active ? {} : { mode: $("select-mode").value }),
+      }),
+    });
+    $("live-instruction").value = "";
+    if (active) {
+      $("live-instruction-help").textContent =
+        "Indice reçu. Le moteur le recoupera à la prochaine vague.";
+    } else {
+      state.runId = payload.run_id;
+      syncRunUrl(payload.run_id);
+      setResearchSession({ ...payload, query: state.activeRun.query, progress: 3 });
+      pollRun(payload.run_id);
+    }
+  } catch (error) {
+    showError(`Instruction impossible : ${error.message}`);
+  } finally {
+    button.disabled = false;
+  }
+}
+
+async function cancelActiveRun() {
+  if (!state.runId || !state.activeRun) return;
+  if (!confirm("Arrêter cette recherche et libérer la session ?")) return;
+  try {
+    const run = await api(`/entity/run/${encodeURIComponent(state.runId)}/cancel`, {
+      method: "POST",
+    });
+    if (state.pollTimer) clearInterval(state.pollTimer);
+    state.pollTimer = null;
+    setResearchSession(run);
+  } catch (error) {
+    showError(`Arrêt impossible : ${error.message}`);
+  }
 }
 
 // ==================== RENDU DU DOSSIER ====================
@@ -353,7 +471,7 @@ function renderDossier(dossier, options = {}) {
   const okSources = new Set((dossier.sources || []).filter((s) => s.status === "ok").map((s) => s.source_id));
   const risk = computeRisk(dossier);
 
-  $("stat-confidence").textContent = Math.round(dossier.confidence_score || 0);
+  $("stat-confidence").textContent = `${Math.round(dossier.confidence_score || 0)}/100`;
   $("stat-risk").textContent = risk.level;
   $("stat-risk").className = `font-bold ${RISK_COLORS[risk.level] || "text-slate-400"}`;
   $("stat-entities").textContent = entities.length;
@@ -462,7 +580,12 @@ function renderEntityInspector(node) {
     );
   }
   actions.appendChild(
-    actionButton("fa-magnifying-glass-plus", "Approfondir", () => deepDive(entity))
+    actionButton(
+      "fa-magnifying-glass-plus",
+      `Lancer une enquête sur ${entity.kind === "person" ? "cette personne" : "cette entité"}`,
+      () => deepDive(entity),
+      "text-cyan-300 border-cyan-500/40",
+    )
   );
   actions.appendChild(
     actionButton("fa-link", "Autres dossiers", () => showRelatedRuns(entity))
@@ -653,8 +776,15 @@ async function showRelatedRuns(entity) {
 }
 
 function deepDive(entity) {
-  // Relance une recherche complète sur l'entité sélectionnée.
   const label = entity.label || "";
+  if (state.activeRun && ["PENDING", "PROCESSING"].includes(state.activeRun.status)) {
+    $("live-instruction").value =
+      `Explorer les liens publics et professionnels de ${label}, puis les relier à la cible actuelle.`;
+    $("live-instruction").focus();
+    closePanel("inspector");
+    showError("Une enquête est déjà en cours : cette personne a été préparée comme nouvel indice.");
+    return;
+  }
   $("input-query").value = label;
   $("select-kind").value = entity.kind === "person" ? "person" : "organization";
   closePanel("inspector");
@@ -1094,10 +1224,17 @@ async function openRun(runId) {
   try {
     const run = await api(`/entity/run/${encodeURIComponent(runId)}`);
     if (!run.dossier) {
-      showError(`Dossier incomplet (statut : ${run.status}).`);
+      if (["PENDING", "PROCESSING"].includes(run.status)) {
+        state.runId = runId;
+        setResearchSession(run);
+        pollRun(runId);
+      } else {
+        showError(`Dossier incomplet (statut : ${run.status}).`);
+      }
       return;
     }
     state.runId = runId;
+    setResearchSession(run);
     renderDossier(run.dossier);
     closePanel("history");
   } catch (error) {
@@ -1448,6 +1585,15 @@ document.addEventListener("DOMContentLoaded", () => {
 
   // Recherche
   $("btn-search").addEventListener("click", runSearch);
+  $("btn-live-instruction").addEventListener("click", addLiveInstruction);
+  $("btn-cancel-run").addEventListener("click", cancelActiveRun);
+  $("btn-export-current").addEventListener("click", () => downloadExport("json"));
+  $("live-instruction").addEventListener("keydown", (event) => {
+    if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
+      event.preventDefault();
+      addLiveInstruction();
+    }
+  });
   $("input-query").addEventListener("input", () => {
     clearTimeout(state.previewTimer);
     state.previewTimer = setTimeout(refreshPreview, 420);
@@ -1601,5 +1747,7 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   } else if (params.get("run")) {
     openRun(params.get("run"));
+  } else {
+    resumeActiveRun();
   }
 });

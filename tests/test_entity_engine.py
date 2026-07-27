@@ -550,6 +550,11 @@ class TestCompliance:
 
 
 class TestPivotEngine:
+    def test_global_product_budgets_never_exceed_two_levels(self):
+        from entity_research.orchestrator import MODE_BUDGETS
+
+        assert max(budget.max_depth for budget in MODE_BUDGETS.values()) == 2
+
     def test_no_selector_returns_empty_dossier(self, isolated_registry):
         engine = PivotEngine(registry=isolated_registry)
         dossier = engine.run("   ")

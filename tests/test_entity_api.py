@@ -10,6 +10,7 @@ couverte par `test_entity_engine.py`.
 from __future__ import annotations
 
 import pytest
+from types import SimpleNamespace
 
 from entity_research.identifiers import EntityKind, SelectorType, make_selector
 from entity_research.schema import Dossier, EntityNode, make_attribute, make_relationship
@@ -295,6 +296,101 @@ class TestEntityResearch:
 
     def test_unknown_run_returns_404(self, client):
         assert client.get("/entity/run/does-not-exist").status_code == 404
+
+
+class TestTrackedEntityResearch:
+    @pytest.fixture(autouse=True)
+    def tracked_worker(self, monkeypatch, client):
+        import web_routes
+        from database import EntityResearchRun
+        from tests.conftest import TestingSessionLocal
+
+        class FakeTask:
+            @staticmethod
+            def apply_async(*, args, task_id):
+                return SimpleNamespace(id=task_id)
+
+        monkeypatch.setattr(web_routes, "HAS_CELERY", True)
+        monkeypatch.setattr(web_routes, "entity_research_task", FakeTask())
+        monkeypatch.setattr(
+            web_routes.ServiceStatus,
+            "is_redis_available",
+            lambda self: True,
+        )
+        db = TestingSessionLocal()
+        db.query(EntityResearchRun).update(
+            {"active_owner": None}, synchronize_session=False
+        )
+        db.commit()
+        db.close()
+        yield
+        db = TestingSessionLocal()
+        db.query(EntityResearchRun).update(
+            {"active_owner": None}, synchronize_session=False
+        )
+        db.commit()
+        db.close()
+
+    def test_only_one_active_run_and_live_instruction(
+        self, client
+    ):
+        first = client.post(
+            "/entity/research_async",
+            json={"query": "Alexandra Latouche", "mode": "standard"},
+        )
+        assert first.status_code == 200
+        run_id = first.json()["run_id"]
+
+        active = client.get("/entity/active").json()["active"]
+        assert active["run_id"] == run_id
+        assert active["pass_number"] == 1
+
+        duplicate = client.post(
+            "/entity/research_async",
+            json={"query": "SCI MARGOT", "mode": "deep"},
+        )
+        assert duplicate.status_code == 409
+        assert run_id in duplicate.text
+
+        added = client.post(
+            f"/entity/run/{run_id}/instructions",
+            json={
+                "text": "Vérifier les liens professionnels publics de Nadia Chaumont.",
+                "origin": "analyst",
+            },
+        )
+        assert added.status_code == 200
+        detail = client.get(f"/entity/run/{run_id}").json()
+        assert detail["instructions"][0]["status"] == "PENDING"
+
+    def test_completed_run_can_start_linked_pass(self, client):
+        from database import EntityResearchRun
+        from tests.conftest import TestingSessionLocal
+
+        first = client.post(
+            "/entity/research_async",
+            json={"query": "Alexandra Latouche", "mode": "standard"},
+        ).json()
+        db = TestingSessionLocal()
+        run = db.query(EntityResearchRun).filter_by(run_id=first["run_id"]).one()
+        run.status = "COMPLETED"
+        run.progress = 100
+        run.active_owner = None
+        db.commit()
+        run_id = run.run_id
+        db.close()
+
+        continued = client.post(
+            f"/entity/run/{run_id}/continue",
+            json={
+                "text": "Approfondir les mandats de Nadia Chaumont.",
+                "origin": "analyst",
+            },
+        )
+        assert continued.status_code == 200
+        payload = continued.json()
+        assert payload["parent_run_id"] == run_id
+        assert payload["pass_number"] == 2
 
 
 class TestEntityRunViews:

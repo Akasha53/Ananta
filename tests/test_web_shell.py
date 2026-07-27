@@ -52,7 +52,13 @@ def test_entity_ui_keeps_run_permalink_and_exposes_system_prompt():
     assert 'id="opt-async"' in html
     assert 'id="opt-async" class="mt-1 accent-cyan-500" checked' in html
     assert "function syncBackgroundExecution()" in javascript
-    assert 'body.mode === "deep" || $("opt-async").checked' in javascript
+    assert 'api("/entity/research_async"' in javascript
+    assert "function resumeActiveRun()" in javascript
+    assert "function addLiveInstruction()" in javascript
+    assert 'id="active-run-panel"' in html
+    assert "une seule à la fois" in html
+    assert "Standard · 2 niveaux" in html
+    assert "Approfondi · 2 niveaux" in html
     assert '$("select-mode").addEventListener("change", syncBackgroundExecution)' in javascript
     assert "state.pollFailures >= 3" in javascript
     assert "Connexion momentanément indisponible" in javascript
@@ -81,3 +87,5 @@ def test_unified_launcher_is_present():
     assert "docker_start()" in source
     assert "start_native_redis()" in source
     assert "LLM_PROVIDER" in source
+    assert "  mcp)" in source
+    assert "tools/ananta_mcp.py" in source

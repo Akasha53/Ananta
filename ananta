@@ -24,6 +24,7 @@ usage() {
     "  doctor     Vérifie les dépendances et le fournisseur IA" \
     "  logs       Suit les journaux locaux ou Docker" \
     "  test       Lance la validation Python et JavaScript" \
+    "  mcp        Lance le connecteur MCP local (stdio)" \
     "" \
     "Options:" \
     "  --native     Force les processus locaux" \
@@ -476,6 +477,10 @@ case "$action" in
     ;;
   doctor) doctor ;;
   test) run_tests ;;
+  mcp)
+    ensure_python_environment
+    exec "$ANANTA_PYTHON" "$ANANTA_ROOT/tools/ananta_mcp.py"
+    ;;
   help|-h|--help) usage ;;
   *) usage; fail "Commande inconnue: $action" ;;
 esac

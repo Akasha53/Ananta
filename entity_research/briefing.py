@@ -171,6 +171,12 @@ ATTRIBUTE_ALIASES: Dict[str, AttributeDescriptor] = {
     "contact": AttributeDescriptor(
         "related_person", "network", Sensitivity.PERSONAL, EntityKind.PERSON, "employee_of", True
     ),
+    "personne liee": AttributeDescriptor(
+        "related_person", "network", Sensitivity.PERSONAL, EntityKind.PERSON, "publicly_linked_to"
+    ),
+    "relation publique": AttributeDescriptor(
+        "related_person", "network", Sensitivity.PERSONAL, EntityKind.PERSON, "publicly_linked_to"
+    ),
     # Organisations liées
     "societe mere": AttributeDescriptor(
         "related_organization", "network", entity_kind=EntityKind.ORGANIZATION,
@@ -192,11 +198,28 @@ ATTRIBUTE_ALIASES: Dict[str, AttributeDescriptor] = {
         "related_organization", "network", entity_kind=EntityKind.ORGANIZATION,
         relation_type="partner_of"
     ),
+    "societe liee": AttributeDescriptor(
+        "related_organization", "network", entity_kind=EntityKind.ORGANIZATION,
+        relation_type="publicly_linked_to"
+    ),
+    "organisation liee": AttributeDescriptor(
+        "related_organization", "network", entity_kind=EntityKind.ORGANIZATION,
+        relation_type="publicly_linked_to"
+    ),
 }
 
 _BULLET_RE = re.compile(r"^\s*(?:[-*•▪◦]|\d+[.)])\s*")
 _KEY_VALUE_RE = re.compile(r"^([^:=]{1,80})\s*[:=]\s*(.+)$")
 _NAME_SPLIT_RE = re.compile(r"\s*(?:;|/|\bet\b|\band\b|&)\s*", re.IGNORECASE)
+_EXPLICIT_PERSON_RE = re.compile(
+    r"\b(?i:personne liée|relation publique|lien public avec|"
+    r"mandats?(?: publics?| professionnels?)? de|vérifier(?: aussi)? sur)\s+"
+    r"([A-ZÀ-ÖØ-Þ][\w'’.-]+(?:\s+(?:de|du|des|d'|[A-ZÀ-ÖØ-Þ][\w'’.-]+)){1,4})"
+)
+_EXPLICIT_ORG_RE = re.compile(
+    r"\b((?:SCI|SASU?|SARL|SA|EURL|GIE|GMBH|LTD|LLC|PLC)\s+"
+    r"[A-ZÀ-ÖØ-Þ0-9][A-ZÀ-ÖØ-Þ0-9'’& .-]{1,80})\b"
+)
 
 _SELECTOR_BY_ATTRIBUTE: Dict[str, SelectorType] = {
     "email": SelectorType.EMAIL,
@@ -359,6 +382,8 @@ def parse_briefing(
         elif len(briefing.statements) < MAX_STATEMENTS:
             briefing.statements.append(line[:MAX_STATEMENT_CHARS])
 
+    _append_explicit_entities(briefing)
+
     for fact in briefing.facts:
         descriptor = fact.descriptor
         if fact.value is None or str(fact.value).strip() == "":
@@ -427,6 +452,26 @@ def parse_briefing(
 
     _build_entities(briefing, default_region=default_region)
     return briefing
+
+
+def _append_explicit_entities(briefing: Briefing) -> None:
+    """Transforme uniquement les noms explicitement commandés en pistes."""
+    existing = {
+        (_fold(fact.label), _fold(str(fact.value)))
+        for fact in briefing.facts
+    }
+    for match in _EXPLICIT_PERSON_RE.finditer(briefing.text):
+        name = match.group(1).strip(" .,;:")
+        key = ("personne liee", _fold(name))
+        if key not in existing and len(briefing.facts) < MAX_FACTS:
+            briefing.facts.append(BriefingFact(label="Personne liée", value=name))
+            existing.add(key)
+    for match in _EXPLICIT_ORG_RE.finditer(briefing.text):
+        name = match.group(1).strip(" .,;:")
+        key = ("societe liee", _fold(name))
+        if key not in existing and len(briefing.facts) < MAX_FACTS:
+            briefing.facts.append(BriefingFact(label="Société liée", value=name))
+            existing.add(key)
 
 
 def _split_line(line: str) -> Optional[Tuple[str, str]]:
